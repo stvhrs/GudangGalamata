@@ -21,8 +21,18 @@ const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('i
 });
 
 const buildDoc = (data) => {
-    const doc = new jsPDF('portrait', 'mm', 'a4'); 
-    const margin = { top: 20, right: 20, bottom: 30, left: 20 };
+ const customWidth = 215; 
+    const customHeight = 140; // INI KUNCINYA (Tinggi 5.5 inci)
+
+    // Gunakan 'landscape' jika desain Anda memanjang ke samping
+    const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: [customWidth, customHeight] 
+    });
+
+    // Margin sesuaikan sedikit
+    const margin = { top: 10, right: 10, bottom: 5, left: 10 };
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = margin.top;
 
@@ -149,16 +159,16 @@ const buildDoc = (data) => {
     const footerY = doc.internal.pageSize.getHeight() - margin.bottom;
     
     // Logic footer sama persis referensi (opsional jika ada note tambahan)
-    if (data.keterangan && (!data.listInvoices || data.listInvoices.length === 0)) {
-       // Hanya render note di bawah jika tidak masuk tabel
-    } else if (data.catatanBawah) {
-        doc.setFontSize(8); doc.setFont('helvetica', 'italic');
-        doc.text(`Catatan: ${data.catatanBawah}`, margin.left, footerY - 10);
-    }
+    // if (data.keterangan && (!data.listInvoices || data.listInvoices.length === 0)) {
+    //    // Hanya render note di bawah jika tidak masuk tabel
+    // } else if (data.catatanBawah) {
+    //     doc.setFontSize(8); doc.setFont('helvetica', 'italic');
+    //     doc.text(`Catatan: ${data.catatanBawah}`, margin.left, footerY - 10);
+    // }
     
-    doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-    doc.text(terms[0], margin.left, footerY);
-    doc.text(terms[1], margin.left, footerY + 4);
+    // doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+    // doc.text(terms[0], margin.left, footerY);
+    // doc.text(terms[1], margin.left, footerY + 4);
 
     return doc;
 };

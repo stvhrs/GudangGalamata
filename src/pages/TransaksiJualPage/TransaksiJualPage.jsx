@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useCallback, useDeferredValue, useTransition } from 'react';
 import {
     Layout, Card, Spin, Input, Row, Col, Tag, Button, Modal,
-    Dropdown, App, DatePicker, Space, Tabs, Divider, Grid, Empty, Typography
+    Dropdown, App, DatePicker, Space, Tabs, Divider, Grid, Empty, Typography, Tooltip
 } from 'antd';
 import {
     PlusOutlined, MoreOutlined, PrinterOutlined, ReadOutlined,
     PullRequestOutlined, SearchOutlined, CloseCircleOutlined,
-    DownloadOutlined, ShareAltOutlined // Pastikan icon ini diimport
+    DownloadOutlined, ShareAltOutlined,
+    EyeOutlined, EyeInvisibleOutlined // Import Icon Mata
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/id';
@@ -26,7 +27,6 @@ import { useTransaksiJualStream } from '../../hooks/useFirebaseData';
 
 import TagihanPelangganTab from './components/TagihanPelangganTab';
 import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
-;
 
 const { Content } = Layout;
 const { Text } = Typography;
@@ -50,6 +50,9 @@ export default function TransaksiJualPage() {
     const defaultEnd = useMemo(() => dayjs(), []);
     const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
     const [isAllTime, setIsAllTime] = useState(false);
+
+    // --- STATE SENSOR NOMINAL ---
+    const [showTotals, setShowTotals] = useState(false); // Default false (hidden)
 
     // Filter Params
     const filterParams = useMemo(() => {
@@ -83,9 +86,9 @@ export default function TransaksiJualPage() {
 
     // --- PDF State ---
     const [isTxPdfModalOpen, setIsTxPdfModalOpen] = useState(false);
-    const [pdfPreviewUrl, setPdfPreviewUrl] = useState(''); // URL string untuk PdfPreviewModal
+    const [pdfPreviewUrl, setPdfPreviewUrl] = useState(''); 
     const [txPdfFileName, setTxPdfFileName] = useState('laporan.pdf');
-    const [isTxPdfGenerating, setIsTxPdfGenerating] = useState(false); // Untuk loading button
+    const [isTxPdfGenerating, setIsTxPdfGenerating] = useState(false); 
 
     // --- Filtering Logic ---
     const deferredAllTransaksi = useDeferredValue(allTransaksi);
@@ -129,18 +132,54 @@ export default function TransaksiJualPage() {
         };
     }, [filteredTransaksi]);
 
+    // --- TAB SUMMARY DENGAN SENSOR MATA ---
     const TabSummary = useMemo(() => {
         if (screens.xs) return null;
+
+        // Helper render angka atau sensor
+        const renderValue = (val, style = {}) => {
+            if (showTotals) {
+                return <Text strong style={style}>{formatCurrency(val)}</Text>;
+            }
+            // Tampilan sensor
+            return <Text strong style={{ ...style, fontFamily: 'monospace', letterSpacing: '2px' }}>••••••••</Text>;
+        };
+
         return (
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center', height: '100%', paddingRight: '8px' }}>
-                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Total Tagihan</Text><Text strong>{formatCurrency(footerTotals.totalTagihan)}</Text></div>
+                {/* TOMBOL TOGGLE MATA */}
+                <Tooltip title={showTotals ? "Sembunyikan Nominal" : "Tampilkan Nominal"}>
+                    <Button 
+                        type="text" 
+                        shape="circle"
+                        icon={showTotals ? <EyeOutlined /> : <EyeInvisibleOutlined />} 
+                        onClick={() => setShowTotals(!showTotals)}
+                    />
+                </Tooltip>
+
                 <Divider type="vertical" style={{ height: '24px' }} />
-                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Terbayar</Text><Text strong style={{ color: '#3f8600' }}>{formatCurrency(footerTotals.totalTerbayar)}</Text></div>
+
+                <div style={{ textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Total Tagihan</Text>
+                    {renderValue(footerTotals.totalTagihan)}
+                </div>
+                
                 <Divider type="vertical" style={{ height: '24px' }} />
-                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Sisa</Text><Text strong style={{ color: footerTotals.totalSisa > 0 ? '#cf1322' : '#3f8600' }}>{formatCurrency(footerTotals.totalSisa)}</Text></div>
+                
+                <div style={{ textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Terbayar</Text>
+                    {renderValue(footerTotals.totalTerbayar, { color: '#3f8600' })}
+                </div>
+                
+                <Divider type="vertical" style={{ height: '24px' }} />
+                
+                <div style={{ textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Sisa</Text>
+                    {renderValue(footerTotals.totalSisa, { color: footerTotals.totalSisa > 0 ? '#cf1322' : '#3f8600' })}
+                </div>
             </div>
         );
-    }, [footerTotals, screens.xs]);
+    }, [footerTotals, screens.xs, showTotals]); // Dependency updated
 
     // --- Handlers ---
     const handleSearchChange = useCallback((e) => { setSearchText(e.target.value); setPagination(prev => ({ ...prev, current: 1 })); }, []);
@@ -158,8 +197,6 @@ export default function TransaksiJualPage() {
     const handleCloseDetailModal = useCallback(() => { setSelectedTransaksi(null); setIsDetailModalOpen(false); }, []);
 
     // --- PDF & PREVIEW HANDLERS ---
-
-    // Fungsi helper untuk membuka modal setelah blob siap
     const openPdfModal = (blob, fileName) => {
         const url = URL.createObjectURL(blob);
         setPdfPreviewUrl(url);
@@ -171,7 +208,7 @@ export default function TransaksiJualPage() {
     const handleCloseTxPdfModal = () => {
         setIsTxPdfModalOpen(false);
         if (pdfPreviewUrl) {
-            URL.revokeObjectURL(pdfPreviewUrl); // Bersihkan memori
+            URL.revokeObjectURL(pdfPreviewUrl);
             setPdfPreviewUrl('');
         }
     };
@@ -200,25 +237,20 @@ export default function TransaksiJualPage() {
 
     const handleGenerateReportPdf = () => {
         setIsTxPdfGenerating(true);
-
-        // Gunakan timeout kecil agar UI sempat update status loading
         setTimeout(() => {
             try {
                 const doc = new jsPDF();
                 const nowStr = dayjs().format('YYYYMMDD_HHmm');
                 const fileName = `Laporan_Transaksi_${nowStr}.pdf`;
 
-                // 1. Header Laporan
                 doc.setFontSize(16);
                 doc.text("Laporan Transaksi Penjualan", 9, 15);
 
-                // 2. Info Periode
                 doc.setFontSize(10);
                 let periodeInfo = isAllTime ? "Periode: Semua Waktu" :
                     (dateRange?.[0] ? `Periode: ${dateRange[0].format('DD MMM YYYY')} s/d ${dateRange[1].format('DD MMM YYYY')}` : "");
                 doc.text(periodeInfo, 9, 22);
 
-                // 3. Persiapan Data Tabel
                 const tableColumn = ["No", "Tanggal", "No. Invoice", "Pelanggan", "Total", "Terbayar", "Sisa", "Status"];
                 const tableRows = filteredTransaksi.map((tx, index) => [
                     index + 1,
@@ -231,7 +263,6 @@ export default function TransaksiJualPage() {
                     normalizeStatus(tx.statusPembayaran)
                 ]);
 
-                // 4. Generate Tabel
                 autoTable(doc, {
                     head: [tableColumn],
                     body: tableRows,
@@ -240,7 +271,6 @@ export default function TransaksiJualPage() {
                     headStyles: { fillColor: [22, 119, 255] },
                 });
 
-                // 5. Summary Footer
                 const finalY = doc.lastAutoTable.finalY + 10;
                 doc.setFontSize(10);
                 doc.setFont("helvetica", "bold");
@@ -249,7 +279,6 @@ export default function TransaksiJualPage() {
                 doc.text(`Total Terbayar: ${formatCurrency(footerTotals.totalTerbayar)}`, 9, finalY + 10);
                 doc.text(`Total Sisa: ${formatCurrency(footerTotals.totalSisa)}`, 9, finalY + 15);
 
-                // 6. Output Blob & Open Modal
                 const pdfBlob = doc.output('blob');
                 openPdfModal(pdfBlob, fileName);
 
@@ -308,12 +337,11 @@ export default function TransaksiJualPage() {
                                     <RangePicker format="D MMM YYYY" value={dateRange} onChange={handleDateChange} disabled={isAllTime} allowClear={false} style={{ width: 240 }} />
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px' }}>
-                                    {/* BUTTON LAPORAN DENGAN LOADING ANIMATION */}
                                     <Button
                                         icon={<PrinterOutlined />}
                                         onClick={handleGenerateReportPdf}
                                         disabled={!filteredTransaksi.length}
-                                        loading={isTxPdfGenerating} // <-- ANIMASI LOADING DISINI
+                                        loading={isTxPdfGenerating}
                                     >
                                         Laporan PDF
                                     </Button>
@@ -347,7 +375,6 @@ export default function TransaksiJualPage() {
 
                 <TransaksiJualDetailModal open={isDetailModalOpen} onCancel={handleCloseDetailModal} transaksi={selectedTransaksi} />
 
-                {/* MODAL PDF PREVIEW IMPORTED */}
                 <PdfPreviewModal
                     visible={isTxPdfModalOpen}
                     onClose={handleCloseTxPdfModal}

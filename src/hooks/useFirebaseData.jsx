@@ -1,11 +1,84 @@
 import { useState, useEffect } from 'react';
 import { db } from '../api/firebase'; 
 import { 
-    ref, query, orderByChild, startAt, endAt, onValue 
+    ref, query, orderByChild, startAt, endAt, onValue ,off
 } from "firebase/database";
 import dayjs from 'dayjs';
 
+export const globalNonFaktur = {
+    data: [],
+    lastDateRange: null
+};
 
+// --- HOOK ---
+export const useNonFakturStream = (dateRange) => {
+    const [dataList, setDataList] = useState(globalNonFaktur.data);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!dateRange || dateRange.length !== 2) return;
+
+        const startDate = dateRange[0].startOf('day').valueOf();
+        const endDate = dateRange[1].endOf('day').valueOf();
+
+        // Cek apakah request range sama dengan cache global?
+        const isSameRange = globalNonFaktur.lastDateRange &&
+            globalNonFaktur.lastDateRange[0].isSame(dateRange[0], 'day') &&
+            globalNonFaktur.lastDateRange[1].isSame(dateRange[1], 'day');
+
+        // Jika range beda atau data masih kosong, set loading true
+        if (!isSameRange || globalNonFaktur.data.length === 0) {
+            setLoading(true);
+        } else {
+            // Jika range sama, kita pakai data lama dulu biar UI snappy, 
+            // tapi listener tetap jalan untuk update realtime.
+            setLoading(false);
+        }
+
+        // Setup Query ke path 'nonFaktur'
+        const dbRef = query(
+            ref(db, 'nonFaktur'),
+            orderByChild('tanggal'),
+            startAt(startDate),
+            endAt(endDate)
+        );
+
+        const listener = onValue(dbRef, (snapshot) => {
+            const val = snapshot.val();
+            let parsedData = [];
+
+            if (val) {
+                // Convert Object to Array
+                parsedData = Object.keys(val).map(key => ({
+                    id: key,
+                    ...val[key]
+                }));
+                
+                // Sort client side (optional, karena query sudah sort by tanggal, 
+                // tapi firebase return object keys kadang tidak urut di client)
+                parsedData.sort((a, b) => b.tanggal - a.tanggal);
+            }
+
+            // Update State & Cache
+            globalNonFaktur.data = parsedData;
+            globalNonFaktur.lastDateRange = dateRange;
+            
+            setDataList(parsedData);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching nonFaktur:", error);
+            setLoading(false);
+        });
+
+        // Cleanup function
+        return () => {
+            off(dbRef, 'value', listener);
+        };
+
+    }, [dateRange]); // Re-run effect jika dateRange berubah
+
+    return { nonFakturList: dataList, loadingNonFaktur: loading };
+};
 // --- SINGLETON STATE ---
 // Export agar bisa diakses komponen untuk set Initial State
 export const globalPembayaran = {
@@ -455,7 +528,90 @@ export const useHistoriStokStream = ({ startDate, endDate }) => {
 
     return { historyList: data, loadingHistory: loading };
 };
+let globalHistoriStockRestockData = [];
+let globalHistoriStockRestockLoading = true;
+let globalHistoriStockRestockFilterKey = null; 
+let globalHistoriStockRestockUnsubscribe = null;
+const historiStockRestockSubscribers = new Set();
 
+const notifyHistoriStockRestockSubscribers = () => {
+    historiStockRestockSubscribers.forEach(cb => cb(globalHistoriStockRestockData, globalHistoriStockRestockLoading));
+};
+
+const connectHistoriStockRestockStream = (filterParams) => {
+    const newFilterKey = JSON.stringify(filterParams);
+
+    if (globalHistoriStockRestockUnsubscribe && globalHistoriStockRestockFilterKey === newFilterKey) {
+        notifyHistoriStockRestockSubscribers();
+        return;
+    }
+
+    if (globalHistoriStockRestockUnsubscribe) {
+        console.log("%c🕰️ [HISTORI STOCK RESTOCK] Filter Changed. Resetting...", "color: orange");
+        globalHistoriStockRestockUnsubscribe();
+        globalHistoriStockRestockUnsubscribe = null;
+        globalHistoriStockRestockData = []; 
+    }
+
+    const startStr = dayjs(filterParams.startDate).format("DD/MM");
+    const endStr = dayjs(filterParams.endDate).format("DD/MM");
+    console.log(`%c🕰️ [HISTORI STOCK RESTOCK] Stream Initialized (${startStr} - ${endStr})`, "color: white; background: purple; padding: 2px 5px; border-radius: 3px; font-weight: bold;");
+
+    globalHistoriStockRestockLoading = true;
+    globalHistoriStockRestockFilterKey = newFilterKey;
+    notifyHistoriStockRestockSubscribers();
+
+    // Pastikan path database ('historiStok') sesuai dengan yang ada di Firebase Anda
+    const historiStockRestockRef = ref(db, 'historiStok');
+    const q = query(
+        historiStockRestockRef,
+        orderByChild('timestamp'),
+        startAt(filterParams.startDate),
+        endAt(filterParams.endDate)
+    );
+
+    setTimeout(() => {
+        globalHistoriStockRestockUnsubscribe = onValue(q, (snapshot) => {
+            const data = snapshotToArrayWithId(snapshot);
+            data.sort((a, b) => b.timestamp - a.timestamp);
+            
+            console.log(`%c🕰️ [HISTORI STOCK RESTOCK] Data Loaded: ${data.length} items`, "color: purple");
+            
+            globalHistoriStockRestockData = data;
+            globalHistoriStockRestockLoading = false;
+            notifyHistoriStockRestockSubscribers();
+        }, (error) => {
+            console.error("Error streaming histori stock restock:", error);
+            globalHistoriStockRestockLoading = false;
+            notifyHistoriStockRestockSubscribers();
+        });
+    }, 0);
+};
+
+export const useHistoriStockRestockStream = ({ startDate, endDate }) => {
+    const [data, setData] = useState(globalHistoriStockRestockData);
+    const [loading, setLoading] = useState(globalHistoriStockRestockLoading);
+    const filterKey = JSON.stringify({ startDate, endDate });
+
+    useEffect(() => {
+        if (!startDate || !endDate) {
+            setLoading(false);
+            return;
+        }
+        
+        if (filterKey !== globalHistoriStockRestockFilterKey) {
+             setLoading(true);
+             setData([]);
+        }
+
+        connectHistoriStockRestockStream({ startDate, endDate });
+        const onDataUpdate = (d, l) => { setData(d); setLoading(l); };
+        historiStockRestockSubscribers.add(onDataUpdate);
+        return () => historiStockRestockSubscribers.delete(onDataUpdate);
+    }, [filterKey]); 
+
+    return { historyList: data, loadingHistory: loading };
+};
 // ============================================================================
 // 7. MUTASI STREAM (CACHE + FILTER LOGIC)
 // ============================================================================

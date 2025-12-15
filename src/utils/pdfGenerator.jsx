@@ -4,19 +4,12 @@ import autoTable from 'jspdf-autotable';
 // --- KONSTANTA ---
 const companyInfo = {
     nama: "CV. GANGSAR MULIA UTAMA",
-    // Alamat dihapus
+    // Alamat dihapus sesuai request
 };
 
 const baseURL = 'https://gudanggalatama.web.app/';
 
 // --- FUNGSI HELPER ---
-const formatCurrency = (value) =>
-    new Intl.NumberFormat('id-ID', {
-        style: 'currency',
-        currency: 'IDR',
-        minimumFractionDigits: 0,
-    }).format(value || 0);
-
 const formatNumber = (value) =>
     new Intl.NumberFormat('id-ID', {
         minimumFractionDigits: 0,
@@ -30,73 +23,87 @@ const formatDate = (timestamp) =>
     });
 
 /**
- * Fungsi inti untuk membangun dokumen PDF
- * @param {object} transaksi - Objek data transaksi
- * @param {string} type - 'invoice' atau 'nota'
- * @returns {jsPDF} - Objek dokumen jsPDF
+ * Fungsi Build Doc - Portrait A4
+ * - Fix: Jarak Total Tagihan
+ * - Fix: Biaya Lain selalu muncul (walau 0)
+ * - Fix: Link Dokumen tetap ada
  */
 const buildDoc = (transaksi, type) => {
     
-    // --- 1. PENGATURAN KERTAS ---
-    let doc, margin;
+    // 1. SETUP KERTAS (PORTRAIT A4)
+    const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4' 
+    });
 
-    // A4 Portrait
-    doc = new jsPDF('portrait', 'mm', 'a4'); 
-    margin = { top: 20, right: 20, bottom: 30, left: 20 };
-
+    const margin = { top: 15, right: 15, bottom: 15, left: 15 };
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
 
     const isInvoice = type === 'invoice';
-    const title = isInvoice ? 'INVOICE' : 'Nota PEMBAYARAN';
+    const title = isInvoice ? 'INVOICE' : 'NOTA PEMBAYARAN';
     const link = `${baseURL}/${isInvoice ? 'invoice' : 'nota'}/${transaksi.id}`;
 
-    // --- 2. HEADER ---
-    doc.setFontSize(18); 
-    doc.setFont('helvetica', 'bold');
+    // Font setting (Helvetica sebagai pengganti Arial)
+    const fontName = 'helvetica';
+
+    // --- 2. HEADER DOKUMEN ---
+    doc.setFontSize(16);
+    doc.setFont(fontName, 'bold');
     doc.text(companyInfo.nama, margin.left, currentY);
     
-    doc.setFontSize(11); 
+    doc.setFontSize(12);
     doc.text(title, pageWidth - margin.right, currentY, { align: 'right' });
     
-    currentY += 2; 
+    currentY += 3;
 
-    doc.setLineWidth(0.2);
+    // Garis Divider Header
+    doc.setLineWidth(0.3);
     doc.setDrawColor(0, 0, 0);
     doc.line(margin.left, currentY, pageWidth - margin.right, currentY);
-    currentY += 7; 
-
-    // --- 3. INFO PELANGGAN & TRANSAKSI ---
-    const infoRightColX = pageWidth / 2 + 10;
-    const infoRightColValueX = infoRightColX + 25;
-    
-    doc.setFontSize(9.5); 
-    doc.setFont('helvetica', 'bold');
-    doc.text('Kepada Yth:', margin.left, currentY);
-    
-    const noDokumenLabel = isInvoice ? 'No. Invoice:' : 'No. Nota:';
-    doc.text(noDokumenLabel, infoRightColX, currentY);
-    
-    // LOGIC REPLACE: INV -> NT jika bukan Invoice
-    let displayNomor = transaksi.nomorInvoice || '-';
-    if (!isInvoice) {
-        displayNomor = displayNomor.replace('INV', 'NT');
-    }
-
-    doc.setFont('helvetica', 'normal');
-    doc.text(displayNomor, infoRightColValueX, currentY);
-    
-    currentY += 5; 
-    
-    doc.text(transaksi.namaPelanggan || '-', margin.left, currentY);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Tanggal:', infoRightColX, currentY);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text(formatDate(transaksi.tanggal), infoRightColValueX, currentY);
     
     currentY += 8; 
+
+    // --- 3. INFO PELANGGAN & DOKUMEN ---
+    // Geser label kanan agar tidak terlalu mepet
+    const infoRightLabelX = pageWidth - margin.right - 50; 
+    const infoRightValueX = pageWidth - margin.right;
+    
+    let leftY = currentY;
+    let rightY = currentY;
+
+    // KIRI: Pelanggan
+    doc.setFontSize(9);
+    doc.setFont(fontName, 'bold');
+    doc.text('Kepada Yth:', margin.left, leftY);
+    leftY += 4;
+    doc.setFont(fontName, 'normal');
+    
+    const namaPelanggan = transaksi.namaPelanggan || '-';
+    const splitNama = doc.splitTextToSize(namaPelanggan, 80); 
+    doc.text(splitNama, margin.left, leftY);
+    leftY += (splitNama.length * 4);
+
+    // KANAN: No Dokumen & Tanggal
+    const noDokumenLabel = isInvoice ? 'No. Invoice' : 'No. Nota';
+    let displayNomor = transaksi.nomorInvoice || '-';
+    if (!isInvoice) displayNomor = displayNomor.replace('INV', 'NT');
+
+    doc.setFont(fontName, 'bold');
+    doc.text(noDokumenLabel, infoRightLabelX, rightY);
+    doc.setFont(fontName, 'normal');
+    doc.text(displayNomor, infoRightValueX, rightY, { align: 'right' });
+    rightY += 5;
+
+    doc.setFont(fontName, 'bold');
+    doc.text('Tanggal', infoRightLabelX, rightY);
+    doc.setFont(fontName, 'normal');
+    doc.text(formatDate(transaksi.tanggal), infoRightValueX, rightY, { align: 'right' });
+    rightY += 5;
+
+    currentY = Math.max(leftY, rightY) + 6;
 
     // --- 4. TABEL ITEM ---
     const head = [['No', 'Judul Buku', 'Qty', 'Harga', 'Subtotal']];
@@ -108,7 +115,6 @@ const buildDoc = (transaksi, type) => {
         const qty = Number(item.jumlah || 0);
         const hs_bruto = Number(item.hargaSatuan || 0);
         const disc = Number(item.diskonPersen || 0); 
-
         const hs_net = hs_bruto * (1 - disc / 100); 
         const item_subtotal_net = qty * hs_net; 
         const item_subtotal_bruto = qty * hs_bruto;
@@ -126,118 +132,121 @@ const buildDoc = (transaksi, type) => {
         startY: currentY,
         theme: 'grid',
         headStyles: {
-            fillColor: [255, 255, 255],
-            textColor: [0, 0, 0],
-            lineColor: [0, 0, 0],
-            lineWidth: 0.2,
+            fillColor: [255, 255, 255], 
+            textColor: [0, 0, 0],      
+            lineColor: [0, 0, 0],      
+            lineWidth: 0.1,             
             halign: 'center',
-            fontSize: 9,
+            font: fontName,
             fontStyle: 'bold',
-            cellPadding: 1.5,
+            fontSize: 9,
+            cellPadding: 2,
         },
         styles: {
+            font: fontName,
             lineColor: [0, 0, 0],
-            lineWidth: 0.2,
+            lineWidth: 0.1,
             fontSize: 9,
-            cellPadding: 1.5,
-            valign: 'middle'
+            cellPadding: 2,
+            valign: 'middle',
+            textColor: [0, 0, 0]
         },
         columnStyles: {
-            0: { halign: 'center', cellWidth: 12 }, 
-            1: { cellWidth: 68 }, 
-            2: { halign: 'center', cellWidth: 15 }, 
-            3: { halign: 'right', cellWidth: 35 }, 
-            4: { halign: 'right', cellWidth: 40 }, 
+            0: { halign: 'center', cellWidth: 10 }, 
+            1: { halign: 'left' }, 
+            2: { halign: 'center', cellWidth: 12 }, 
+            3: { halign: 'right', cellWidth: 30 }, 
+            4: { halign: 'right', cellWidth: 35 }, 
         },
         margin: { left: margin.left, right: margin.right },
     });
 
-    currentY = doc.lastAutoTable.finalY || currentY;
-    currentY += 7; 
-    
-    const checkPageOverflow = (y, increment = 5) => { 
-        if (y + increment > pageHeight - margin.bottom - 20) {
-             if (y > pageHeight - margin.bottom) {
-                 return pageHeight - margin.bottom;
-             }
+    currentY = doc.lastAutoTable.finalY + 8; 
+
+    const checkPageOverflow = (y, increment = 10) => { 
+        if (y + increment > pageHeight - margin.bottom) {
+             doc.addPage();
+             return margin.top + 5; 
         }
-        return y + increment;
+        return y;
     };
     
-    currentY = checkPageOverflow(currentY, 0);
+    currentY = checkPageOverflow(currentY, 35); 
 
     // --- 5. SUMMARY & TOTAL ---
     const diskonLain = Number(transaksi.diskonLain || 0);
-    const biayaTentu = Number(transaksi.biayaTentu || 0);
+    const biayaTentu = Number(transaksi.biayaTentu || 0); // Biaya lain
     const totalTagihanFinal = Number(transaksi.totalTagihan || 0); 
     const totalItemDiskon = subtotalBruto - subtotalNet; 
     const grandTotalDiskon = totalItemDiskon + diskonLain;
     const sisaTagihan = totalTagihanFinal - (transaksi.jumlahTerbayar || 0);
 
     const totalColValueX = pageWidth - margin.right; 
-    const totalColLabelX = totalColValueX - 50; 
+    // FIX JARAK: Geser Label lebih ke kiri (sebelumnya -45, sekarang -55)
+    const totalColLabelX = totalColValueX - 55; 
     
     let summaryY = currentY;
 
-    // --- BAGIAN KIRI: TOTAL BUKU & LINK ONLINE ---
-    
+    // --- BAGIAN KIRI: Info Tambahan ---
     doc.setFontSize(9); 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(fontName, 'bold');
     doc.text('Total Buku:', margin.left, summaryY);
-    doc.setFont('helvetica', 'normal');
-    doc.text(String(totalBuku), margin.left + 25, summaryY, { align: 'left' });
+    doc.setFont(fontName, 'normal');
+    doc.text(String(totalBuku), margin.left + 22, summaryY);
 
-    // Link Online (di bawah Total Buku)
-    let linkY = summaryY + 6; 
-    
-    doc.setFontSize(7); 
-    doc.setTextColor(120, 120, 120); 
-    const linkLabel = 'Lihat dokumen ini secara online:';
-    
-    doc.text(linkLabel, margin.left, linkY);
-    linkY += 3.5; 
-    doc.textWithLink(link, margin.left, linkY, { url: link }); 
+    // FIX LINK: Link tetap dipertahankan
+    let linkY = summaryY + 8;
+    doc.setFontSize(8); 
+    doc.setTextColor(100, 100, 100); 
+    doc.text('Dokumen online:', margin.left, linkY);
+    doc.textWithLink(link, margin.left + 5, linkY, { url: link }); 
     doc.setTextColor(0, 0, 0); 
 
-    // --- BAGIAN KANAN: RINCIAN HARGA ---
+    // --- BAGIAN KANAN: Angka ---
     doc.setFontSize(9); 
-    doc.setFont('helvetica', 'normal'); 
+    
+    // Subtotal
+    doc.setFont(fontName, 'normal'); 
     doc.text('Subtotal:', totalColLabelX, summaryY); 
     doc.text(formatNumber(subtotalBruto), totalColValueX, summaryY, { align: 'right' }); 
-    
-    summaryY = checkPageOverflow(summaryY, 5);
+    summaryY += 5;
 
+    // Total Diskon (Jika ada)
     if (grandTotalDiskon > 0) {
-        doc.setFont('helvetica', 'normal');
         doc.text('Total Diskon:', totalColLabelX, summaryY); 
         const diskonStr = `(${formatNumber(grandTotalDiskon)})`; 
         doc.text(diskonStr, totalColValueX, summaryY, { align: 'right' }); 
-        summaryY = checkPageOverflow(summaryY, 5);
+        summaryY += 5;
     }
     
-    if (biayaTentu > 0) {
-        doc.setFont('helvetica', 'normal');
-        doc.text('Biaya Tambahan:', totalColLabelX, summaryY);
-        doc.text(formatNumber(biayaTentu), totalColValueX, summaryY, { align: 'right' }); 
-        summaryY = checkPageOverflow(summaryY, 5);
-    }
+    // FIX BIAYA LAIN: Selalu muncul (hapus kondisi if > 0)
+    doc.text('Biaya Lain:', totalColLabelX, summaryY);
+    doc.text(formatNumber(biayaTentu), totalColValueX, summaryY, { align: 'right' }); 
+    summaryY += 5;
 
-    doc.setFont('helvetica', 'bold');
-    doc.text('Total Tagihan:', totalColLabelX, summaryY);
+    // Divider Total
+    summaryY += 1; 
+    doc.setLineWidth(0.2);
+    doc.line(totalColLabelX, summaryY, pageWidth - margin.right, summaryY);
+    summaryY += 5;
+
+    // TOTAL TAGIHAN
+    doc.setFontSize(11);
+    doc.setFont(fontName, 'bold');
+    doc.text('TOTAL TAGIHAN:', totalColLabelX, summaryY);
     doc.text(formatNumber(totalTagihanFinal), totalColValueX, summaryY, { align: 'right' }); 
+    
+    summaryY += 6;
 
+    // Info Pembayaran (Untuk Nota Belum Lunas)
     if (!isInvoice) {
-        summaryY = checkPageOverflow(summaryY, 5);
-        
         doc.setFontSize(9); 
-        doc.setFont('helvetica', 'normal');
-        doc.text('Total Terbayar:', totalColLabelX, summaryY);
+        doc.setFont(fontName, 'normal');
+        doc.text('Sudah Bayar:', totalColLabelX, summaryY);
         doc.text(formatNumber(transaksi.jumlahTerbayar || 0), totalColValueX, summaryY, { align: 'right' }); 
+        summaryY += 5;
         
-        summaryY = checkPageOverflow(summaryY, 5);
-        
-        doc.setFontSize(9); 
-        doc.setFont('helvetica', 'bold');
+        doc.setFont(fontName, 'bold');
         doc.text('Sisa Tagihan:', totalColLabelX, summaryY);
         doc.text(formatNumber(sisaTagihan), totalColValueX, summaryY, { align: 'right' }); 
     }

@@ -36,12 +36,21 @@ const BukuPage = () => {
     // --- 1. STATE TAB CONTROL (KEEP ALIVE) ---
     const [activeTab, setActiveTab] = useState('1');
     const [hasTab2Loaded, setHasTab2Loaded] = useState(false);
+    const [hasTab3Loaded, setHasTab3Loaded] = useState(false); // Tambahan untuk Tab 3
 
+    // Logic Keep Alive untuk Tab 2
     useEffect(() => {
         if (activeTab === '2' && !hasTab2Loaded) {
             setHasTab2Loaded(true);
         }
     }, [activeTab, hasTab2Loaded]);
+
+    // Logic Keep Alive untuk Tab 3
+    useEffect(() => {
+        if (activeTab === '3' && !hasTab3Loaded) {
+            setHasTab3Loaded(true);
+        }
+    }, [activeTab, hasTab3Loaded]);
 
     // --- 2. FETCH DATA STANDARD ---
     const { bukuList, loadingBuku: initialLoading } = useBukuStream();
@@ -118,11 +127,10 @@ const BukuPage = () => {
     const tahunTerbitFilters = useMemo(() => generateFilters(bukuList, 'tahunTerbit'), [bukuList]);
     
     // Filters peruntukan disaring hanya 'Guru' dan 'Siswa'
-  // Filters peruntukan disaring hanya 'Guru' dan 'Siswa'
-const peruntukanFilters = useMemo(() => {
-    const filters = generateFilters(bukuList, 'peruntukan');
-    return filters.filter(f => f.value === 'Guru' || f.value === 'Siswa');
-}, [bukuList]);
+    const peruntukanFilters = useMemo(() => {
+        const filters = generateFilters(bukuList, 'peruntukan');
+        return filters.filter(f => f.value === 'Guru' || f.value === 'Siswa');
+    }, [bukuList]);
     const penerbitFilters = useMemo(() => generateFilters(bukuList, 'penerbit'), [bukuList]);
     const tipeBukuFilters = useMemo(() => generateFilters(bukuList, 'tipe_buku'), [bukuList]);
 
@@ -154,8 +162,6 @@ const peruntukanFilters = useMemo(() => {
     // Handlers
     const handleTableChange = useCallback((paginationConfig, filters) => {
         setPagination(paginationConfig);
-        // Penting: Ant Design akan mengirimkan `filters` dari header kolom ke sini.
-        // Kita perlu menyimpannya di state `columnFilters`
         setColumnFilters(filters);
     }, []);
 
@@ -207,18 +213,14 @@ const peruntukanFilters = useMemo(() => {
         { title: 'Judul Buku', dataIndex: 'judul', key: 'judul', width: 300, sorter: (a, b) => (a.judul || '').localeCompare(b.judul || '') },
         { title: 'Penerbit', dataIndex: 'penerbit', key: 'penerbit', width: 150, filters: penerbitFilters, filteredValue: columnFilters.penerbit || null, onFilter: (v, r) => r.penerbit === v, sorter: (a, b) => (a.penerbit || '').localeCompare(b.penerbit || '') },
         
-        // Kolom Peruntukan dengan filter
         { 
             title: 'Peruntukan', 
             dataIndex: 'peruntukan', 
             key: 'peruntukan', 
             width: 120, 
             align: 'center', 
-            // Properti 'filters' Ant Design yang membuat dropdown filter di header
             filters: peruntukanFilters, 
-            // Properti 'filteredValue' Ant Design untuk mengontrol filter aktif
             filteredValue: columnFilters.peruntukan || null, 
-            // Properti 'onFilter' yang digunakan Ant Design untuk memfilter baris
             onFilter: (value, record) => record.peruntukan === value, 
         },
 
@@ -229,7 +231,6 @@ const peruntukanFilters = useMemo(() => {
         { title: 'Aksi', key: 'aksi', align: 'center', width: 100, fixed: screens.md ? 'right' : false, render: (_, record) => (<BukuActionButtons record={record} onEdit={handleEdit} onRestock={handleTambahStok} />) },
     ], [kelasFilters, tahunTerbitFilters, penerbitFilters, peruntukanFilters, columnFilters, screens.md, handleEdit, handleTambahStok]);
 
-    // Perhitungan lebar scroll X
     const tableScrollX = useMemo(() => columns.reduce((acc, col) => acc + (col.width || 150), 0), [columns]);
 
     return (
@@ -238,7 +239,6 @@ const peruntukanFilters = useMemo(() => {
                 <TabPane tab={<Space><ReadOutlined /> Manajemen Buku</Space>} key="1" />
                 <TabPane tab={<Space><PullRequestOutlined /> Riwayat Restock</Space>} key="2" />
                 <TabPane tab={<Space><PullRequestOutlined /> Riwayat Stock Buku</Space>} key="3" />
-
             </Tabs>
 
             {/* TAB 1: MANAJEMEN BUKU */}
@@ -246,7 +246,7 @@ const peruntukanFilters = useMemo(() => {
                 <Spin spinning={initialLoading || isFiltering} tip="Memuat data...">
                     <Card bodyStyle={{ paddingBottom: 12 }}>
                         
-                        {/* --- BAGIAN HEADER & SEARCH --- */}
+                        {/* --- HEADER & SEARCH --- */}
                         <Row justify="space-between" align="middle" gutter={[16, 16]} style={{ marginBottom: '24px' }}>
                             <Col lg={6} md={8} sm={24} xs={24}><Title level={5} style={{ margin: 0 }}> Data Buku</Title></Col>
                             <Col lg={18} md={16} sm={24} xs={24}>
@@ -267,7 +267,7 @@ const peruntukanFilters = useMemo(() => {
                             </Col>
                         </Row>
 
-                        {/* --- TABLE COMPONENT --- */}
+                        {/* --- TABLE --- */}
                         <BukuTableComponent 
                             columns={columns} 
                             dataSource={dataForTable} 
@@ -278,7 +278,7 @@ const peruntukanFilters = useMemo(() => {
                             tableScrollX={tableScrollX} 
                         />
 
-                        {/* --- REKAP SUMMARY KECIL DI BAWAH TABEL --- */}
+                        {/* --- SUMMARY KECIL --- */}
                         {!initialLoading && (
                             <div style={{ 
                                 marginTop: 16, 
@@ -331,12 +331,14 @@ const peruntukanFilters = useMemo(() => {
                 </Spin>
             </div>
 
-            {/* TAB 2 & MODALS (TETAP SAMA) */}
+            {/* TAB 2: RIWAYAT RESTOCK */}
             <div style={{ display: activeTab === '2' ? 'block' : 'none' }}>
                 {(activeTab === '2' || hasTab2Loaded) && (<StokHistoryTabRestock />)}
             </div>
-             <div style={{ display: activeTab === '3' ? 'block' : 'none' }}>
-                {(activeTab === '2' || hasTab2Loaded) && (<StokHistoryTabTransaksi />)}
+
+            {/* TAB 3: RIWAYAT STOCK BUKU (DIPERBAIKI LOGIKANYA) */}
+            <div style={{ display: activeTab === '3' ? 'block' : 'none' }}>
+                {(activeTab === '3' || hasTab3Loaded) && (<StokHistoryTabTransaksi />)}
             </div>
 
             {isModalOpen && <BukuForm open={isModalOpen} onCancel={handleCloseModal} initialValues={editingBuku} />}

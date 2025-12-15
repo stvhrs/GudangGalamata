@@ -33,6 +33,7 @@ import NotaPublicPage from './pages/NotaPublicPage';
 // --- (BARU) Impor Halaman Generate ---
 // Pastikan Anda sudah membuat file-file ini atau ganti dengan impor yang benar
 import PembayaranPage from './pages/PembayaranPage/PembayaranPage';
+import NonFakturPage from './pages/NonFakturPage/NonFakturPage';
 
 
 // Komponen MainLayout (Add Logout Button)
@@ -70,6 +71,8 @@ const MainLayout = () => {
          // Rute baru
             if (path.startsWith('/pembayaran')) return '/pembayaran';
             if (path.startsWith('/retur')) return '/retur';
+            if (path.startsWith('/nonFaktur')) return '/nonFaktur';
+
          // Rute lama dihapus
          // if (path.startsWith('/json')) return '/json';
          // if (path.startsWith('/mutasi2')) return '/mutasi2';
@@ -130,6 +133,8 @@ const MainLayout = () => {
                       <Route path="/pelanggan" element={<PelangganPage />} />
                       <Route path="/pembayaran" element={<PembayaranPage />} />
                       <Route path="/retur" element={<ReturPage />} />
+                      <Route path="/nonFaktur" element={<NonFakturPage />} />
+
 
 
                       {/* Rute Baru */}
