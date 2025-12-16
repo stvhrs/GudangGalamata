@@ -63,11 +63,11 @@ export const NavigationMenu = ({ activeKey, onLinkClick }) => (
         },
 
         // 4. PEMBUKUAN / LAPORAN
-        { 
-            key: '/mutasi', 
-            icon: <AccountBookOutlined />, // Ikon buku akuntansi/ledger
-            label: <Link to="/mutasi">Mutasi & Kas</Link> 
-        },
+        // { 
+        //     key: '/mutasi', 
+        //     icon: <AccountBookOutlined />, // Ikon buku akuntansi/ledger
+        //     label: <Link to="/mutasi">Mutasi & Kas</Link> 
+        // },
     ]}
 />
 );

@@ -145,7 +145,7 @@ const BukuForm = ({ open, onCancel, initialValues }) => {
                     updatedAt: now,
                     ...imgData
                 });
-                message.success('Buku diperbarui');
+                message.success('products diperbarui');
             } else {
                 // === CREATE ===
                 const bookId = generateCustomId(data.penerbit, data.nama, data.tahun);
@@ -165,7 +165,7 @@ const BukuForm = ({ open, onCancel, initialValues }) => {
                     updatedAt: now,
                     ...imgData
                 });
-                message.success('Buku ditambahkan');
+                message.success('products ditambahkan');
             }
 
             onCancel();
@@ -188,7 +188,7 @@ const BukuForm = ({ open, onCancel, initialValues }) => {
                     console.warn("Gagal hapus gambar:", err);
                 }
             }
-            message.success('Buku dihapus');
+            message.success('products dihapus');
             onCancel();
         } catch (e) {
             message.error("Gagal hapus: " + e.message);

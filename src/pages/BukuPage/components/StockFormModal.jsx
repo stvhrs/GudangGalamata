@@ -58,7 +58,7 @@ const StokFormModal = ({ open, onCancel, buku }) => {
             
             const bookHistoryRef = query(
                 ref(db, 'stock_history'), 
-                orderByChild('bukuId'),
+                orderByChild('productsId'),
                 equalTo(buku.id)
             );
 

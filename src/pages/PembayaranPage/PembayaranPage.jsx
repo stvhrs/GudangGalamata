@@ -1,23 +1,29 @@
 import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
     Layout, Card, Table, Button, Input, Space, Typography,
-    Row, Col, message, Tooltip, DatePicker, Tag
+    Row, Col, message, Tooltip, Tag
 } from 'antd';
 import {
-    PlusOutlined, EditOutlined, EyeOutlined,
+    PlusOutlined, EditOutlined,
     PrinterOutlined, SearchOutlined, LoadingOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/id';
 
+// --- FIREBASE IMPORTS (Realtime Database) ---
+import { db } from '../../api/firebase'; // Pastikan path ini benar
+import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
+
 // UTILS & HOOKS
 import { currencyFormatter } from '../../utils/formatters';
-import { usePembayaranStream, globalPembayaran } from '../../hooks/useFirebaseData';import useDebounce from '../../hooks/useDebounce';
+import { usePembayaranStream, globalPembayaran } from '../../hooks/useFirebaseData';
+import useDebounce from '../../hooks/useDebounce';
 import { generateNotaPembayaranPDF } from '../../utils/notamutasipembayaran';
 
 // COMPONENTS
 import PembayaranForm from './components/PembayaranForm';
 import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
+import { DatePicker } from 'antd';
 
 dayjs.locale('id');
 const { Content } = Layout;
@@ -33,8 +39,7 @@ const styles = {
 
 const PembayaranPage = () => {
     // --- STATE ---
-    // Default 1 tahun agar data lama juga terambil
- const [dateRange, setDateRange] = useState(() => {
+    const [dateRange, setDateRange] = useState(() => {
         if (globalPembayaran.lastDateRange) {
             return globalPembayaran.lastDateRange;
         }
@@ -42,11 +47,12 @@ const PembayaranPage = () => {
     });
 
     const [searchText, setSearchText] = useState('');
-    const [printingId, setPrintingId] = useState(null);
+    const [printingId, setPrintingId] = useState(null); // State loading khusus print
     
-    // --- DATA FETCHING ---
-    // Gunakan aliasing untuk memastikan nama variabel benar
+    // --- DATA FETCHING (HEADER ONLY) ---
+    // List ini hanya memuat data 'payments' (Header), belum termasuk detail item
     const { pembayaranList = [], loadingPembayaran = true } = usePembayaranStream(dateRange);
+    
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPembayaran, setEditingPembayaran] = useState(null);
     const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
@@ -60,25 +66,19 @@ const PembayaranPage = () => {
 
     // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
-        // Safe Copy
         let data = [...(pembayaranList || [])];
-
-        // CATATAN: Filter kategori dihapus agar data pasti muncul.
-        // Jika ingin spesifik, uncomment baris bawah dan pastikan penulisan di DB persis sama.
-        // data = data.filter(tx => tx.kategori === 'Penjualan Buku');
 
         if (deferredSearch) {
             const q = deferredSearch.toLowerCase();
             data = data.filter(tx =>
                 (tx.id || '').toLowerCase().includes(q) ||
+                (tx.namaCustomer || '').toLowerCase().includes(q) ||
                 (tx.keterangan || '').toLowerCase().includes(q) ||
-                (tx.namaPelanggan || '').toLowerCase().includes(q) ||
-                (tx.nomorInvoice || '').toLowerCase().includes(q) ||
-                (tx.detailAlokasi && Object.values(tx.detailAlokasi).some(d => d.noInvoice?.toLowerCase().includes(q)))
+                (tx.sumber || '').toLowerCase().includes(q)
             );
         }
 
-        // Default sort by tanggal terbaru
+        // Sort: Tanggal Terbaru
         data.sort((a, b) => b.tanggal - a.tanggal);
         return data;
     }, [pembayaranList, deferredSearch]);
@@ -92,31 +92,46 @@ const PembayaranPage = () => {
         setTimeout(() => setEditingPembayaran(null), 300);
     };
 
+    // --- PRINT HANDLER (FETCH DETAIL DULU) ---
     const handlePrintTransaction = async (record) => {
-        setPrintingId(record.id);
-        setTimeout(() => {
-            try {
-                const dataToPrint = {
-                    ...record,
-                    id: record.id,
-                    listInvoices: record.detailAlokasi ? Object.values(record.detailAlokasi) : [{
-                        noInvoice: record.nomorInvoice || record.idTransaksi || '-',
-                        keterangan: record.keterangan || 'Pembayaran',
-                        jumlahBayar: record.jumlah
-                    }]
-                };
+        setPrintingId(record.id); // Aktifkan loading spinner di tombol
+        
+        try {
+            const allocations = [];
 
-                const pdfData = generateNotaPembayaranPDF(dataToPrint);
-                setPdfPreviewUrl(pdfData);
-                setPdfFileName(`Nota_Pembayaran_${record.id}.pdf`);
-                setIsPreviewModalVisible(true);
-            } catch (error) {
-                console.error("Gagal generate PDF:", error);
-                message.error("Gagal membuat PDF");
-            } finally {
-                setPrintingId(null);
+            // 1. Buat referensi ke tabel 'payment_allocations' di Realtime Database
+            const allocRef = ref(db, 'payment_allocations');
+            
+            // 2. Query cari data yang punya 'paymentId' sama dengan ID record ini
+            const q = query(allocRef, orderByChild('paymentId'), equalTo(record.id));
+            
+            // 3. Eksekusi Fetch (Ambil Data)
+            const snapshot = await get(q);
+
+            // 4. Parsing hasil data snapshot ke array
+            if (snapshot.exists()) {
+                snapshot.forEach((childSnapshot) => {
+                    allocations.push({
+                        id: childSnapshot.key,
+                        ...childSnapshot.val()
+                    });
+                });
             }
-        }, 100);
+
+            // 5. Generate PDF dengan data Header (record) + Detail Item (allocations)
+            const pdfData = generateNotaPembayaranPDF(record, allocations);
+            
+            // 6. Tampilkan Modal Preview
+            setPdfPreviewUrl(pdfData);
+            setPdfFileName(`Nota_${record.id}.pdf`);
+            setIsPreviewModalVisible(true);
+
+        } catch (error) {
+            console.error("Gagal generate PDF:", error);
+            message.error("Gagal mengambil data detail pembayaran.");
+        } finally {
+            setPrintingId(null); // Matikan loading spinner
+        }
     };
 
     const handleClosePreviewModal = () => {
@@ -125,19 +140,17 @@ const PembayaranPage = () => {
         setPdfPreviewUrl('');
     };
 
-    const handleViewProof = (url) => { if (url) window.open(url, '_blank'); };
-
-    // --- TABLE COLUMNS (UPDATED: Tanggal Kiri & Semua Sortable) ---
+    // --- TABLE COLUMNS ---
     const columns = [
         {
             title: "Tanggal",
             dataIndex: 'tanggal',
             key: 'tanggal',
-            width: 120,
-            fixed: 'left', // Opsional: Agar tanggal tetap terlihat saat scroll ke kanan
-            render: (t) => dayjs(t).format('DD MMM YYYY'),
-            sorter: (a, b) => a.tanggal - b.tanggal, // Sortir Tanggal
-            defaultSortOrder: 'descend', // Default urutan terbaru
+            width: 130,
+            fixed: 'left',
+            render: (val) => dayjs(val).format('DD MMM YYYY'),
+            sorter: (a, b) => a.tanggal - b.tanggal,
+            defaultSortOrder: 'descend',
         },
         {
             title: "ID Pembayaran",
@@ -145,70 +158,64 @@ const PembayaranPage = () => {
             key: 'id',
             width: 150,
             render: (text) => <Text copyable style={{ fontSize: 12 }}>{text}</Text>,
-            sorter: (a, b) => (a.id || '').localeCompare(b.id || ''), // Sortir String
+            sorter: (a, b) => (a.id || '').localeCompare(b.id || ''),
         },
         {
-            title: "ID Transaksi",
-            key: 'idTransaksi',
-            width: 170,
-            render: (_, r) => {
-                let inv = r.nomorInvoice;
-                if (!inv && r.detailAlokasi) {
-                    inv = Object.values(r.detailAlokasi).map(d => d.noInvoice).join(', ');
-                }
-                return <Tag color="blue">{inv || r.idTransaksi || '-'}</Tag>;
-            },
-            sorter: (a, b) => {
-                const valA = a.nomorInvoice || a.idTransaksi || '';
-                const valB = b.nomorInvoice || b.idTransaksi || '';
-                return valA.localeCompare(valB);
-            }
-        },
-        {
-            title: "Nama Pelanggan",
-            dataIndex: 'namaPelanggan',
-            key: 'namaPelanggan',
-            width: 180,
-            render: (text) => <Text strong>{text || 'Umum'}</Text>,
-            sorter: (a, b) => (a.namaPelanggan || '').localeCompare(b.namaPelanggan || ''), // Sortir Nama
+            title: "Nama Customer",
+            dataIndex: 'namaCustomer',
+            key: 'namaCustomer',
+            width: 250,
+            render: (text) => (
+                <div style={{ lineHeight: '1.2' }}>
+                    <Text strong>{text || 'Umum'}</Text>
+                </div>
+            ),
+            sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || ''),
         },
         {
             title: "Keterangan",
             dataIndex: 'keterangan',
             key: 'keterangan',
-            render: (text) => <div style={{ fontSize: 13, color: '#595959' }}>{text || '-'}</div>,
-            sorter: (a, b) => (a.keterangan || '').localeCompare(b.keterangan || ''), // Sortir Keterangan
+            render: (text) => <Text type="secondary" style={{ fontSize: 13 }}>{text || '-'}</Text>,
+            sorter: (a, b) => (a.keterangan || '').localeCompare(b.keterangan || ''),
         },
         {
-            title: "Nominal",
-            dataIndex: 'jumlah',
-            key: 'jumlah',
-            align: 'right',
+            title: "Sumber",
+            dataIndex: 'sumber',
+            key: 'sumber',
             width: 150,
+            render: (text) => <Tag color={text === 'INVOICE_PAYMENT' ? 'blue' : 'cyan'}>{text}</Tag>,
+            sorter: (a, b) => (a.sumber || '').localeCompare(b.sumber || ''),
+        },
+        {
+            title: "Total Bayar",
+            dataIndex: 'totalBayar',
+            key: 'totalBayar',
+            align: 'right',
+            width: 160,
             render: (val) => <Text strong style={{ color: '#3f8600' }}>{currencyFormatter(val)}</Text>,
-            sorter: (a, b) => (a.jumlah || 0) - (b.jumlah || 0), // Sortir Angka
+            sorter: (a, b) => (a.totalBayar || 0) - (b.totalBayar || 0),
         },
         {
             title: 'Aksi',
             key: 'aksi',
             align: 'center',
-            width: 130,
+            width: 100,
             fixed: 'right',
             render: (_, r) => (
-                <Space>
-                    <Tooltip title="Cetak Nota">
+                <Space size="small">
+                    <Tooltip title="Cetak">
                         <Button
+                            size="small"
                             type="text"
+                            // Loading indicator aktif hanya pada tombol baris yang diklik
                             icon={printingId === r.id ? <LoadingOutlined /> : <PrinterOutlined />}
                             onClick={() => handlePrintTransaction(r)}
-                            disabled={printingId !== null && printingId !== r.id}
+                            disabled={printingId !== null} // Disable tombol lain saat sedang loading
                         />
                     </Tooltip>
-                    <Tooltip title="Lihat Bukti">
-                        <Button type="text" icon={<EyeOutlined />} onClick={() => handleViewProof(r.buktiUrl)} disabled={!r.buktiUrl} />
-                    </Tooltip>
                     <Tooltip title="Edit">
-                        <Button type="text" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
+                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
                     </Tooltip>
                 </Space>
             )
@@ -219,26 +226,26 @@ const PembayaranPage = () => {
         <Content style={styles.pageContainer}>
             <Card style={styles.card}>
                 <Row gutter={[16, 16]} align="middle" style={{ marginBottom: 20 }}>
-                    <Col xs={24} md={6}>
-                        <Text style={styles.headerTitle}>Riwayat Pembayaran Buku</Text>
+                    <Col xs={24} md={8}>
+                        <Text style={styles.headerTitle}>Daftar Pembayaran</Text>
                     </Col>
-                    <Col xs={24} md={18} style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+                    <Col xs={24} md={16} style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
                         <RangePicker
-                            style={{ width: 260 }}
+                            style={{ width: 240 }}
                             onChange={(d) => d && setDateRange(d)}
                             value={dateRange}
                             format="DD MMM YYYY"
                             allowClear={false}
                         />
                         <Input
-                            placeholder="Cari ID, Pelanggan..."
+                            placeholder="Cari Customer, ID, Ket..."
                             suffix={isSearching ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
-                            style={{ width: 240 }}
+                            style={{ width: 220 }}
                             onChange={(e) => setSearchText(e.target.value)}
                             allowClear
                         />
                         <Button type="primary" icon={<PlusOutlined />} onClick={handleTambah}>
-                            Input Pembayaran
+                            Baru
                         </Button>
                     </Col>
                 </Row>
@@ -249,10 +256,10 @@ const PembayaranPage = () => {
                     loading={loadingPembayaran}
                     rowKey="id"
                     size="middle"
-                    scroll={{ x: 1200 }} // Scroll diperlebar sedikit agar kolom tanggal fixed terlihat nyaman
+                    scroll={{ x: 1200 }}
                     pagination={{
                         defaultPageSize: 10,
-                        showTotal: (total) => `Total ${total} Transaksi`,
+                        showTotal: (total) => `Total ${total} Data`,
                         showSizeChanger: true
                     }}
                 />

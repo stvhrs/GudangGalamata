@@ -6,7 +6,7 @@ import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 
 // --- CUSTOM HOOKS ---
-import { useHistoriStokStream } from '../../../hooks/useFirebaseData'; 
+import { usestock_historyStream } from '../../../hooks/useFirebaseData'; 
 import useDebounce from '../../../hooks/useDebounce'; 
 import { timestampFormatter, numberFormatter } from '../../../utils/formatters';
 
@@ -29,7 +29,7 @@ const StokHistoryTab = () => {
     }), [dateRange]);
 
     // --- 2. USE STREAM HOOK ---
-    const { historyList, loadingHistory } = useHistoriStokStream(streamParams);
+    const { historyList, loadingHistory } = usestock_historyStream(streamParams);
 
     // --- 3. FILTERING CLIENT SIDE ---
     const [searchText, setSearchText] = useState('');

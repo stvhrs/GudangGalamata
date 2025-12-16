@@ -7,7 +7,7 @@ import {
     PlusOutlined, MoreOutlined, PrinterOutlined, ReadOutlined,
     PullRequestOutlined, SearchOutlined, CloseCircleOutlined,
     DownloadOutlined, ShareAltOutlined,
-    EyeOutlined, EyeInvisibleOutlined // Import Icon Mata
+    EyeOutlined, EyeInvisibleOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/id';
@@ -15,6 +15,10 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Worker, Viewer } from '@react-pdf-viewer/core';
 import '@react-pdf-viewer/core/lib/styles/index.css';
+
+// --- FIREBASE IMPORTS ---
+import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
+import { db } from '../../api/firebase'; // Pastikan path ini benar
 
 import useDebounce from '../../hooks/useDebounce';
 import TransaksiJualForm from './components/TransaksiJualForm';
@@ -36,7 +40,15 @@ const { useBreakpoint } = Grid;
 // --- Helpers ---
 const formatCurrency = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value || 0);
 const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-const normalizeStatus = (s) => (s === 'Belum' ? 'Belum' : s || 'Lunas');
+
+// Normalisasi Status agar case-insensitive (LUNAS/Lunas)
+const normalizeStatus = (s) => {
+    if (!s) return 'BELUM';
+    const status = s.toUpperCase();
+    if (status === 'LUNAS') return 'LUNAS';
+    if (status === 'BELUM') return 'BELUM';
+    return s; // Fallback (misal: Partial)
+};
 
 const chipStyle = { padding: '5px 16px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '6px', lineHeight: '1.5', cursor: 'pointer', userSelect: 'none', transition: 'all 0.3s', fontWeight: 500 };
 
@@ -52,7 +64,7 @@ export default function TransaksiJualPage() {
     const [isAllTime, setIsAllTime] = useState(false);
 
     // --- STATE SENSOR NOMINAL ---
-    const [showTotals, setShowTotals] = useState(false); // Default false (hidden)
+    const [showTotals, setShowTotals] = useState(false);
 
     // Filter Params
     const filterParams = useMemo(() => {
@@ -86,9 +98,9 @@ export default function TransaksiJualPage() {
 
     // --- PDF State ---
     const [isTxPdfModalOpen, setIsTxPdfModalOpen] = useState(false);
-    const [pdfPreviewUrl, setPdfPreviewUrl] = useState(''); 
+    const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
     const [txPdfFileName, setTxPdfFileName] = useState('laporan.pdf');
-    const [isTxPdfGenerating, setIsTxPdfGenerating] = useState(false); 
+    const [isTxPdfGenerating, setIsTxPdfGenerating] = useState(false);
 
     // --- Filtering Logic ---
     const deferredAllTransaksi = useDeferredValue(allTransaksi);
@@ -101,53 +113,63 @@ export default function TransaksiJualPage() {
 
     const filteredTransaksi = useMemo(() => {
         let data = [...(deferredAllTransaksi || [])];
+        
+        // Filter Status
         if (deferredSelectedStatus.length > 0) {
             data = data.filter((tx) => deferredSelectedStatus.includes(normalizeStatus(tx.statusPembayaran)));
         }
+
+        // Filter Search (ID, Nama Customer, Keterangan)
         if (deferredDebouncedSearch) {
             const q = deferredDebouncedSearch.toLowerCase();
             data = data.filter((tx) =>
-                (tx.nomorInvoice || '').toLowerCase().includes(q) ||
-                (tx.namaPelanggan || '').toLowerCase().includes(q) ||
+                (tx.id || '').toLowerCase().includes(q) ||
+                (tx.namaCustomer || '').toLowerCase().includes(q) ||
                 (tx.keterangan || '').toLowerCase().includes(q)
             );
         }
         return data.sort((a, b) => (b.tanggal || 0) - (a.tanggal || 0));
     }, [deferredAllTransaksi, deferredSelectedStatus, deferredDebouncedSearch]);
 
-    // --- Footer & Summary ---
+    // --- Footer & Summary Calculation ---
     const footerTotals = useMemo(() => {
         const filteredData = filteredTransaksi || [];
         const totals = filteredData.reduce(
             (acc, tx) => ({
-                tagihan: acc.tagihan + Number(tx.totalTagihan || 0),
-                terbayar: acc.terbayar + Number(tx.jumlahTerbayar || 0)
-            }), { tagihan: 0, terbayar: 0 }
+                bruto: acc.bruto + Number(tx.totalBruto || 0),
+                diskon: acc.diskon + Number(tx.totalDiskon || 0),
+                retur: acc.retur + Number(tx.totalRetur || 0),
+                netto: acc.netto + Number(tx.totalNetto || 0), 
+                bayar: acc.bayar + Number(tx.totalBayar || 0)
+            }), { bruto: 0, diskon: 0, retur: 0, netto: 0, bayar: 0 }
         );
+
         return {
-            totalTagihan: totals.tagihan,
-            totalTerbayar: totals.terbayar,
-            totalSisa: totals.tagihan - totals.terbayar,
+            totalBruto: totals.bruto,
+            totalDiskon: totals.diskon,
+            totalRetur: totals.retur,
+            totalTagihan: totals.netto,
+            totalTerbayar: totals.bayar,
+            totalSisa: totals.netto - totals.bayar,
             totalTransaksi: filteredData.length
         };
     }, [filteredTransaksi]);
 
-    // --- TAB SUMMARY DENGAN SENSOR MATA ---
+    // --- TAB SUMMARY ---
     const TabSummary = useMemo(() => {
         if (screens.xs) return null;
 
-        // Helper render angka atau sensor
         const renderValue = (val, style = {}) => {
             if (showTotals) {
                 return <Text strong style={style}>{formatCurrency(val)}</Text>;
             }
-            // Tampilan sensor
             return <Text strong style={{ ...style, fontFamily: 'monospace', letterSpacing: '2px' }}>••••••••</Text>;
         };
 
+        const separator = <Divider type="vertical" style={{ height: '24px', margin: '0 12px' }} />;
+
         return (
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', height: '100%', paddingRight: '8px' }}>
-                {/* TOMBOL TOGGLE MATA */}
+            <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingRight: '8px' }}>
                 <Tooltip title={showTotals ? "Sembunyikan Nominal" : "Tampilkan Nominal"}>
                     <Button 
                         type="text" 
@@ -156,30 +178,34 @@ export default function TransaksiJualPage() {
                         onClick={() => setShowTotals(!showTotals)}
                     />
                 </Tooltip>
-
-                <Divider type="vertical" style={{ height: '24px' }} />
-
+                {separator}
                 <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Total Tagihan</Text>
-                    {renderValue(footerTotals.totalTagihan)}
+                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Total Bruto</Text>
+                    {renderValue(footerTotals.totalBruto)}
                 </div>
-                
-                <Divider type="vertical" style={{ height: '24px' }} />
-                
+                {separator}
                 <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Terbayar</Text>
+                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Diskon</Text>
+                    {renderValue(footerTotals.totalDiskon, { color: '#faad14' })}
+                </div>
+                {separator}
+                 <div style={{ textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Retur</Text>
+                    {renderValue(footerTotals.totalRetur, { color: '#cf1322' })}
+                </div>
+                {separator}
+                <div style={{ textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Total Bayar</Text>
                     {renderValue(footerTotals.totalTerbayar, { color: '#3f8600' })}
                 </div>
-                
-                <Divider type="vertical" style={{ height: '24px' }} />
-                
+                {separator}
                 <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '12px', display: 'block' }}>Sisa</Text>
+                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Sisa Tagihan</Text>
                     {renderValue(footerTotals.totalSisa, { color: footerTotals.totalSisa > 0 ? '#cf1322' : '#3f8600' })}
                 </div>
             </div>
         );
-    }, [footerTotals, screens.xs, showTotals]); // Dependency updated
+    }, [footerTotals, screens.xs, showTotals]);
 
     // --- Handlers ---
     const handleSearchChange = useCallback((e) => { setSearchText(e.target.value); setPagination(prev => ({ ...prev, current: 1 })); }, []);
@@ -195,6 +221,34 @@ export default function TransaksiJualPage() {
     const handleFormSuccess = useCallback(() => { handleCloseFormModal(); }, [handleCloseFormModal]);
     const handleOpenDetailModal = useCallback((tx) => { setSelectedTransaksi(tx); setIsDetailModalOpen(true); }, []);
     const handleCloseDetailModal = useCallback(() => { setSelectedTransaksi(null); setIsDetailModalOpen(false); }, []);
+
+    // --- HELPER FETCH ITEM (UPDATED WITH LOGS) ---
+    const fetchInvoiceItems = async (invoiceId) => {
+        console.log("--- MULAI FETCH ITEMS ---");
+        console.log("Mencari items untuk Invoice ID:", invoiceId);
+        
+        try {
+            const dbRef = ref(db, 'invoice_items');
+            // Pastikan invoiceId dikirim sesuai tipe datanya di DB (String/Number)
+            const q = query(dbRef, orderByChild('invoiceId'), equalTo(invoiceId));
+            
+            const snapshot = await get(q);
+            
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                const itemsArray = Object.values(data);
+                console.log("Data ditemukan di Firebase!", itemsArray);
+                return itemsArray;
+            } else {
+                console.warn("Snapshot tidak ada / kosong. Cek apakah 'invoiceId' di DB 'invoice_items' benar-benar:", invoiceId);
+                console.warn("Tips: Pastikan Rules Firebase Anda sudah mengindex 'invoiceId' pada node 'invoice_items'.");
+                return [];
+            }
+        } catch (error) {
+            console.error("Error fetching invoice items:", error);
+            throw error;
+        }
+    };
 
     // --- PDF & PREVIEW HANDLERS ---
     const openPdfModal = (blob, fileName) => {
@@ -214,23 +268,41 @@ export default function TransaksiJualPage() {
     };
 
     const handleGenerateInvoice = async (tx) => {
-        message.loading({ content: 'Membuat Invoice...', key: 'pdfGen' });
+        message.loading({ content: 'Mengambil data item & Membuat Invoice...', key: 'pdfGen' });
         try {
-            const blob = await fetch(generateInvoicePDF(tx)).then(r => r.blob());
-            openPdfModal(blob, `${tx.nomorInvoice}.pdf`);
+            // 1. Fetch item
+            const items = await fetchInvoiceItems(tx.id);
+            
+            // 2. Gabung Data
+            const fullTxData = { ...tx, items: items };
+            console.log("Data Siap Generate Invoice:", fullTxData);
+
+            // 3. Generate PDF
+            const blob = await fetch(generateInvoicePDF(fullTxData)).then(r => r.blob());
+            openPdfModal(blob, `${tx.id}.pdf`);
             message.success({ content: 'Invoice Siap', key: 'pdfGen' });
         } catch (e) {
+            console.error(e);
             message.error({ content: 'Gagal membuat Invoice', key: 'pdfGen' });
         }
     };
 
     const handleGenerateNota = async (tx) => {
-        message.loading({ content: 'Membuat Nota...', key: 'pdfGen' });
+        message.loading({ content: 'Mengambil data item & Membuat Nota...', key: 'pdfGen' });
         try {
-            const blob = await fetch(generateNotaPDF(tx)).then(r => r.blob());
-            openPdfModal(blob, `Nota-${tx.nomorInvoice}.pdf`);
+             // 1. Fetch item
+             const items = await fetchInvoiceItems(tx.id);
+            
+             // 2. Gabung Data
+             const fullTxData = { ...tx, items: items };
+             console.log("Data Siap Generate Nota:", fullTxData);
+
+            // 3. Generate PDF
+            const blob = await fetch(generateNotaPDF(fullTxData)).then(r => r.blob());
+            openPdfModal(blob, `Nota-${tx.id}.pdf`);
             message.success({ content: 'Nota Siap', key: 'pdfGen' });
         } catch (e) {
+            console.error(e);
             message.error({ content: 'Gagal membuat Nota', key: 'pdfGen' });
         }
     };
@@ -239,27 +311,30 @@ export default function TransaksiJualPage() {
         setIsTxPdfGenerating(true);
         setTimeout(() => {
             try {
-                const doc = new jsPDF();
+                const doc = new jsPDF('l', 'mm', 'a4'); 
                 const nowStr = dayjs().format('YYYYMMDD_HHmm');
                 const fileName = `Laporan_Transaksi_${nowStr}.pdf`;
 
                 doc.setFontSize(16);
-                doc.text("Laporan Transaksi Penjualan", 9, 15);
+                doc.text("Laporan Transaksi Penjualan", 14, 15);
 
                 doc.setFontSize(10);
                 let periodeInfo = isAllTime ? "Periode: Semua Waktu" :
                     (dateRange?.[0] ? `Periode: ${dateRange[0].format('DD MMM YYYY')} s/d ${dateRange[1].format('DD MMM YYYY')}` : "");
-                doc.text(periodeInfo, 9, 22);
+                doc.text(periodeInfo, 14, 22);
 
-                const tableColumn = ["No", "Tanggal", "No. Invoice", "Pelanggan", "Total", "Terbayar", "Sisa", "Status"];
+                const tableColumn = ["No", "Tanggal", "ID Invoice", "Pelanggan", "Bruto", "Diskon", "Retur", "Netto", "Bayar", "Sisa", "Status"];
                 const tableRows = filteredTransaksi.map((tx, index) => [
                     index + 1,
                     formatDate(tx.tanggal),
-                    tx.nomorInvoice,
-                    tx.namaPelanggan,
-                    formatCurrency(tx.totalTagihan),
-                    formatCurrency(tx.jumlahTerbayar),
-                    formatCurrency(tx.totalTagihan - tx.jumlahTerbayar),
+                    tx.id,
+                    tx.namaCustomer,
+                    formatCurrency(tx.totalBruto),
+                    formatCurrency(tx.totalDiskon),
+                    formatCurrency(tx.totalRetur),
+                    formatCurrency(tx.totalNetto),
+                    formatCurrency(tx.totalBayar),
+                    formatCurrency(tx.totalNetto - tx.totalBayar),
                     normalizeStatus(tx.statusPembayaran)
                 ]);
 
@@ -269,15 +344,24 @@ export default function TransaksiJualPage() {
                     startY: 30,
                     styles: { fontSize: 8 },
                     headStyles: { fillColor: [22, 119, 255] },
+                    columnStyles: {
+                        4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
+                        7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' }
+                    }
                 });
 
                 const finalY = doc.lastAutoTable.finalY + 10;
                 doc.setFontSize(10);
                 doc.setFont("helvetica", "bold");
-                doc.text(`Total Transaksi: ${filteredTransaksi.length}`, 9, finalY);
-                doc.text(`Total Tagihan: ${formatCurrency(footerTotals.totalTagihan)}`, 9, finalY + 5);
-                doc.text(`Total Terbayar: ${formatCurrency(footerTotals.totalTerbayar)}`, 9, finalY + 10);
-                doc.text(`Total Sisa: ${formatCurrency(footerTotals.totalSisa)}`, 9, finalY + 15);
+                
+                doc.text(`Total Transaksi: ${filteredTransaksi.length}`, 14, finalY);
+                doc.text(`Total Bruto: ${formatCurrency(footerTotals.totalBruto)}`, 14, finalY + 5);
+                doc.text(`Total Diskon: ${formatCurrency(footerTotals.totalDiskon)}`, 14, finalY + 10);
+                doc.text(`Total Retur: ${formatCurrency(footerTotals.totalRetur)}`, 14, finalY + 15);
+                
+                doc.text(`Total Netto (Tagihan): ${formatCurrency(footerTotals.totalTagihan)}`, 150, finalY + 5);
+                doc.text(`Total Bayar: ${formatCurrency(footerTotals.totalTerbayar)}`, 150, finalY + 10);
+                doc.text(`Total Sisa: ${formatCurrency(footerTotals.totalSisa)}`, 150, finalY + 15);
 
                 const pdfBlob = doc.output('blob');
                 openPdfModal(pdfBlob, fileName);
@@ -290,33 +374,91 @@ export default function TransaksiJualPage() {
         }, 100);
     };
 
+    // --- RENDER AKSI (LUNAS CHECK REMOVED) ---
     const renderAksi = useCallback((_, record) => {
         const items = [
             { key: "detail", label: "Lihat Detail", onClick: () => handleOpenDetailModal(record) },
             { key: "edit", label: "Edit Transaksi", onClick: () => handleOpenEdit(record) },
             { type: "divider" },
             { key: "inv", label: "Generate Invoice", onClick: () => handleGenerateInvoice(record) },
-            { key: "nota", label: "Generate Nota", disabled: ![ "Lunas"].includes(normalizeStatus(record?.statusPembayaran)), onClick: () => handleGenerateNota(record) },
+            { 
+                key: "nota", 
+                label: "Generate Nota", 
+                // disabled: check dihapus agar bisa generate nota kapanpun
+                onClick: () => handleGenerateNota(record) 
+            },
         ];
         return <Dropdown menu={{ items }} trigger={["click"]}><Button icon={<MoreOutlined />} size="small" /></Dropdown>;
     }, [handleOpenDetailModal, handleOpenEdit]);
 
+    // --- Columns Definition ---
     const columns = useMemo(() => [
-        { title: 'No.', width: 60, render: (_t, _r, idx) => ((pagination.current - 1) * pagination.pageSize) + idx + 1 },
-        { title: 'Tanggal', dataIndex: 'tanggal', width: 120, render: formatDate, sorter: (a, b) => a.tanggal - b.tanggal },
-        { title: 'ID', dataIndex: 'id', width: 180, render: (id, r) => <Text copyable={{ text: r.nomorInvoice }}>{r.nomorInvoice || id}</Text> },
-        { title: 'Pelanggan', dataIndex: 'namaPelanggan', width: 200, sorter: (a, b) => (a.namaPelanggan || '').localeCompare(b.namaPelanggan || ''), render: (val, r) => <span>{val} {r.pelangganIsSpesial && <Tag color="gold">Spesial</Tag>}</span> },
-        { title: 'Total', dataIndex: 'totalTagihan', align: 'right', width: 140, render: formatCurrency, sorter: (a, b) => a.totalTagihan - b.totalTagihan },
-        { title: 'Sisa', key: 'sisa', align: 'right', width: 140,  sorter: (a, b) => {
-    const sisaA = (a.totalTagihan ?? 0) - (a.jumlahTerbayar ?? 0);
-    const sisaB = (b.totalTagihan ?? 0) - (b.jumlahTerbayar ?? 0);
-    return sisaA - sisaB;
-  }, render: (_, r) => <span style={{ color: (r.totalTagihan - r.jumlahTerbayar) > 0 ? 'red' : 'green' }}>{formatCurrency(r.totalTagihan - r.jumlahTerbayar)}</span> },
-        { title: 'Status', dataIndex: 'statusPembayaran', width: 120, filters: [{ text: 'Belum', value: 'Belum' },  { text: 'Lunas', value: 'Lunas' }], filteredValue: selectedStatus.length ? selectedStatus : null, render: (s) => <Tag color={normalizeStatus(s) === 'Lunas' ? 'green' : normalizeStatus(s) === 'Belum' ? 'red' : 'orange'}>{normalizeStatus(s)}</Tag> },
-        { title: 'Aksi', align: 'center', width: 80, render: renderAksi },
+        { 
+            title: 'No.', width: 50, fixed: 'left', 
+            render: (_t, _r, idx) => ((pagination.current - 1) * pagination.pageSize) + idx + 1 
+        },
+        { 
+            title: 'Tanggal', dataIndex: 'tanggal', width: 100, render: formatDate, 
+            sorter: (a, b) => (a.tanggal || 0) - (b.tanggal || 0) 
+        },
+        { 
+            title: 'ID', dataIndex: 'id', width: 140, 
+            render: (id) => <Text copyable={{ text: id }}>{id}</Text>,
+            sorter: (a, b) => (a.id || '').localeCompare(b.id || '')
+        },
+        { 
+            title: 'Pelanggan', dataIndex: 'namaCustomer', width: 180, 
+            sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || '') 
+        },
+        { 
+            title: 'Bruto', dataIndex: 'totalBruto', align: 'right', width: 120, render: formatCurrency,
+            sorter: (a, b) => (a.totalBruto || 0) - (b.totalBruto || 0)
+        },
+        { 
+            title: 'Dsc', dataIndex: 'totalDiskon', align: 'right', width: 90, 
+            render: (val) => <span style={{ color: '#faad14' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span>,
+            sorter: (a, b) => (a.totalDiskon || 0) - (b.totalDiskon || 0)
+        },
+        { 
+            title: 'Retur', dataIndex: 'totalRetur', align: 'right', width: 90, 
+            render: (val) => <span style={{ color: '#cf1322' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span>,
+            sorter: (a, b) => (a.totalRetur || 0) - (b.totalRetur || 0)
+        },
+        { 
+            title: 'Netto', dataIndex: 'totalNetto', align: 'right', width: 120, 
+            render: (val) => <Text strong>{formatCurrency(val)}</Text>, 
+            sorter: (a, b) => (a.totalNetto || 0) - (b.totalNetto || 0) 
+        },
+        { 
+            title: 'Bayar', dataIndex: 'totalBayar', align: 'right', width: 120, 
+            render: (val) => <span style={{ color: '#3f8600' }}>{formatCurrency(val)}</span>,
+            sorter: (a, b) => (a.totalBayar || 0) - (b.totalBayar || 0)
+        },
+        { 
+            title: 'Sisa', key: 'sisa', align: 'right', width: 120,  
+            sorter: (a, b) => {
+                const sisaA = (a.totalNetto || 0) - (a.totalBayar || 0);
+                const sisaB = (b.totalNetto || 0) - (b.totalBayar || 0);
+                return sisaA - sisaB;
+            }, 
+            render: (_, r) => {
+                const sisa = (r.totalNetto || 0) - (r.totalBayar || 0);
+                return <span style={{ color: sisa > 0 ? '#cf1322' : '#3f8600', fontWeight: sisa > 0 ? 'bold' : 'normal' }}>{formatCurrency(sisa)}</span>;
+            } 
+        },
+        { 
+            title: 'Status', dataIndex: 'statusPembayaran', width: 100, fixed: 'right',
+            filters: [{ text: 'BELUM', value: 'BELUM' }, { text: 'LUNAS', value: 'LUNAS' },{ text: 'PARTIAL', value: 'PARTIAL' },], 
+            filteredValue: selectedStatus.length ? selectedStatus : null, 
+            render: (s) => <Tag color={normalizeStatus(s) === 'LUNAS' ? 'green' : normalizeStatus(s) === 'BELUM' ? 'red' : 'orange'}>{normalizeStatus(s)}</Tag> 
+        },
+        { 
+            title: 'Aksi', align: 'center', width: 60, fixed: 'right', 
+            render: renderAksi 
+        },
     ], [pagination, renderAksi, selectedStatus]);
 
-    const tableScrollX = 1200;
+    const tableScrollX = 1500; 
     const isLoading = loadingTransaksi || isPending;
 
     const tabItems = [
@@ -327,7 +469,7 @@ export default function TransaksiJualPage() {
                 <Card bodyStyle={{ padding: screens.xs ? '12px' : '24px' }}>
                     <Row gutter={[16, 16]} align="middle" style={{ marginBottom: 24 }}>
                         <Col xs={24} md={8} lg={6}>
-                            <Input placeholder="Cari No. Invoice / Pelanggan..." prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} value={searchText} onChange={handleSearchChange} allowClear />
+                            <Input placeholder="Cari Invoice / Pelanggan..." prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} value={searchText} onChange={handleSearchChange} allowClear />
                         </Col>
                         <Col xs={24} md={16} lg={18}>
                             <div style={{ display: 'flex', justifyContent: screens.xs ? 'flex-start' : 'flex-end', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>

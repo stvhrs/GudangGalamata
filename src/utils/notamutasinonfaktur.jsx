@@ -15,11 +15,10 @@ const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('i
 });
 
 /**
- * GENERATE PDF A4 PORTRAIT
- * @param {Object} payment - Data Header (payments)
- * @param {Array} allocations - Data Isi Tabel (payment_allocations)
+ * GENERATE PDF A4 PORTRAIT (NON-FAKTUR)
+ * @param {Object} data - Data Record tunggal dari tabel non_faktur
  */
-const buildDoc = (payment, allocations) => {
+const buildDoc = (data) => {
     
     // 1. SETUP KERTAS (A4 PORTRAIT)
     const doc = new jsPDF({
@@ -32,7 +31,7 @@ const buildDoc = (payment, allocations) => {
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = margin.top;
 
-    // Font: Helvetica (Standar PDF untuk pengganti Arial/Arial Narrow)
+    // Font: Helvetica
     const fontName = 'helvetica';
 
     // --- 1. HEADER ---
@@ -41,24 +40,26 @@ const buildDoc = (payment, allocations) => {
     doc.text(companyInfo.nama, margin.left, currentY);
     
     doc.setFontSize(11); 
-    doc.text("NOTA PEMBAYARAN", pageWidth - margin.right, currentY, { align: 'right' });
+    doc.text("NOTA NON-FAKTUR", pageWidth - margin.right, currentY, { align: 'right' });
     
     currentY += 2; 
 
+    // Garis Header
     doc.setLineWidth(0.2); 
     doc.setDrawColor(0, 0, 0);
     doc.line(margin.left, currentY, pageWidth - margin.right, currentY);
     currentY += 8; 
 
     // --- 2. INFO TRANSAKSI ---
-    const idDokumen = payment.id || '-';
-    const namaPelanggan = payment.namaCustomer || 'Umum';
+    const idDokumen = data.id || '-';
+    // Sesuai JSON: namaCustomer
+    const namaPelanggan = data.namaCustomer || 'Umum'; 
     const infoX = pageWidth / 2 + 10;
     
     doc.setFontSize(9.5); 
     
     // Kiri
-    doc.setFont(fontName, 'bold'); doc.text('No. Bayar:', margin.left, currentY);
+    doc.setFont(fontName, 'bold'); doc.text('No. Transaksi:', margin.left, currentY);
     doc.setFont(fontName, 'normal'); doc.text(idDokumen, margin.left + 30, currentY);
     currentY += 5;
     
@@ -70,41 +71,21 @@ const buildDoc = (payment, allocations) => {
     // Kanan
     const rightY = currentY - 10;
     doc.setFont(fontName, 'bold'); doc.text('Tanggal:', infoX, rightY);
-    doc.setFont(fontName, 'normal'); doc.text(formatDate(payment.tanggal), infoX + 25, rightY);
+    doc.setFont(fontName, 'normal'); doc.text(formatDate(data.tanggal), infoX + 25, rightY);
     
-    // if (payment.sumber) {
-    //     doc.setFont(fontName, 'bold'); doc.text('Metode:', infoX, rightY + 5);
-    //     doc.setFont(fontName, 'normal'); doc.text(payment.sumber, infoX + 25, rightY + 5);
-    // }
-
     currentY += 5; 
 
-    // --- 3. TABEL ITEM (payment_allocations) ---
-    const head = [['No', 'No. Invoice', 'Keterangan', 'Jumlah Bayar']];
-    let body = [];
-    let calculatedTotal = 0;
+    // --- 3. TABEL ITEM (Single Row) ---
+    // Karena ini non-faktur, biasanya hanya 1 item global
+    const head = [['No', 'Keterangan', 'Jumlah']];
+    
+    // Sesuai JSON: totalBayar
+    const amount = Number(data.totalBayar || 0);
+    const keterangan = data.keterangan || '-';
 
-    if (allocations && Array.isArray(allocations) && allocations.length > 0) {
-        body = allocations.map((item, i) => {
-            const amount = Number(item.amount || 0);
-            calculatedTotal += amount;
-            
-            // Keterangan diambil dari header payment karena di allocation tidak ada field keterangan
-            const noteToShow = payment.keterangan || '-';
-
-            return [
-                i + 1,
-                item.invoiceId || '-',  // Sesuai field: invoiceId
-                noteToShow,                             
-                formatNumber(amount)    // Sesuai field: amount                   
-            ];
-        });
-    } else {
-        // Fallback jika kosong
-        const total = Number(payment.totalBayar || 0);
-        calculatedTotal = total;
-        body = [['1', '-', payment.keterangan || '-', formatNumber(total)]];
-    }
+    const body = [
+        ['1', keterangan, formatNumber(amount)]
+    ];
 
     autoTable(doc, {
         startY: currentY,
@@ -133,9 +114,8 @@ const buildDoc = (payment, allocations) => {
         },
         columnStyles: { 
             0: { halign: 'center', cellWidth: 12 }, 
-            1: { cellWidth: 50 }, 
-            2: { }, 
-            3: { halign: 'right', cellWidth: 40 } 
+            1: { }, // Auto width for Keterangan
+            2: { halign: 'right', cellWidth: 40 } 
         },
         margin: { left: margin.left, right: margin.right },
     });
@@ -143,19 +123,16 @@ const buildDoc = (payment, allocations) => {
     // --- 4. SUMMARY FOOTER ---
     currentY = doc.lastAutoTable.finalY + 5;
     
-    // Prioritaskan totalBayar dari header, kalau 0/null pakai hasil hitung tabel
-    const finalTotal = Number(payment.totalBayar) || calculatedTotal;
-
     const totalColValueX = pageWidth - margin.right; 
     const totalColLabelX = totalColValueX - 50;
 
     doc.setFontSize(9);
     doc.setFont(fontName, 'bold');
-    doc.text('Total Pembayaran:', totalColLabelX, currentY);
-    doc.text(formatNumber(finalTotal), totalColValueX, currentY, { align: 'right' });
+    doc.text('Total:', totalColLabelX, currentY);
+    doc.text(formatNumber(amount), totalColValueX, currentY, { align: 'right' });
 
     return doc;
 };
 
-export const generateNotaPembayaranPDF = (payment, allocations) => 
-    buildDoc(payment, allocations).output('datauristring');
+export const generateNotaNonFakturPDF = (data) => 
+    buildDoc(data).output('datauristring');

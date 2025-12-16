@@ -1,82 +1,55 @@
-// src/components/PdfPreviewModal.jsx
-import React, { useRef } from 'react';
-import { Modal, Button, Space, message } from 'antd';
-import { PrinterOutlined, DownloadOutlined } from '@ant-design/icons';
+import React from 'react';
+import { Modal, Button } from 'antd';
+import { DownloadOutlined, CloseOutlined } from '@ant-design/icons';
 
-const PdfPreviewModal = ({ visible, onClose, pdfBlobUrl, fileName = "document.pdf" }) => {
-    const iframeRef = useRef(null);
-
-    // Fungsi untuk memicu download dari dalam modal
+export default function PdfPreviewModal({ visible, onClose, pdfBlobUrl, fileName }) {
+    
+    // Fungsi untuk download manual jika tombol download di viewer tidak muncul
     const handleDownload = () => {
-        if (!pdfBlobUrl) {
-            message.error("URL PDF tidak valid.");
-            return;
-        }
-        try {
-            const link = document.createElement('a');
-            link.href = pdfBlobUrl;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            // URL.revokeObjectURL(pdfBlobUrl); // Jangan revoke di sini, biarkan BukuPage yg handle
-        } catch (error) {
-            console.error("Error downloading PDF:", error);
-            message.error("Gagal mengunduh PDF.");
-        }
-    };
-
-    // Fungsi untuk memicu print dari iframe
-    const handlePrint = () => {
-        if (iframeRef.current && iframeRef.current.contentWindow) {
-            try {
-                iframeRef.current.contentWindow.focus(); // Fokus ke iframe
-                iframeRef.current.contentWindow.print(); // Panggil print
-            } catch (error) {
-                console.error("Error printing PDF from iframe:", error);
-                message.error("Gagal memulai print. Coba print manual dari viewer PDF.");
-                // Fallback: Buka di tab baru untuk print manual
-                // window.open(pdfBlobUrl, '_blank');
-            }
-        } else {
-             message.error("Tidak dapat mengakses konten PDF untuk dicetak.");
-        }
+        const link = document.createElement('a');
+        link.href = pdfBlobUrl;
+        link.download = fileName || 'dokumen.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     return (
         <Modal
-            title="Pratinjau PDF"
-            open={visible}
+            title={`Preview: ${fileName || 'Dokumen'}`}
+            open={visible} // AntD v5 pakai 'open', v4 pakai 'visible'
             onCancel={onClose}
-            width="90%" // Lebar modal
-            style={{ top: 20 }} // Posisi dekat atas
-            destroyOnClose={true} // Hapus iframe saat ditutup
-            footer={ // Tombol custom di footer
-                <Space>
-                    <Button key="download" icon={<DownloadOutlined />} onClick={handleDownload}>
-                        Download PDF
-                    </Button>
-                    <Button key="print" icon={<PrinterOutlined />} onClick={handlePrint}>
-                        Cetak
-                    </Button>
-                    <Button key="close" onClick={onClose}>
-                        Tutup
-                    </Button>
-                </Space>
-            }
+            width={1000}
+            centered
+            footer={[
+                <Button key="close" icon={<CloseOutlined />} onClick={onClose}>
+                    Tutup
+                </Button>,
+                <Button 
+                    key="download" 
+                    type="primary" 
+                    icon={<DownloadOutlined />} 
+                    onClick={handleDownload}
+                >
+                    Download PDF
+                </Button>,
+            ]}
+            bodyStyle={{ padding: 0, height: '80vh' }}
+            style={{ top: 20 }}
         >
             {pdfBlobUrl ? (
                 <iframe
-                    ref={iframeRef}
                     src={pdfBlobUrl}
-                    style={{ width: '100%', height: '75vh', border: 'none' }}
                     title="PDF Preview"
+                    width="100%"
+                    height="100%"
+                    style={{ border: 'none', height: '100%', minHeight: '500px' }}
                 />
             ) : (
-                <p>Memuat pratinjau PDF...</p> // Atau tampilkan loading indicator
+                <div style={{ padding: 20, textAlign: 'center' }}>
+                    Memuat PDF...
+                </div>
             )}
         </Modal>
     );
-};
-
-export default PdfPreviewModal;
+}

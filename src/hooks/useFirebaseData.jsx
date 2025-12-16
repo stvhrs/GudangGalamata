@@ -37,7 +37,7 @@ export const useNonFakturStream = (dateRange) => {
 
         // Setup Query ke path 'nonFaktur'
         const dbRef = query(
-            ref(db, 'nonFaktur'),
+            ref(db, 'non_faktur'),
             orderByChild('tanggal'),
             startAt(startDate),
             endAt(endDate)
@@ -116,7 +116,7 @@ export const useReturStream = (dateRange) => {
         // Logic Query
         const startDate = dateRange ? dayjs(dateRange[0]).startOf('day').valueOf() : 0;
         const endDate = dateRange ? dayjs(dateRange[1]).endOf('day').valueOf() : Date.now();
-        const q = query(ref(db, 'historiRetur'), orderByChild('tanggal'), startAt(startDate), endAt(endDate));
+        const q = query(ref(db, 'returns'), orderByChild('tanggal'), startAt(startDate), endAt(endDate));
 
         // Matikan listener "hantu" dari page sebelumnya
         if (globalRetur.unsubscribe) globalRetur.unsubscribe();
@@ -189,7 +189,7 @@ export const usePembayaranStream = (dateRange) => {
         const startDate = dateRange ? dayjs(dateRange[0]).startOf('day').valueOf() : 0;
         const endDate = dateRange ? dayjs(dateRange[1]).endOf('day').valueOf() : Date.now();
         const q = query(
-            ref(db, 'historiPembayaran'), 
+            ref(db, 'payments'), 
             orderByChild('tanggal'), 
             startAt(startDate), 
             endAt(endDate)
@@ -383,7 +383,7 @@ const connectTransaksiStream = (filterParams) => {
     globalTransaksiFilterKey = newFilterKey;
     notifyTransaksiSubscribers();
 
-    const dbRef = ref(db, 'transaksiJualBuku');
+    const dbRef = ref(db, 'invoices');
     let q;
 
     if (filterParams.mode === 'all') {
@@ -504,7 +504,7 @@ const connectHistoriStream = (filterParams) => {
     }, 0);
 };
 
-export const useHistoriStokStream = ({ startDate, endDate }) => {
+export const usestock_historyStream = ({ startDate, endDate }) => {
     const [data, setData] = useState(globalHistoriData);
     const [loading, setLoading] = useState(globalHistoriLoading);
     const filterKey = JSON.stringify({ startDate, endDate });

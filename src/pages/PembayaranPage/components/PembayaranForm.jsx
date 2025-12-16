@@ -1,37 +1,33 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Modal, Form, Input, InputNumber, DatePicker, Upload, Button,
-    Typography, message, List, Checkbox, Row, Col, Empty, Alert, Tag, Spin
+    Typography, message, List, Checkbox, Row, Col, Empty, Tag, Spin, Divider, Select
 } from 'antd';
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { v4 as uuidv4 } from 'uuid';
+
+// --- IMPORT HOOK PELANGGAN ---
+import { usePelangganStream } from '../../../hooks/useFirebaseData';
 
 // IMPORT FIREBASE
-import { db, storage } from '../../../api/firebase';
+import { db, storage } from '../../../api/firebase'; 
 import {
-    ref, update, get, query, orderByChild,
-    startAt, endAt
+    ref, update, get, query, orderByChild, orderByKey,
+    startAt, endAt, equalTo, limitToLast
 } from "firebase/database";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const { Text } = Typography;
+const { Option } = Select;
 
 // --- KONFIGURASI ---
-const FIXED_KATEGORI = 'Penjualan Buku';
-const FIXED_TIPE = 'pemasukan';
-const DEFAULT_KETERANGAN = 'Pembayaran Tagihan';
+const SOURCE_DEFAULT = 'INVOICE_PAYMENT'; 
+const ARAH_TRANSAKSI = 'IN';
 
 const currencyFormatter = (value) =>
     new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 
-const generateTransactionId = () => {
-    const year = dayjs().format('YYYY');
-    const month = dayjs().format('MM');
-    const uniquePart = Math.floor(1000 + Math.random() * 9000);
-    // Format: PP-202510-1234 (Satu ID untuk banyak invoice)
-    return `PP-${year}${month}-${uniquePart}`;
-};
+const generateAllocationId = (paymentId, invoiceId) => `ALLOC_${paymentId}_${invoiceId}`;
 
 const getBase64 = (file) =>
     new Promise((resolve, reject) => {
@@ -43,50 +39,69 @@ const getBase64 = (file) =>
 
 // --- LIST ITEM COMPONENT ---
 const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, onNominalChange, readOnly }) => {
-    const hasDebt = item.sisaTagihan > 0;
-
     return (
-        <List.Item style={{ padding: '8px 12px', background: isSelected ? '#e6f7ff' : '#fff', borderBottom: '1px solid #f0f0f0' }}>
-            <div style={{ width: '100%' }}>
+        <List.Item 
+            style={{ 
+                padding: '8px 12px', 
+                background: isSelected ? '#e6f7ff' : '#fff', 
+                borderBottom: '1px solid #f0f0f0',
+                transition: 'all 0.3s'
+            }}
+            actions={!readOnly ? [
+                 <Checkbox
+                    checked={isSelected}
+                    onChange={(e) => onToggle(item.id, e.target.checked)}
+                />
+            ] : []}
+        >
+            <div style={{ width: '100%', marginRight: 16 }}>
                 <Row align="middle" gutter={8}>
                     <Col flex="auto">
                         <div style={{ fontWeight: 'bold', fontSize: 13, color: 'rgba(0, 0, 0, 0.88)' }}>
-                            {item.namaPelanggan}
+                            {item.namaCustomer}
                         </div>
                         <div style={{ fontSize: 11, color: '#666' }}>
-                            {item.nomorInvoice} • {dayjs(item.tanggal).format('DD MMM YY')}
+                            {item.id} • {dayjs(item.tanggal).format('DD MMM YY')}
                         </div>
                         <div style={{ fontSize: 11, marginTop: 2 }}>
-                            Total: {currencyFormatter(item.totalTagihan)} | 
-                            Sisa: <Text type={hasDebt ? "danger" : "secondary"} strong>{currencyFormatter(item.sisaTagihan)}</Text>
+                            {/* TAMPILKAN LOGIKA HITUNGAN BIAR JELAS */}
+                            <span style={{color: '#555'}}>
+                                Netto: {currencyFormatter(item.totalNetto)} <br/>
+                                Sudah Bayar: {currencyFormatter(item.sudahBayar)}
+                            </span>
+                            <div style={{marginTop: 4}}>
+                                {readOnly ? 'Sisa Awal:' : 'Sisa Tagihan:'} <Text type="danger" strong>{currencyFormatter(item.sisaTagihan)}</Text>
+                            </div>
                         </div>
                     </Col>
 
                     <Col>
-                        {isSelected ? (
-                            <InputNumber
-                                value={allocation}
-                                onChange={(v) => onNominalChange(v, item.id)}
-                                formatter={value => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''}
-                                parser={value => value ? value.replace(/\./g, '') : ''}
-                                style={{ width: 110, fontSize: 13 }}
-                                placeholder="Nominal"
-                                min={0}
-                                disabled={readOnly}
-                            />
+                        {readOnly ? (
+                            <div style={{textAlign: 'right'}}>
+                                <div style={{fontSize: 10, color: '#666'}}>Bayar Skrg:</div>
+                                <Text strong style={{color: '#1890ff'}}>
+                                    {currencyFormatter(allocation)}
+                                </Text>
+                            </div>
                         ) : (
-                            <Tag color={hasDebt ? "red" : "green"} style={{ fontSize: 10 }}>
-                                {hasDebt ? "BELUM LUNAS" : "LUNAS"}
-                            </Tag>
+                            isSelected ? (
+                                <InputNumber
+                                    value={allocation}
+                                    onChange={(v) => onNominalChange(v, item.id)}
+                                    formatter={value => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''}
+                                    parser={value => value ? value.replace(/\./g, '') : ''}
+                                    style={{ width: 130, fontSize: 13 }}
+                                    placeholder="Nominal"
+                                    min={1} 
+                                    max={item.sisaTagihan} // User tidak boleh bayar lebih dari sisa
+                                    status={!allocation ? 'error' : ''}
+                                />
+                            ) : (
+                                <Tag color="red" style={{ fontSize: 10 }}>
+                                    BELUM
+                                </Tag>
+                            )
                         )}
-                    </Col>
-
-                    <Col>
-                        <Checkbox
-                            checked={isSelected}
-                            onChange={() => onToggle(item.id, item.sisaTagihan)}
-                            disabled={readOnly && !isSelected}
-                        />
                     </Col>
                 </Row>
             </div>
@@ -103,86 +118,66 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
 
+    // --- DATA PELANGGAN ---
+    const { pelangganList: rawPelangganData, loadingPelanggan } = usePelangganStream();
+    
+    const pelangganList = useMemo(() => {
+        if (!rawPelangganData) return [];
+        let processed = [];
+        if (Array.isArray(rawPelangganData)) {
+            processed = rawPelangganData;
+        } else if (typeof rawPelangganData === 'object') {
+            processed = Object.keys(rawPelangganData).map(key => ({
+                id: key,
+                ...rawPelangganData[key]
+            }));
+        }
+        return processed.map(p => ({
+            ...p,
+            displayName: p.nama || p.name || p.namaPelanggan || `(ID:${p.id})`
+        }));
+    }, [rawPelangganData]);
+
     // --- STATE ---
-    const [searchText, setSearchText] = useState('');
+    const [selectedCustomerName, setSelectedCustomerName] = useState(null);
     const [fileList, setFileList] = useState([]);
     const [previewOpen, setPreviewOpen] = useState(false);
     const [previewImage, setPreviewImage] = useState('');
 
-    const [invoiceList, setInvoiceList] = useState([]);
+    const [invoiceList, setInvoiceList] = useState([]); 
+    const [historyList, setHistoryList] = useState([]); 
+    
     const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
     const [paymentAllocations, setPaymentAllocations] = useState({});
 
     const [isSearching, setIsSearching] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-    // --- INITIALIZATION ---
+    const [totalInputAmount, setTotalInputAmount] = useState(0);
+
+    const maxPayableAmount = useMemo(() => {
+        return invoiceList.reduce((sum, item) => sum + (Number(item.sisaTagihan) || 0), 0);
+    }, [invoiceList]);
+
+    // --- INITIAL LOAD ---
     useEffect(() => {
         if (!open) {
             resetFormState();
         } else {
-            setIsSaving(false);
             if (initialValues) {
-                // MODE EDIT
-                const totalBayar = Math.abs(initialValues.jumlahBayar || initialValues.jumlah || 0);
                 form.setFieldsValue({
-                    ...initialValues,
-                    tanggal: initialValues.tanggal ? dayjs(initialValues.tanggal) : dayjs(),
-                    jumlahTotal: totalBayar,
-                    keterangan: initialValues.keterangan || DEFAULT_KETERANGAN 
+                    tanggal: dayjs(initialValues.tanggal),
+                    keterangan: initialValues.keterangan
                 });
-
-                let idsToLoad = [];
-                let allocations = {};
-                let selectedIds = [];
-
-                if (initialValues.detailAlokasi) {
-                    Object.entries(initialValues.detailAlokasi).forEach(([key, val]) => {
-                        const amount = typeof val === 'object' ? val.amount : val; // Handle format lama/baru
-                        idsToLoad.push(key);
-                        allocations[key] = amount;
-                        selectedIds.push(key);
-                    });
-                } else if (initialValues.idTransaksi) {
-                    // Fallback data lama (single link)
-                    const id = initialValues.idTransaksi;
-                    idsToLoad.push(id);
-                    allocations[id] = totalBayar;
-                    selectedIds.push(id);
-                }
-
-                setSelectedInvoiceIds(selectedIds);
-                setPaymentAllocations(allocations);
-
-                if (idsToLoad.length > 0) {
-                    setIsSearching(true);
-                    Promise.all(idsToLoad.map(id => get(ref(db, `transaksiJualBuku/${id}`))))
-                        .then(snapshots => {
-                            let list = [];
-                            snapshots.forEach(snap => {
-                                if (snap.exists()) {
-                                    const val = snap.val();
-                                    list.push({
-                                        id: snap.key,
-                                        ...val,
-                                        sisaTagihan: (val.totalTagihan || 0) - (val.jumlahTerbayar || 0)
-                                    });
-                                }
-                            });
-                            setInvoiceList(list); 
-                        })
-                        .finally(() => setIsSearching(false));
-                }
-                if (initialValues.buktiUrl) {
-                    setFileList([{ uid: '-1', name: 'Bukti', status: 'done', url: initialValues.buktiUrl }]);
-                }
+                setTotalInputAmount(initialValues.totalBayar);
+                setSelectedCustomerName(initialValues.namaCustomer);
+                fetchPaymentHistory(initialValues.id);
             } else {
-                // MODE BARU
                 form.resetFields();
                 form.setFieldsValue({ 
                     tanggal: dayjs(), 
-                    jumlahTotal: 0,
-                    keterangan: DEFAULT_KETERANGAN 
+                    keterangan: '' 
                 });
             }
         }
@@ -194,216 +189,354 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         setPreviewImage('');
         setSelectedInvoiceIds([]);
         setInvoiceList([]);
+        setHistoryList([]);
         setPaymentAllocations({});
-        setSearchText('');
+        setSelectedCustomerName(null);
+        setTotalInputAmount(0);
         setIsSearching(false);
+        setIsLoadingHistory(false);
     };
 
-    // --- SEARCH LOGIC ---
-    const handleSearch = async () => {
-        if (!searchText.trim()) return;
-        setIsSearching(true);
-        const keyword = searchText.toUpperCase().trim();
-        
+    // --- FETCH HISTORY (VIEW MODE) ---
+    const fetchPaymentHistory = async (paymentId) => {
+        setIsLoadingHistory(true);
         try {
-            // Cari by Nama & No Invoice Paralel
-            const [snapName, snapInv] = await Promise.all([
-                get(query(ref(db, 'transaksiJualBuku'), orderByChild('namaPelanggan'), startAt(keyword), endAt(keyword + "\uf8ff"))),
-                get(query(ref(db, 'transaksiJualBuku'), orderByChild('nomorInvoice'), startAt(keyword), endAt(keyword + "\uf8ff")))
-            ]);
+            const allocQuery = query(
+                ref(db, 'payment_allocations'),
+                orderByChild('paymentId'),
+                equalTo(paymentId)
+            );
+            const allocSnap = await get(allocQuery);
 
-            const combinedMap = new Map();
-            const processSnapshot = (snap) => {
-                if (snap.exists()) {
-                    snap.forEach((child) => {
-                        const val = child.val();
-                        const sisa = (val.totalTagihan || 0) - (val.jumlahTerbayar || 0);
-                        // Tampilkan hanya yang belum lunas
-                        if (sisa > 0 && val.statusPembayaran !== 'Lunas') {
-                            combinedMap.set(child.key, { id: child.key, ...val, sisaTagihan: sisa });
-                        }
-                    });
-                }
-            };
+            if (allocSnap.exists()) {
+                const allocations = allocSnap.val();
+                const promises = Object.values(allocations).map(async (alloc) => {
+                    const invSnap = await get(ref(db, `invoices/${alloc.invoiceId}`));
+                    let invData = {};
+                    if (invSnap.exists()) {
+                        invData = invSnap.val();
+                    }
+                    
+                    const netto = Number(invData.totalNetto) || 0;
+                    const bayarTotal = Number(invData.totalBayar) || 0;
+                    // Sisa saat ini (setelah dibayar)
+                    const sisa = netto - bayarTotal;
 
-            processSnapshot(snapName);
-            processSnapshot(snapInv);
+                    return {
+                        id: alloc.invoiceId,
+                        namaCustomer: invData.namaCustomer || 'Unknown',
+                        tanggal: invData.tanggal || 0,
+                        totalNetto: netto,
+                        sudahBayar: bayarTotal,
+                        sisaTagihan: sisa, 
+                        amountAllocated: alloc.amount
+                    };
+                });
+                const historyData = await Promise.all(promises);
+                setHistoryList(historyData);
+            } else {
+                setHistoryList([]);
+            }
+        } catch (error) {
+            console.error("Error fetching history:", error);
+            message.error("Gagal mengambil rincian alokasi.");
+        } finally {
+            setIsLoadingHistory(false);
+        }
+    };
 
-            const results = Array.from(combinedMap.values());
-            results.sort((a, b) => dayjs(a.tanggal).valueOf() - dayjs(b.tanggal).valueOf()); // Urutkan terlama
+    const generateCustomPaymentId = async (inputDate) => {
+        const dateStr = dayjs(inputDate).format('YY-MM-DD'); 
+        const prefix = `PY-${dateStr}-`;
+        const paymentsRef = ref(db, 'payments');
+        const q = query(paymentsRef, orderByKey(), startAt(prefix), endAt(prefix + '\uf8ff'), limitToLast(1));
+        const snapshot = await get(q);
+        let nextIndex = 1;
+        if (snapshot.exists()) {
+            const lastId = Object.keys(snapshot.val())[0];
+            const lastIndexNum = parseInt(lastId.split('-').pop(), 10);
+            if (!isNaN(lastIndexNum)) nextIndex = lastIndexNum + 1;
+        }
+        return `${prefix}${String(nextIndex).padStart(4, '0')}`;
+    };
 
-            if (results.length === 0) message.info("Tidak ditemukan tagihan belum lunas.");
-            else message.success(`Ditemukan ${results.length} tagihan.`);
+    // --- SEARCH INVOICE (CREATE MODE) ---
+    const handleCustomerSelect = async (namaPelanggan) => {
+        if (!namaPelanggan) return;
+        
+        setSelectedCustomerName(namaPelanggan);
+        setIsSearching(true);
+        
+        const exactNameUpper = namaPelanggan.toUpperCase(); 
+
+        try {
+            // FILTER LANGSUNG: Hanya ambil yang compositeStatusnya "NAMA_BELUM"
+            const targetStatus = `${exactNameUpper}_BELUM`;
+
+            const q = query(
+                ref(db, 'invoices'), 
+                orderByChild('compositeStatus'), 
+                equalTo(targetStatus)
+            );
+
+            const snap = await get(q);
+            let results = [];
+            
+            if (snap.exists()) {
+                snap.forEach((child) => {
+                    const val = child.val();
+                    
+                    // --- LOGIKA HITUNG SISA HUTANG ---
+                    // Hutang = Total Netto - Total yang sudah dibayar
+                    const totalNetto = Number(val.totalNetto) || 0;
+                    const sudahBayar = Number(val.totalBayar) || 0;
+                    const sisaTagihan = totalNetto - sudahBayar;
+                    
+                    // Ambil jika masih ada sisa (toleransi koma)
+                    if (sisaTagihan > 100) { 
+                        results.push({
+                            id: child.key,
+                            ...val,
+                            totalNetto: totalNetto,
+                            sudahBayar: sudahBayar,
+                            sisaTagihan: sisaTagihan
+                        });
+                    }
+                });
+            }
+
+            results.sort((a, b) => dayjs(a.tanggal).valueOf() - dayjs(b.tanggal).valueOf());
+
+            if (results.length === 0) message.info(`Tidak ada tagihan BELUM LUNAS untuk "${namaPelanggan}".`);
             
             setInvoiceList(results);
+            setTotalInputAmount(0);
+            setPaymentAllocations({});
+            setSelectedInvoiceIds([]);
 
         } catch (err) {
             console.error(err);
-            message.error("Gagal mencari data.");
+            message.error("Gagal mengambil data tagihan.");
         } finally {
             setIsSearching(false);
         }
     };
 
-    // --- CALCULATION LOGIC ---
-    const handleNominalChange = useCallback((val, recordId) => {
+    const distributeAmount = useCallback((amountToDistribute) => {
+        if (invoiceList.length === 0) return;
+        let remainingMoney = amountToDistribute;
+        let newAllocations = {};
+        let newSelectedIds = [];
+
+        for (const invoice of invoiceList) {
+            if (remainingMoney <= 0) break;
+            const amountNeeded = invoice.sisaTagihan;
+            let amountToPay = remainingMoney >= amountNeeded ? amountNeeded : remainingMoney;
+            remainingMoney = remainingMoney >= amountNeeded ? remainingMoney - amountNeeded : 0;
+            newAllocations[invoice.id] = amountToPay;
+            newSelectedIds.push(invoice.id);
+        }
+        setPaymentAllocations(newAllocations);
+        setSelectedInvoiceIds(newSelectedIds);
+    }, [invoiceList]);
+
+    const handleTotalBayarChange = (val) => {
+        let amount = val || 0;
+        if (amount > maxPayableAmount) amount = maxPayableAmount; 
+        setTotalInputAmount(amount);
+        distributeAmount(amount);
+    };
+
+    const handleNominalChange = (val, invoiceId) => {
+        const value = val || 0;
         setPaymentAllocations(prev => {
-            const newAlloc = { ...prev, [recordId]: val };
-            const total = Object.values(newAlloc).reduce((a, b) => a + (Number(b) || 0), 0);
-            form.setFieldsValue({ jumlahTotal: total });
+            const newAlloc = { ...prev };
+            if (value <= 0) {
+                delete newAlloc[invoiceId];
+                setSelectedInvoiceIds(prevIds => prevIds.filter(id => id !== invoiceId));
+            } else {
+                newAlloc[invoiceId] = value;
+            }
+            let newTotal = Object.values(newAlloc).reduce((a, b) => a + b, 0);
+            if (newTotal > maxPayableAmount) newTotal = maxPayableAmount;
+            setTotalInputAmount(newTotal);
             return newAlloc;
         });
-    }, [form]);
+    };
 
-    const toggleSelection = useCallback((id, sisaTagihan) => {
-        setSelectedInvoiceIds(prev => {
-            const isSelected = prev.includes(id);
-            let newSelected;
-            
-            setPaymentAllocations(prevAlloc => {
-                const newAlloc = { ...prevAlloc };
-                if (isSelected) {
-                    delete newAlloc[id];
-                    newSelected = prev.filter(itemId => itemId !== id);
-                } else {
-                    newAlloc[id] = sisaTagihan > 0 ? sisaTagihan : 0;
-                    newSelected = [...prev, id];
-                }
-                const total = Object.values(newAlloc).reduce((a, b) => a + (Number(b) || 0), 0);
-                form.setFieldsValue({ jumlahTotal: total });
-                return newAlloc;
-            });
-            return newSelected;
-        });
-    }, [form]);
-
-    const handleSelectAll = useCallback((e) => {
-        const checked = e.target.checked;
-        const visibleIds = invoiceList.map(i => i.id);
-
+    const handleToggle = (invoiceId, checked) => {
         if (checked) {
-            setSelectedInvoiceIds(prev => [...new Set([...prev, ...visibleIds])]);
+            const invoice = invoiceList.find(i => i.id === invoiceId);
             setPaymentAllocations(prev => {
-                const newAlloc = { ...prev };
-                invoiceList.forEach(item => {
-                    if (newAlloc[item.id] === undefined) newAlloc[item.id] = item.sisaTagihan > 0 ? item.sisaTagihan : 0;
-                });
-                const total = Object.values(newAlloc).reduce((a, b) => a + (Number(b) || 0), 0);
-                form.setFieldsValue({ jumlahTotal: total });
+                const newAlloc = { ...prev, [invoiceId]: invoice.sisaTagihan };
+                let newTotal = Object.values(newAlloc).reduce((a, b) => a + b, 0);
+                if (newTotal > maxPayableAmount) newTotal = maxPayableAmount;
+                setTotalInputAmount(newTotal);
                 return newAlloc;
             });
+            setSelectedInvoiceIds(prev => [...prev, invoiceId]);
         } else {
-            setSelectedInvoiceIds(prev => prev.filter(id => !visibleIds.includes(id)));
             setPaymentAllocations(prev => {
                 const newAlloc = { ...prev };
-                visibleIds.forEach(id => delete newAlloc[id]);
-                const total = Object.values(newAlloc).reduce((a, b) => a + (Number(b) || 0), 0);
-                form.setFieldsValue({ jumlahTotal: total });
+                delete newAlloc[invoiceId];
+                let newTotal = Object.values(newAlloc).reduce((a, b) => a + b, 0);
+                setTotalInputAmount(newTotal);
                 return newAlloc;
             });
+            setSelectedInvoiceIds(prev => prev.filter(id => id !== invoiceId));
         }
-    }, [invoiceList, form]);
+    };
 
-    const visibleSelectedCount = invoiceList.filter(item => selectedInvoiceIds.includes(item.id)).length;
-    const isAllSelected = invoiceList.length > 0 && visibleSelectedCount === invoiceList.length;
-    const isIndeterminate = visibleSelectedCount > 0 && visibleSelectedCount < invoiceList.length;
+    // --- DELETE HANDLER (ROLLBACK) ---
+    const handleDelete = () => {
+        modal.confirm({
+            title: 'Hapus Pembayaran?',
+            content: 'Data pembayaran akan dihapus dan saldo invoice akan dikembalikan.',
+            okText: 'Hapus Permanen',
+            okType: 'danger',
+            cancelText: 'Batal',
+            onOk: async () => {
+                setIsSaving(true);
+                try {
+                    const paymentId = initialValues.id;
+                    const updates = {};
+                    updates[`payments/${paymentId}`] = null;
 
-    // --- MAIN SAVE LOGIC (SINGLE ID FOR MULTIPLE INVOICES) ---
+                    const allocRef = query(ref(db, 'payment_allocations'), orderByChild('paymentId'), equalTo(paymentId));
+                    const snapshot = await get(allocRef);
+
+                    if (snapshot.exists()) {
+                        const allocations = snapshot.val();
+                        const promises = Object.keys(allocations).map(async (key) => {
+                            const allocItem = allocations[key];
+                            const invId = allocItem.invoiceId;
+                            const amountPaid = Number(allocItem.amount) || 0;
+                            
+                            updates[`payment_allocations/${key}`] = null;
+
+                            // AMBIL DATA INVOICE
+                            const invSnap = await get(ref(db, `invoices/${invId}`));
+                            if(invSnap.exists()){
+                                const invData = invSnap.val();
+                                const currentTotalBayar = Number(invData.totalBayar) || 0;
+                                
+                                // KURANGI TOTAL BAYAR (Rollback saldo)
+                                const newTotalBayar = Math.max(0, currentTotalBayar - amountPaid);
+                                
+                                // KEMBALIKAN STATUS KE 'BELUM'
+                                // Karena pembayaran dihapus, asumsinya dia kembali punya hutang
+                                const customerName = invData.namaCustomer || 'UNKNOWN';
+                                const newStatus = 'BELUM';
+                                const newComposite = `${customerName.toUpperCase()}_${newStatus}`;
+
+                                updates[`invoices/${invId}/totalBayar`] = newTotalBayar;
+                                updates[`invoices/${invId}/statusPembayaran`] = newStatus;
+                                updates[`invoices/${invId}/compositeStatus`] = newComposite;
+                                updates[`invoices/${invId}/updatedAt`] = Date.now();
+                            }
+                        });
+                        await Promise.all(promises);
+                    }
+
+                    await update(ref(db), updates);
+                    message.success('Pembayaran dihapus. Saldo invoice dikembalikan.');
+                    onCancel();
+                } catch (error) {
+                    console.error("Delete Error:", error);
+                    message.error("Gagal menghapus data: " + error.message);
+                } finally {
+                    setIsSaving(false);
+                }
+            }
+        });
+    };
+
+    // --- SAVE HANDLER (UPDATE SALDO AKUMULASI) ---
     const handleSave = async (values) => {
-        if (selectedInvoiceIds.length === 0) return message.error("Pilih minimal satu invoice!");
+        if (selectedInvoiceIds.length === 0 || totalInputAmount <= 0) {
+            return message.error("Mohon masukkan nominal pembayaran.");
+        }
+        if (selectedInvoiceIds.some(id => !paymentAllocations[id] || paymentAllocations[id] <= 0)) {
+            return message.error("Ada invoice terpilih dengan nominal 0.");
+        }
 
         setIsSaving(true);
-        message.loading({ content: 'Memproses pembayaran...', key: 'saving' });
+        message.loading({ content: 'Menyimpan...', key: 'saving' });
 
         try {
-            // 1. GENERATE ID TUNGGAL (Sekali saja di luar loop)
-            const mutasiId = initialValues?.id || generateTransactionId();
-            const timestampNow = dayjs(values.tanggal).valueOf();
+            const timestampNow = Date.now();
+            const paymentId = await generateCustomPaymentId(values.tanggal);
+            const firstInv = invoiceList.find(i => i.id === selectedInvoiceIds[0]);
 
-            // Upload Bukti
-            let buktiUrl = initialValues?.buktiUrl || null;
+            let buktiUrl = null;
             if (fileList.length > 0 && fileList[0].originFileObj) {
-                const safeName = (values.keterangan || 'bukti').substring(0, 10).replace(/[^a-z0-9]/gi, '_');
-                const fileRef = storageRef(storage, `bukti_pembayaran/${safeName}-${uuidv4()}`);
+                const safeName = `bukti_${paymentId}`;
+                const fileRef = storageRef(storage, `bukti_pembayaran/${safeName}`);
                 await uploadBytes(fileRef, fileList[0].originFileObj);
                 buktiUrl = await getDownloadURL(fileRef);
             }
 
-            // Persiapan Updates
             const updates = {};
-            const detailAlokasiRingkas = {}; // Hanya simpan yang penting
-            let namaPelangganUtama = '';
-            let listNomorInvoice = [];
+            const customerName = selectedCustomerName || firstInv?.namaCustomer || 'UNKNOWN';
+            const customerData = pelangganList.find(p => p.displayName === customerName);
+            const customerId = customerData?.id || firstInv?.customerId || 'UNKNOWN';
 
-            // 2. LOOP SETIAP INVOICE (Update saldo masing-masing)
-            for (const invId of selectedInvoiceIds) {
-                const amount = Number(paymentAllocations[invId]);
-                if (!amount || amount <= 0) continue;
+            const paymentData = {
+                id: paymentId,
+                arah: ARAH_TRANSAKSI,
+                sumber: SOURCE_DEFAULT,
+                tanggal: dayjs(values.tanggal).valueOf(),
+                totalBayar: totalInputAmount,
+                customerId: customerId,
+                namaCustomer: customerName,
+                keterangan: values.keterangan || '-',
+                buktiUrl: buktiUrl,
+                createdAt: timestampNow,
+                updatedAt: timestampNow
+            };
+            updates[`payments/${paymentId}`] = paymentData;
 
-                const invSnap = await get(ref(db, `transaksiJualBuku/${invId}`));
-                if (!invSnap.exists()) continue;
-
-                const dbInv = invSnap.val();
+            selectedInvoiceIds.forEach(invId => {
+                const invoiceRef = invoiceList.find(i => i.id === invId);
+                const amountAllocated = Number(paymentAllocations[invId]); // Uang yang disetor kali ini
+                const allocationId = generateAllocationId(paymentId, invId);
                 
-                // Ambil satu nama untuk judul
-                if (!namaPelangganUtama) namaPelangganUtama = dbInv.namaPelanggan;
-                listNomorInvoice.push(dbInv.nomorInvoice);
+                updates[`payment_allocations/${allocationId}`] = {
+                    id: allocationId,
+                    paymentId: paymentId,
+                    invoiceId: invId,
+                    amount: amountAllocated,
+                    createdAt: timestampNow,
+                    updatedAt: timestampNow
+                };
 
-                // Hitung Saldo Baru
-                let basePaid = Number(dbInv.jumlahTerbayar || 0);
-                if (initialValues) {
-                    // Jika edit, kurangi pembayaran lama dulu
-                    const oldAlloc = initialValues.detailAlokasi?.[invId]?.amount || 
-                                     (initialValues.idTransaksi === invId ? initialValues.jumlah : 0) || 0;
-                    basePaid -= Number(oldAlloc);
+                // --- LOGIKA UPDATE INVOICE ---
+                const totalNetto = Number(invoiceRef.totalNetto) || 0; // Nilai asli invoice
+                const currentSudahBayar = Number(invoiceRef.sudahBayar) || 0; // Yang sudah dibayar sebelumnya
+                
+                // 1. Tambahkan pembayaran baru ke yang sudah ada
+                const newTotalBayar = currentSudahBayar + amountAllocated;
+
+                // 2. Tentukan Status
+                let newStatus = 'BELUM';
+                
+                // Syarat Lunas: Total yang dibayar >= Total Netto (dengan toleransi pembulatan)
+                // Jika masih kurang 1 perak pun, status tetap BELUM
+                if (newTotalBayar >= (totalNetto - 100)) { 
+                    newStatus = 'LUNAS';
                 }
 
-                const newTotalPaid = basePaid + amount;
-                const newStatus = newTotalPaid >= (dbInv.totalTagihan || 0) ? 'Lunas' : 'Belum';
+                const finalCustomerName = invoiceRef.namaCustomer || customerName;
+                const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
 
-                // Update Data Invoice
-                updates[`transaksiJualBuku/${invId}/jumlahTerbayar`] = newTotalPaid;
-                updates[`transaksiJualBuku/${invId}/statusPembayaran`] = newStatus;
-                
-                // Link Riwayat Pembayaran di Invoice (Mengarah ke mutasiId yang SAMA)
-                updates[`transaksiJualBuku/${invId}/riwayatPembayaran/${mutasiId}`] = {
-                    tanggal: timestampNow,
-                    jumlah: amount,
-                    mutasiId: mutasiId,
-                    keterangan: values.keterangan || DEFAULT_KETERANGAN
-                };
-
-                // Masukkan ke detail alokasi (Ringkes)
-                detailAlokasiRingkas[invId] = {
-                    amount: amount,
-                    noInvoice: dbInv.nomorInvoice
-                };
-            }
-
-            // 3. BUAT DATA MUTASI (SATU DATA SAJA)
-            const dataMutasi = {
-                id: mutasiId,
-                tipe: FIXED_TIPE,
-                kategori: FIXED_KATEGORI,
-                tanggal: timestampNow,
-                jumlah: values.jumlahTotal, 
-                keterangan: values.keterangan || DEFAULT_KETERANGAN,
-                buktiUrl: buktiUrl,
-                namaPelanggan: namaPelangganUtama + (selectedInvoiceIds.length > 1 ? '' : ''), // Nama + dkk jika banyak
-                
-                // KUNCI: Data ringkas, 1 ID, tapi mencakup banyak invoice
-                detailAlokasi: detailAlokasiRingkas, 
-                nomorInvoice: listNomorInvoice.join(', '), // Gabungan nomor invoice
-                
-                index_kategori_tanggal: `Penjualan Buku_${timestampNow}`,
-                nomorBuktiDisplay: mutasiId
-            };
-
-            updates[`mutasi/${mutasiId}`] = dataMutasi;
-            updates[`historiPembayaran/${mutasiId}`] = dataMutasi;
+                updates[`invoices/${invId}/totalBayar`] = newTotalBayar; // Simpan akumulasi
+                updates[`invoices/${invId}/statusPembayaran`] = newStatus;
+                updates[`invoices/${invId}/compositeStatus`] = newComposite;
+                updates[`invoices/${invId}/updatedAt`] = timestampNow;
+            });
 
             await update(ref(db), updates);
-            message.success({ content: 'Pembayaran tersimpan (Single ID)!', key: 'saving' });
+            message.success({ content: `Tersimpan! ID: ${paymentId}`, key: 'saving' });
             onCancel();
 
         } catch (error) {
@@ -414,154 +547,195 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         }
     };
 
-    // --- DELETE LOGIC ---
-    const handleDelete = () => {
-        modal.confirm({
-            title: 'Hapus Pembayaran?',
-            content: 'Saldo akan dikembalikan ke masing-masing invoice.',
-            okText: 'Hapus',
-            okType: 'danger',
-            onOk: async () => {
-                setIsSaving(true);
-                try {
-                    const mutasiId = initialValues.id;
-                    const updates = {};
-                    
-                    // Hapus Mutasi Utama
-                    updates[`mutasi/${mutasiId}`] = null;
-                    updates[`historiPembayaran/${mutasiId}`] = null;
-
-                    // Kembalikan Saldo Invoice
-                    const allocations = initialValues.detailAlokasi || {};
-                    // Backward compatibility untuk data lama
-                    if (Object.keys(allocations).length === 0 && initialValues.idTransaksi) {
-                        allocations[initialValues.idTransaksi] = { amount: initialValues.jumlah };
-                    }
-
-                    for (const [invId, val] of Object.entries(allocations)) {
-                        const amountToDelete = typeof val === 'object' ? val.amount : val;
-                        const invSnap = await get(ref(db, `transaksiJualBuku/${invId}`));
-                        
-                        if (invSnap.exists()) {
-                            const invData = invSnap.val();
-                            const currentPaid = Number(invData.jumlahTerbayar || 0);
-                            const newPaid = Math.max(0, currentPaid - Number(amountToDelete));
-                            
-                            updates[`transaksiJualBuku/${invId}/jumlahTerbayar`] = newPaid;
-                            updates[`transaksiJualBuku/${invId}/statusPembayaran`] = newPaid >= (invData.totalTagihan || 0) ? 'Lunas' : 'Belum';
-                            updates[`transaksiJualBuku/${invId}/riwayatPembayaran/${mutasiId}`] = null;
-                        }
-                    }
-
-                    await update(ref(db), updates);
-                    message.success('Pembayaran dihapus.');
-                    onCancel();
-                } catch (error) {
-                    message.error("Gagal hapus: " + error.message);
-                } finally {
-                    setIsSaving(false);
-                }
-            }
-        });
-    };
-
     return (
         <>
             {contextHolder}
             <Modal
                 open={open}
-                title={initialValues ? "Edit Pembayaran" : "Input Pembayaran Baru"}
+                title={initialValues ? "Detail Pembayaran" : "Input Pembayaran Pelanggan"}
                 onCancel={onCancel}
-                width={700}
+                width={750}
                 maskClosable={false}
                 footer={[
-                    initialValues && <Button key="del" danger icon={<DeleteOutlined />} onClick={handleDelete}>Hapus</Button>,
+                    initialValues && (
+                        <Button key="delete" danger icon={<DeleteOutlined />} onClick={handleDelete} loading={isSaving}>
+                            Hapus
+                        </Button>
+                    ),
                     <Button key="back" onClick={onCancel} disabled={isSaving}>Batal</Button>,
-                    <Button key="submit" type="primary" loading={isSaving} icon={<SaveOutlined />} onClick={() => form.submit()}>Simpan</Button>
+                    !initialValues && (
+                        <Button key="submit" type="primary" loading={isSaving} icon={<SaveOutlined />} onClick={() => form.submit()}>
+                            Simpan Pembayaran
+                        </Button>
+                    )
                 ]}
             >
                 <Form form={form} layout="vertical" onFinish={handleSave}>
-                    {!initialValues ? (
-                        <div style={{ marginBottom: 16 }}>
-                            <Alert message="Pilih invoice sebanyak yang dibayar. Sistem akan membuat 1 ID Pembayaran Gabungan." type="info" showIcon style={{marginBottom: 8}} />
-                            <Input.Search
-                                placeholder="Cari Nama Pelanggan / No Invoice lalu Tekan ENTER"
-                                enterButton="Cari Tagihan"
-                                size="large"
-                                value={searchText}
-                                onChange={e => setSearchText(e.target.value)}
-                                onSearch={handleSearch}
-                                loading={isSearching}
-                            />
+                    
+                    <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+                        {!initialValues ? (
+                            <Row gutter={16}>
+                                <Col span={12}>
+                                    <Form.Item label="1. Pilih Pelanggan" style={{marginBottom: 8}} required>
+                                        <Select
+                                            showSearch
+                                            placeholder="Ketik atau Pilih Nama..."
+                                            optionFilterProp="children"
+                                            loading={loadingPelanggan}
+                                            disabled={loadingPelanggan}
+                                            onChange={handleCustomerSelect}
+                                            value={selectedCustomerName}
+                                            filterOption={(input, option) =>
+                                                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                                            }
+                                            style={{ width: '100%' }}
+                                            notFoundContent={loadingPelanggan ? <Spin size="small" /> : "Tidak ada data"}
+                                        >
+                                            {pelangganList.map(p => (
+                                                <Option key={p.id} value={p.displayName}>
+                                                    {p.displayName}
+                                                </Option>
+                                            ))}
+                                        </Select>
+                                    </Form.Item>
+                                    {invoiceList.length > 0 && (
+                                        <Tag color="blue">Total Sisa Tagihan: {currencyFormatter(maxPayableAmount)}</Tag>
+                                    )}
+                                </Col>
+                                <Col span={12}>
+                                    <Form.Item label="2. Total Uang Diterima" style={{marginBottom: 8}} required>
+                                        <InputNumber
+                                            style={{ width: '100%', fontWeight: 'bold', fontSize: 16 }}
+                                            formatter={v => v ? `Rp ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : 'Rp 0'}
+                                            parser={v => v ? v.replace(/\D/g, '') : ''}
+                                            value={totalInputAmount}
+                                            onChange={handleTotalBayarChange}
+                                            placeholder="Input Nominal..."
+                                            disabled={invoiceList.length === 0}
+                                            max={maxPayableAmount} 
+                                        />
+                                    </Form.Item>
+                                </Col>
+                            </Row>
+                        ) : (
+                            <Row gutter={16}>
+                                <Col span={24}>
+                                    <Tag color="blue" style={{fontSize: 14, padding: 5, marginBottom: 10}}>ID: {initialValues.id}</Tag>
+                                    <div style={{ fontWeight: 'bold', fontSize: 18 }}>
+                                        Total Dibayar: {currencyFormatter(initialValues.totalBayar)}
+                                    </div>
+                                    <div style={{ color: '#666' }}>
+                                        Pelanggan: {initialValues.namaCustomer}
+                                    </div>
+                                    <div style={{marginTop: 5, fontStyle:'italic', fontSize: 12, color: '#ff4d4f'}}>
+                                        *Hapus pembayaran ini untuk mengembalikan saldo dan status invoice.
+                                    </div>
+                                </Col>
+                            </Row>
+                        )}
+                    </div>
+
+                    <Divider dashed style={{margin: '12px 0'}} />
+
+                    <div style={{ marginBottom: 16 }}>
+                        <Text strong>
+                            {initialValues ? "3. Rincian Invoice yang Dibayar:" : "3. Rincian Alokasi ke Tagihan:"}
+                        </Text>
+                        
+                        <div style={{ 
+                            maxHeight: '350px', 
+                            overflowY: 'auto', 
+                            border: '1px solid #d9d9d9', 
+                            borderRadius: 8, 
+                            marginTop: 8, 
+                            backgroundColor: '#fff' 
+                        }}>
+                            {!initialValues ? (
+                                isSearching ? (
+                                    <div style={{ padding: 30, textAlign: 'center' }}><Spin tip="Mengambil tagihan..." /></div>
+                                ) : invoiceList.length === 0 ? (
+                                    <Empty 
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE} 
+                                        description={selectedCustomerName ? "Lunas semua / Tidak ada tagihan" : "Pilih pelanggan dulu"} 
+                                        style={{margin: '20px 0'}} 
+                                    />
+                                ) : (
+                                    <List
+                                        dataSource={invoiceList}
+                                        renderItem={(item) => (
+                                            <InvoiceListItem 
+                                                key={item.id}
+                                                item={item} 
+                                                isSelected={selectedInvoiceIds.includes(item.id)}
+                                                allocation={paymentAllocations[item.id]}
+                                                onToggle={handleToggle}
+                                                onNominalChange={handleNominalChange}
+                                                readOnly={false}
+                                            />
+                                        )}
+                                    />
+                                )
+                            ) : (
+                                isLoadingHistory ? (
+                                    <div style={{ padding: 30, textAlign: 'center' }}><Spin tip="Memuat rincian..." /></div>
+                                ) : historyList.length === 0 ? (
+                                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Data alokasi tidak ditemukan" />
+                                ) : (
+                                    <List
+                                        dataSource={historyList}
+                                        renderItem={(item) => (
+                                            <InvoiceListItem 
+                                                key={item.id}
+                                                item={item} 
+                                                isSelected={true} 
+                                                allocation={item.amountAllocated}
+                                                readOnly={true} 
+                                                onToggle={() => {}} 
+                                                onNominalChange={() => {}}
+                                            />
+                                        )}
+                                    />
+                                )
+                            )}
                         </div>
-                    ) : (
-                         <Alert message="Mode Edit" description="Anda sedang mengedit data pembayaran yang sudah tersimpan." type="warning" showIcon style={{marginBottom: 16}} />
-                    )}
+                    </div>
 
                     <Row gutter={16}>
                         <Col span={12}>
                             <Form.Item name="tanggal" label="Tanggal Pembayaran" rules={[{ required: true }]}>
-                                <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" />
+                                <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" disabled={!!initialValues} />
                             </Form.Item>
                         </Col>
                         <Col span={12}>
-                            <Form.Item name="jumlahTotal" label="Total Dibayarkan">
-                                <InputNumber
-                                    style={{ width: '100%', fontWeight: 'bold', fontSize: 16 }}
-                                    formatter={v => v ? `Rp ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : 'Rp 0'}
-                                    parser={v => v ? v.replace(/\D/g, '') : ''}
-                                    readOnly
-                                />
+                            <Form.Item name="keterangan" label="Keterangan">
+                                <Input placeholder="Contoh: Transfer BCA..." disabled={!!initialValues} />
                             </Form.Item>
                         </Col>
                     </Row>
 
-                    {invoiceList.length > 0 && !initialValues && (
-                        <div style={{ padding: '8px 12px', background: '#f5f5f5', border: '1px solid #f0f0f0', borderBottom: 'none', borderRadius: '8px 8px 0 0', display: 'flex', justifyContent: 'flex-end' }}>
-                            <Checkbox checked={isAllSelected} indeterminate={isIndeterminate} onChange={handleSelectAll}>
-                                <b>Pilih Semua ({invoiceList.length})</b>
-                            </Checkbox>
-                        </div>
+                    {!initialValues && (
+                        <Form.Item label="Bukti Transfer (Opsional)">
+                            <Upload 
+                                accept="image/*" 
+                                listType="picture-card" 
+                                maxCount={1} 
+                                fileList={fileList} 
+                                onPreview={async (file) => {
+                                    if (!file.url && !file.preview) file.preview = await getBase64(file.originFileObj);
+                                    setPreviewImage(file.url || file.preview);
+                                    setPreviewOpen(true);
+                                }}
+                                onChange={({ fileList }) => setFileList(fileList)} 
+                                beforeUpload={() => false}
+                            >
+                                {fileList.length < 1 && <div><PlusOutlined /><div style={{marginTop: 8}}>Upload</div></div>}
+                            </Upload>
+                        </Form.Item>
                     )}
 
-                    <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: invoiceList.length > 0 ? '0 0 8px 8px' : '8px', marginBottom: 16, backgroundColor: '#fafafa' }}>
-                        {isSearching ? <div style={{ padding: 20, textAlign: 'center' }}><Spin tip="Mencari data..." /></div> : 
-                        invoiceList.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Belum ada data" style={{margin: '20px 0'}} /> : 
-                        (
-                            <List
-                                dataSource={invoiceList}
-                                renderItem={(item) => (
-                                    <InvoiceListItem 
-                                        key={item.id}
-                                        item={item} 
-                                        isSelected={selectedInvoiceIds.includes(item.id)}
-                                        allocation={paymentAllocations[item.id]}
-                                        onToggle={toggleSelection}
-                                        onNominalChange={handleNominalChange}
-                                        readOnly={!!initialValues && !selectedInvoiceIds.includes(item.id)} 
-                                    />
-                                )}
-                            />
-                        )}
-                    </div>
-
-                    <Form.Item name="keterangan" label="Catatan">
-                        <Input.TextArea rows={1} placeholder="Keterangan pembayaran..." />
-                    </Form.Item>
-                    
-                    <Form.Item name="bukti" label="Bukti Transfer (Opsional)">
-                        <Upload accept="image/*" listType="picture-card" maxCount={1} fileList={fileList} 
-                            onPreview={async (file) => {
-                                if (!file.url && !file.preview) file.preview = await getBase64(file.originFileObj);
-                                setPreviewImage(file.url || file.preview);
-                                setPreviewOpen(true);
-                            }}
-                            onChange={({ fileList }) => setFileList(fileList)} beforeUpload={() => false}>
-                            {fileList.length < 1 && <div><PlusOutlined /><div style={{marginTop: 8}}>Upload</div></div>}
-                        </Upload>
-                    </Form.Item>
                 </Form>
             </Modal>
+            
             <Modal open={previewOpen} footer={null} onCancel={() => setPreviewOpen(false)}>
                 <img alt="bukti" style={{ width: '100%' }} src={previewImage} />
             </Modal>

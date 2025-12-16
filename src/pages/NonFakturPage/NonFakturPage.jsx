@@ -4,7 +4,7 @@ import {
     Row, Col, message, Tooltip, DatePicker, Tag
 } from 'antd';
 import {
-    PlusOutlined, EditOutlined, EyeOutlined,
+    PlusOutlined, EditOutlined,
     PrinterOutlined, SearchOutlined, LoadingOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -12,14 +12,14 @@ import 'dayjs/locale/id';
 
 // UTILS & HOOKS
 import { currencyFormatter } from '../../utils/formatters';
-// Pastikan Anda sudah membuat hook ini atau sesuaikan dengan hook yang ada
+// Pastikan hook ini mengarah ke node 'non_faktur'
 import { useNonFakturStream, globalNonFaktur } from '../../hooks/useFirebaseData'; 
 import useDebounce from '../../hooks/useDebounce';
-import { generateNotaPembayaranPDF } from '../../utils/notamutasipembayaran'; // Bisa disesuaikan jika layout PDF beda
+// Import PDF Generator yang baru dibuat
+import { generateNotaNonFakturPDF } from '../../utils/notamutasinonfaktur';
 
 // COMPONENTS
-// Anda perlu membuat form ini (lihat catatan di bawah)
-import NonFakturForm from './components/NonFakturForm'; 
+import NonFakturForm from './components/NonFakturForm';
 import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
 
 dayjs.locale('id');
@@ -31,12 +31,11 @@ const { RangePicker } = DatePicker;
 const styles = {
     pageContainer: { padding: '24px', backgroundColor: '#f0f5ff', minHeight: '100vh' },
     card: { borderRadius: 8, border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', background: '#fff' },
-    headerTitle: { fontSize: 16, fontWeight: 600, color: '#1d39c4' },
+    headerTitle: { fontSize: 16, fontWeight: 600, color: '#722ed1' }, // Warna Ungu untuk VF
 };
 
 const NonFakturPage = () => {
     // --- STATE ---
-    // Default 1 tahun atau ambil dari global cache
     const [dateRange, setDateRange] = useState(() => {
         if (typeof globalNonFaktur !== 'undefined' && globalNonFaktur.lastDateRange) {
             return globalNonFaktur.lastDateRange;
@@ -48,11 +47,12 @@ const NonFakturPage = () => {
     const [printingId, setPrintingId] = useState(null);
     
     // --- DATA FETCHING ---
-    // Asumsi: useNonFakturStream mengembalikan { nonFakturList, loadingNonFaktur }
     const { nonFakturList = [], loadingNonFaktur = true } = useNonFakturStream(dateRange);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingRecord, setEditingRecord] = useState(null);
+    
+    // PDF State
     const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
     const [pdfFileName, setPdfFileName] = useState('');
@@ -64,20 +64,18 @@ const NonFakturPage = () => {
 
     // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
-        // Safe Copy
         let data = [...(nonFakturList || [])];
 
         if (deferredSearch) {
             const q = deferredSearch.toLowerCase();
             data = data.filter(tx =>
-                (tx.id || '').toLowerCase().includes(q) ||           // Cari ID VF
-                (tx.nomorInvoice || '').toLowerCase().includes(q) || // Cari Nomor Invoice VF
-                (tx.keterangan || '').toLowerCase().includes(q) ||   // Cari Keterangan (misal: NITIP)
-                (tx.namaPelanggan || '').toLowerCase().includes(q)   // Cari Nama Pelanggan
+                (tx.id || '').toLowerCase().includes(q) ||
+                (tx.keterangan || '').toLowerCase().includes(q) ||
+                (tx.namaCustomer || '').toLowerCase().includes(q)
             );
         }
 
-        // Sort by tanggal terbaru (menggunakan field 'tanggal' dari JSON)
+        // Sort by tanggal terbaru
         data.sort((a, b) => b.tanggal - a.tanggal);
         return data;
     }, [nonFakturList, deferredSearch]);
@@ -98,34 +96,26 @@ const NonFakturPage = () => {
         setTimeout(() => setEditingRecord(null), 300);
     };
 
+    // --- PRINT HANDLER ---
     const handlePrintTransaction = async (record) => {
-        setPrintingId(record.id);
+        setPrintingId(record.id); // Loading button start
+        
+        // Gunakan timeout kecil agar UI sempat update status loading
         setTimeout(() => {
             try {
-                // Persiapan data untuk PDF
-                // Menyesuaikan struktur JSON NonFaktur agar kompatibel dengan generator PDF yang ada
-                const dataToPrint = {
-                    ...record,
-                    id: record.id, // VF...
-                    // Jika NonFaktur tidak punya detail alokasi banyak, kita buat list dummy agar PDF tetap jalan
-                    listInvoices: record.detailAlokasi ? Object.values(record.detailAlokasi) : [{
-                        noInvoice: record.nomorInvoice || record.id || '-',
-                        keterangan: record.keterangan || 'Non-Faktur',
-                        jumlahBayar: record.jumlah
-                    }]
-                };
-
-                const pdfData = generateNotaPembayaranPDF(dataToPrint);
+                // Tidak perlu fetch allocation karena data tunggal
+                const pdfData = generateNotaNonFakturPDF(record);
+                
                 setPdfPreviewUrl(pdfData);
-                setPdfFileName(`Nota_NonFaktur_${record.id}.pdf`);
+                setPdfFileName(`Nota_VF_${record.id}.pdf`);
                 setIsPreviewModalVisible(true);
             } catch (error) {
                 console.error("Gagal generate PDF:", error);
                 message.error("Gagal membuat PDF");
             } finally {
-                setPrintingId(null);
+                setPrintingId(null); // Loading button stop
             }
-        }, 100);
+        }, 300);
     };
 
     const handleClosePreviewModal = () => {
@@ -151,33 +141,32 @@ const NonFakturPage = () => {
             dataIndex: 'id',
             key: 'id',
             width: 150,
-            // Menampilkan ID VF...
             render: (text) => <Tag color="purple">{text}</Tag>,
             sorter: (a, b) => (a.id || '').localeCompare(b.id || ''),
         },
         {
             title: "Nama Pelanggan",
-            dataIndex: 'namaPelanggan',
-            key: 'namaPelanggan',
+            dataIndex: 'namaCustomer', // Variable sesuai JSON
+            key: 'namaCustomer',
             width: 200,
             render: (text) => <Text strong>{text || 'Umum'}</Text>,
-            sorter: (a, b) => (a.namaPelanggan || '').localeCompare(b.namaPelanggan || ''),
+            sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || ''),
         },
         {
             title: "Keterangan",
             dataIndex: 'keterangan',
             key: 'keterangan',
-            width: 200,
+            width: 250,
             render: (text) => <div style={{ fontSize: 13, color: '#595959' }}>{text || '-'}</div>,
         },
         {
-            title: "Nominal",
-            dataIndex: 'jumlah', // Menggunakan field 'jumlah' sesuai JSON
-            key: 'jumlah',
+            title: "Total Bayar",
+            dataIndex: 'totalBayar', // Variable sesuai JSON
+            key: 'totalBayar',
             align: 'right',
             width: 150,
-            render: (val) => <Text strong style={{ color: '#d4380d' }}>{currencyFormatter(val)}</Text>,
-            sorter: (a, b) => (a.jumlah || 0) - (b.jumlah || 0),
+            render: (val) => <Text strong style={{ color: '#722ed1' }}>{currencyFormatter(val)}</Text>,
+            sorter: (a, b) => (a.totalBayar || 0) - (b.totalBayar || 0),
         },
         {
             title: 'Aksi',
@@ -189,6 +178,7 @@ const NonFakturPage = () => {
                 <Space>
                     <Tooltip title="Cetak Nota">
                         <Button
+                            size="small"
                             type="text"
                             icon={printingId === r.id ? <LoadingOutlined /> : <PrinterOutlined />}
                             onClick={() => handlePrintTransaction(r)}
@@ -196,7 +186,7 @@ const NonFakturPage = () => {
                         />
                     </Tooltip>
                     <Tooltip title="Edit">
-                        <Button type="text" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
+                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
                     </Tooltip>
                 </Space>
             )
@@ -246,7 +236,6 @@ const NonFakturPage = () => {
                 />
             </Card>
 
-            {/* FORM MODAL (Perlu dibuat terpisah) */}
             {isModalOpen && (
                 <NonFakturForm
                     key={editingRecord ? editingRecord.id : 'create-new-vf'}

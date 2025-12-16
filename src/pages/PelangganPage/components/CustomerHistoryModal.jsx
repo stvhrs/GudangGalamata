@@ -55,17 +55,49 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const fetchAllTransactionStreams = async (customerId) => {
         setLoading(true);
         try {
+            // 1. Definisikan referensi database
             const invoicesRef = query(ref(db, 'invoices'), orderByChild('customerId'), equalTo(customerId));
             const paymentsRef = query(ref(db, 'payments'), orderByChild('customerId'), equalTo(customerId));
             const nonFakturRef = query(ref(db, 'non_faktur'), orderByChild('customerId'), equalTo(customerId));
             const returnsRef = query(ref(db, 'returns'), orderByChild('customerId'), equalTo(customerId));
+            
+            // Tambahan: Ambil data customer spesifik untuk cek saldoAwal
+            const customerRef = ref(db, `customers/${customerId}`);
 
-            const [invSnap, paySnap, nfSnap, retSnap] = await Promise.all([
-                get(invoicesRef), get(paymentsRef), get(nonFakturRef), get(returnsRef)
+            // 2. Fetch semua secara paralel
+            const [invSnap, paySnap, nfSnap, retSnap, custSnap] = await Promise.all([
+                get(invoicesRef), 
+                get(paymentsRef), 
+                get(nonFakturRef), 
+                get(returnsRef),
+                get(customerRef)
             ]);
 
             let mergedData = [];
 
+            // --- A. PROSES SALDO AWAL (MIGRASI) ---
+            if (custSnap.exists()) {
+                const custData = custSnap.val();
+                const saldoAwal = parseFloat(custData.saldoAwal) || 0;
+
+                // Hanya masukkan jika ada nilai saldo awal (tidak 0)
+                if (saldoAwal !== 0) {
+                    mergedData.push({
+                        key: 'MIGRASI_SALDO_AWAL', // Key unik manual
+                        id: 'MIGRASI',
+                        type: 'MIGRASI',
+                        keterangan: 'Migrasi Mas Steve',
+                        // Jika saldoAwal positif di DB, anggap sebagai Hutang (Debit)
+                        // Jika negatif, anggap Deposit (Kredit), sesuaikan logika bisnis Anda
+                        amount: Math.abs(saldoAwal),
+                        isDebit: true, 
+                        date: new Date('2018-01-01').getTime() // 1 Jan 2018
+                    });
+                }
+            }
+
+            // --- B. PROSES DATA LAINNYA (Sama seperti sebelumnya) ---
+            
             // 1. INVOICES
             if (invSnap.exists()) {
                 const val = invSnap.val();
@@ -352,7 +384,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 if(type === 'INVOICE') { color = 'blue'; label = 'Faktur'; }
                 if(type === 'PAYMENT') { color = 'green'; label = 'Bayar'; }
                 if(type === 'RETURN') { color = 'orange'; label = 'Retur'; }
-                if(type === 'NON_FAKTUR') { color = 'purple'; label = 'Lainnya'; }
+                if(type === 'NON_FAKTUR') { color = 'purple'; label = 'Non Faktur'; }
                 return <Tag color={color}>{label}</Tag>;
             }
         },

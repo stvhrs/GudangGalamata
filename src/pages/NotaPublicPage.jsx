@@ -34,13 +34,13 @@ const NotaPublicPage = () => {
             setLoading(true);
             setError(null);
             try {
-                const txRef = ref(db, `transaksiJualBuku/${id}`);
+                const txRef = ref(db, `invoices/${id}`);
                 const snapshot = await get(txRef);
                 
                 if (snapshot.exists()) {
                     const txData = { id: snapshot.key, ...snapshot.val() };
                     
-                    if (!['DP', 'Sebagian', 'Lunas'].includes(txData?.statusPembayaran)) {
+                    if (!['DP', 'Sebagian', 'LUNAS'].includes(txData?.statusPembayaran)) {
                         setError("Nota tidak dapat dibuat untuk transaksi yang belum dibayar.");
                         setLoading(false);
                         return;

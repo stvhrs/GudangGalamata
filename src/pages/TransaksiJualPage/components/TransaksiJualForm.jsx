@@ -1,595 +1,666 @@
-    // ================================
-    // FILE: src/pages/transaksi-jual/components/TransaksiJualForm.jsx
-    // ================================
+// ================================
+// FILE: src/pages/transaksi-jual/components/TransaksiJualForm.jsx
+// ================================
 
-    import React, { useEffect, useState } from 'react';
-    import {
-        Modal,
-        Form, Input, InputNumber, Select, Button, Space, DatePicker, message, Typography,Tag,
-        Row, Col, Spin, Popconfirm, Divider, Card, Statistic
-    } from 'antd';
-    import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
-    import { db } from '../../../api/firebase'; 
-    import {
-        ref, update, remove, serverTimestamp,
-        query, orderByKey, startAt, endAt, get, push
-    } from 'firebase/database';
-    import dayjs from 'dayjs';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import {
+    Modal,
+    Form, Input, InputNumber, Select, Button, DatePicker, message, Typography, Tag,
+    Row, Col, Spin, Popconfirm, Divider, Card, Statistic
+} from 'antd';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { db } from '../../../api/firebase';
+import {
+    ref, update, serverTimestamp,
+    query, orderByKey, startAt, endAt, get, push, orderByChild, equalTo
+} from 'firebase/database';
+import dayjs from 'dayjs';
 
-    // --- IMPORT HOOKS BARU (ANTI-RELOAD / LAZY LOAD) ---
-    import { useBukuStream, usePelangganStream } from '../../../hooks/useFirebaseData'; 
+// --- IMPORT HOOKS ---
+import { useBukuStream, usePelangganStream } from '../../../hooks/useFirebaseData';
 
-    const { Option } = Select;
-    const { Text } = Typography;
+const { Text } = Typography;
 
-    // --- Helpers ---
-    const rupiahFormatter = (v) =>
-        new Intl.NumberFormat('id-ID', {
-            style: 'currency',
-            currency: 'IDR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0,
-        }).format(Number(v || 0));
+// --- Helpers ---
+const rupiahFormatter = (v) =>
+    new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+    }).format(Number(v || 0));
 
-    const rupiahParser = (v) => {
-        const digits = String(v || '0').replace(/[^\d]/g, '');
-        return Number(digits || 0);
-    };
+const rupiahParser = (v) => {
+    const digits = String(v || '0').replace(/[^\d]/g, '');
+    return Number(digits || 0);
+};
 
-    export default function TransaksiJualForm({
-        open,
-        onCancel,
-        mode = 'create',
-        initialTx = null,
-        onSuccess,
-    }) {
-        // --- LAZY LOAD DATA MASTER ---
-        const { bukuList, loadingBuku } = useBukuStream();
-        const { pelangganList, loadingPelanggan } = usePelangganStream();
-        
-        const loadingDependencies = loadingBuku || loadingPelanggan;
+// Sub-component (Optimized)
+const SimpleSubtotal = ({ index }) => (
+    <Form.Item noStyle shouldUpdate={(p, c) => 
+        p.items?.[index]?.jumlah !== c.items?.[index]?.jumlah ||
+        p.items?.[index]?.hargaSatuan !== c.items?.[index]?.hargaSatuan ||
+        p.items?.[index]?.diskonPersen !== c.items?.[index]?.diskonPersen
+    }>
+        {({ getFieldValue }) => {
+            const i = getFieldValue(['items', index]) || {};
+            const bruto = (i.hargaSatuan || 0) * (i.jumlah || 0);
+            const net = bruto - Math.round(bruto * (i.diskonPersen || 0) / 100);
+            return <Input disabled value={rupiahFormatter(net)} style={{ textAlign: 'right', color: '#333', fontWeight: 'bold', backgroundColor: '#f5f5f5' }} />;
+        }}
+    </Form.Item>
+);
 
-        const [form] = Form.useForm();
-        const [isSaving, setIsSaving] = useState(false);
-        const [selectedPelanggan, setSelectedPelanggan] = useState(null);
-        const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(mode === 'create');
+export default function TransaksiJualForm({
+    open,
+    onCancel,
+    mode = 'create',
+    initialTx = null,
+    onSuccess,
+}) {
+    // --- LAZY LOAD DATA MASTER ---
+    const { bukuList, loadingBuku } = useBukuStream();
+    const { pelangganList, loadingPelanggan } = usePelangganStream();
+    
+    const loadingDependencies = loadingBuku || loadingPelanggan;
 
-        // ===== Prefill saat EDIT =====
-        useEffect(() => {
-            if (open && !loadingDependencies) {
-                if (mode === 'edit' && initialTx) {
-                    console.log("Memuat data form untuk edit:", initialTx);
+    const [form] = Form.useForm();
+    const [isSaving, setIsSaving] = useState(false);
+    const [isLoadingEditData, setIsLoadingEditData] = useState(false);
+    const [selectedPelanggan, setSelectedPelanggan] = useState(null);
+    const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(mode === 'create');
+    
+    // Simpan item lama untuk perhitungan selisih stok saat Edit
+    const [oldItemsForStock, setOldItemsForStock] = useState([]);
+
+    // ==========================================
+    // 1. OPTIMASI DATA BUKU
+    // ==========================================
+    const bukuOptions = useMemo(() => {
+        return [...bukuList]
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+            .map((b) => {
+                const stokAman = b.stok > 0;
+                const searchString = `${b.nama} ${b.id} ${b.penerbit}`.toLowerCase();
+
+                return {
+                    value: b.id,
+                    title: b.nama, 
+                    _data: b, 
+                    _search: searchString,
+                    label: (
+                        <div style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                                <Text strong style={{ fontSize: 14, lineHeight: 1.2, flex: 1, whiteSpace: 'normal', marginRight: 8 }}>
+                                    {b.nama}
+                                </Text>
+                                <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>
+                                    {rupiahFormatter(b.harga)}
+                                </Text>
+                            </div>
+                            <div style={{ marginBottom: 6 }}>
+                                <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>
+                                    Kode Buku: <strong style={{ color: '#595959' }}>{b.id}</strong>
+                                </Text>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}>
+                                    {b.penerbit || 'Umum'}
+                                </Tag>
+                                <Tag color={stokAman ? 'success' : 'error'} style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}>
+                                    {stokAman ? `Stok: ${b.stok}` : 'Habis'}
+                                </Tag>
+                            </div>
+                        </div>
+                    )
+                };
+            });
+    }, [bukuList]);
+
+    // ===== Prefill saat EDIT =====
+    useEffect(() => {
+        if (open && !loadingDependencies) {
+            if (mode === 'edit' && initialTx) {
+                const loadEditData = async () => {
+                    setIsLoadingEditData(true);
                     try {
-                        const p = pelangganList.find((x) => x.id === initialTx.idPelanggan) || null;
+                        const p = pelangganList.find((x) => x.id === initialTx.customerId) || null;
                         setSelectedPelanggan(p);
-                        const itemsToSet = (initialTx.items && Array.isArray(initialTx.items))
-                            ? initialTx.items.map((it) => ({
-                                idBuku: it.idBuku,
-                                jumlah: it.jumlah,
-                                hargaSatuan: it.hargaSatuan,
-                                diskonPersen: it.diskonPersen || 0
-                            }))
-                            : [];
 
                         form.setFieldsValue({
-                            nomorInvoice: initialTx.nomorInvoice || initialTx.id,
-                            tanggal: initialTx.tanggal && dayjs(initialTx.tanggal).isValid() ? dayjs(initialTx.tanggal) : dayjs(),
-                            idPelanggan: initialTx.idPelanggan,
-                            daerah: initialTx.daerah || '',
-                            keterangan: initialTx.keterangan || '',
-                            diskonLain: initialTx.diskonLain || 0,
-                            biayaTentu: initialTx.biayaTentu || 0,
-                            items: itemsToSet,
+                            nomorInvoice: initialTx.id,
+                            tanggal: initialTx.tanggal ? dayjs(initialTx.tanggal) : dayjs(),
+                            customerId: initialTx.customerId,
+                            keterangan: initialTx.keterangan === 'NULL' ? '' : (initialTx.keterangan || ''),
+                            totalDiskon: initialTx.totalDiskon || 0,
+                            biayaTentu: initialTx.totalBiayaLain || 0,
                         });
+
+                        const itemsQuery = query(ref(db, 'invoice_items'), orderByChild('invoiceId'), equalTo(initialTx.id));
+                        const snapshot = await get(itemsQuery);
+                        
+                        let itemsToSet = [];
+                        if (snapshot.exists()) {
+                            const rawItems = snapshot.val();
+                            itemsToSet = Object.values(rawItems).map(item => ({
+                                idBuku: item.productId,
+                                jumlah: item.qty,
+                                hargaSatuan: item.harga,
+                                diskonPersen: item.diskonPersen || 0
+                            }));
+                        } else if (initialTx.items) {
+                            itemsToSet = initialTx.items.map((it) => ({
+                                idBuku: it.idBuku || it.productId,
+                                jumlah: it.jumlah || it.qty,
+                                hargaSatuan: it.hargaSatuan || it.harga,
+                                diskonPersen: it.diskonPersen || 0
+                            }));
+                        }
+
+                        setOldItemsForStock(itemsToSet); 
+                        form.setFieldsValue({ items: itemsToSet });
+
                     } catch (error) {
-                        console.error("Gagal memuat data form edit:", error);
-                        message.error("Gagal memuat data transaksi. Coba lagi.");
-                        onCancel();
+                        console.error(error);
+                        message.error("Gagal memuat detail transaksi.");
+                    } finally {
+                        setIsLoadingEditData(false);
                     }
-                } else if (mode === 'create') {
-                    form.resetFields();
-                    form.setFieldsValue({
-                        tanggal: dayjs(),
-                        items: [{}],
-                        diskonLain: 0,
-                        biayaTentu: 0
-                    });
-                    setSelectedPelanggan(null);
-                    setIsGeneratingInvoice(true);
-                }
-            }
-        }, [mode, initialTx, pelangganList, form, onCancel, open, loadingDependencies]);
-
-        // ===== Generate Nomor Invoice (Create Mode) =====
-        useEffect(() => {
-            if (mode !== 'create' || !open || !isGeneratingInvoice) return;
-            let isMounted = true;
-            
-            const generateInvoiceNumber = async () => {
-                try {
-                    const now = dayjs();
-                    const year = now.format('YYYY');
-                    const month = now.format('MM');
-                    const keyPrefix = `INV-${year}-${month}-`;
-                    const txRef = ref(db, 'transaksiJualBuku');
-                    const qy = query(txRef, orderByKey(), startAt(keyPrefix), endAt(keyPrefix + '\uf8ff'));
-                    const snapshot = await get(qy);
-                    let nextNum = 1;
-                    
-                    if (snapshot.exists()) {
-                        const keys = Object.keys(snapshot.val());
-                        keys.sort((a, b) => {
-                            const numA = parseInt(a.split('-').pop() || '0', 10);
-                            const numB = parseInt(b.split('-').pop() || '0', 10);
-                            return numA - numB;
-                        });
-                        const lastKey = keys[keys.length - 1];
-                        const lastNumStr = lastKey?.split('-').pop();
-                        if (lastNumStr && !isNaN(parseInt(lastNumStr, 10))) {
-                            nextNum = parseInt(lastNumStr, 10) + 1;
-                        }
-                    }
-                    
-                    const newNumStr = String(nextNum).padStart(4, '0');
-                    const displayInvoice = `INV/${year}/${month}/${newNumStr}`;
-                    
-                    if (isMounted) {
-                        form.setFieldsValue({ nomorInvoice: displayInvoice });
-                    }
-                } catch (e) {
-                    console.error("Gagal generate invoice:", e);
-                    if (isMounted) message.error('Gagal generate nomor invoice.');
-                } finally {
-                    if (isMounted) setIsGeneratingInvoice(false);
-                }
-            };
-            
-            generateInvoiceNumber();
-            return () => { isMounted = false; };
-        }, [mode, open, isGeneratingInvoice]);
-
-        // ===== Helper Harga Otomatis =====
-        const getHargaOtomatis = (idBuku, pelanggan) => {
-            const buku = bukuList.find((b) => b.id === idBuku);
-            if (!buku) return { hargaSatuan: 0, diskonPersen: 0 };
-            
-            const isSpesial = pelanggan?.isSpesial || false;
-            const zonaPelanggan = pelanggan?.zona;
-            const hargaZonaKey = zonaPelanggan ? `harga_zona_${zonaPelanggan}` : null;
-            
-            let hargaJualBuku = Number(buku.hargaJual) || 0;
-            if (hargaZonaKey && buku[hargaZonaKey] != null) {
-                hargaJualBuku = Number(buku[hargaZonaKey]) || hargaJualBuku;
-            }
-            
-            let finalHargaSatuan = isSpesial ? (Number(buku.hargaJualSpesial) || hargaJualBuku) : hargaJualBuku;
-            let finalDiskonPersen = isSpesial ? (Number(buku.diskonJualSpesial) || 0) : (Number(buku.diskonJual) || 0);
-            
-            return { hargaSatuan: finalHargaSatuan, diskonPersen: finalDiskonPersen };
-        };
-
-        // ===== Handlers =====
-        const handlePelangganChange = (idPelanggan) => {
-            const pel = pelangganList.find((p) => p.id === idPelanggan) || null;
-            setSelectedPelanggan(pel);
-            
-            // Update harga item yang sudah dipilih sesuai tipe pelanggan baru
-            const items = form.getFieldValue('items') || [];
-            const newItems = items.map((item) => {
-                if (!item || !item.idBuku) return item;
-                const { hargaSatuan, diskonPersen } = getHargaOtomatis(item.idBuku, pel);
-                return { ...item, hargaSatuan, diskonPersen };
-            });
-            form.setFieldsValue({ items: newItems });
-        };
-
-        const handleBukuChange = (index, idBuku) => {
-            const { hargaSatuan, diskonPersen } = getHargaOtomatis(idBuku, selectedPelanggan);
-            const items = form.getFieldValue('items') || [];
-            items[index] = { ...(items[index] || {}), idBuku, hargaSatuan, diskonPersen };
-            form.setFieldsValue({ items: [...items] });
-        };
-
-        // ===== Submit Logic (Create & Edit) =====
-        const handleFinish = async (values) => {
-            console.log("Submit:", values);
-            setIsSaving(true);
-            message.loading({ content: 'Menyimpan...', key: 'tx', duration: 0 });
-            
-            try {
-                const { idPelanggan, items, diskonLain, biayaTentu, ...data } = values;
-                const nominalDiskonLain = Number(diskonLain || 0);
-                const nominalBiayaTentu = Number(biayaTentu || 0);
-
-                if (!items || items.length === 0 || items.some(i => !i || !i.idBuku)) {
-                    throw new Error('Minimal 1 item buku valid.');
-                }
-                const pelanggan = pelangganList.find((p) => p.id === idPelanggan);
-                if (!pelanggan) throw new Error('Pelanggan tidak valid.');
-
-                // Proses Item & Hitung Total
-                let totalTagihanItems = 0; 
-                let totalQty = 0;
-                
-                const processedItems = items.map((item, index) => {
-                    const buku = bukuList.find((b) => b.id === item.idBuku);
-                    if (!buku) throw new Error(`Buku (Baris ${index + 1}) tidak ditemukan`);
-                    
-                    const hargaSatuan = Number(item.hargaSatuan);
-                    const diskonPersen = Number(item.diskonPersen || 0);
-                    const jumlah = Number(item.jumlah);
-                    const hargaFinal = Math.round(hargaSatuan * (1 - diskonPersen / 100) * jumlah);
-                    
-                    totalQty += jumlah;
-                    totalTagihanItems += hargaFinal;
-                    
-                    return {
-                        idBuku: item.idBuku,
-                        judulBuku: buku.judul,
-                        jumlah,
-                        hargaSatuan,
-                        diskonPersen,
-                        _bukuData: buku // Untuk referensi stok
-                    };
-                });
-
-                // Hitung Grand Total Final
-                const finalTotalTagihan = totalTagihanItems - nominalDiskonLain + nominalBiayaTentu;
-
-                // Bersihkan _bukuData sebelum simpan
-                const cleanItems = processedItems.map(item => {
-                    const { _bukuData, ...rest } = item;
-                    return rest;
-                });
-
-                const baseTx = {
-                    nomorInvoice: data.nomorInvoice,
-                    tanggal: data.tanggal.valueOf(),
-                    idPelanggan,
-                    namaPelanggan: pelanggan.nama,
-                    telepon: pelanggan.telepon || '',
-                    pelangganIsSpesial: pelanggan.isSpesial || false,
-                    items: cleanItems,
-                    totalTagihan: finalTotalTagihan,
-                    totalQty,
-                    daerah: data.daerah || '',
-                    keterangan: data.keterangan || '',
-                    diskonLain: nominalDiskonLain,
-                    biayaTentu: nominalBiayaTentu,
                 };
+                loadEditData();
 
-                const updates = {};
-
-                if (mode === 'create') {
-                    // --- LOGIC CREATE ---
-                    const parts = data.nomorInvoice.split('/');
-                    const txKey = `INV-${parts[1]}-${parts[2]}-${parts[3]}`;
-                    
-                    updates[`transaksiJualBuku/${txKey}`] = {
-                        ...baseTx,
-                        jumlahTerbayar: 0,
-                        statusPembayaran: 'Belum',
-                        historiPembayaran: null,
-                        createdAt: serverTimestamp(),
-                        updatedAt: serverTimestamp()
-                    };
-
-                    // Kurangi Stok
-                    for (const item of processedItems) {
-                        const buku = item._bukuData;
-                        const stokBaru = Number(buku?.stok || 0) - Number(item.jumlah);
-                        
-                        updates[`buku/${item.idBuku}/stok`] = stokBaru;
-                        updates[`buku/${item.idBuku}/updatedAt`] = serverTimestamp();
-
-                        const logKey = push(ref(db, 'historiStok')).key;
-                        updates[`historiStok/${logKey}`] = {
-                            bukuId: buku.id, judul: buku.judul, kode_buku: buku.kode_buku, penerbit: buku.penerbit || '-',
-                            perubahan: -Number(item.jumlah), stokSebelum: buku.stok, stokSesudah: stokBaru,
-                            // [UPDATE] Tambah nama pelanggan
-                            keterangan: `Penjualan ${data.nomorInvoice} - ${pelanggan.nama}`, 
-                            refId: txKey, timestamp: serverTimestamp()
-                        };
-                    }
-
-                } else { 
-                    // --- LOGIC EDIT (Dengan Rekalkulasi Status) ---
-                    const editTxKey = initialTx.id;
-                    const existingTerbayar = Number(initialTx.jumlahTerbayar || 0);
-                    
-                    // Cek Status Baru berdasarkan tagihan revisi
-                    let statusBaru = 'Belum';
-                    if (existingTerbayar >= finalTotalTagihan) statusBaru = 'Lunas';
-                    else if (existingTerbayar > 0) statusBaru = 'Belum';
-
-                    updates[`transaksiJualBuku/${editTxKey}`] = {
-                        ...initialTx,
-                        ...baseTx,
-                        statusPembayaran: statusBaru,
-                        updatedAt: serverTimestamp()
-                    };
-
-                    // Koreksi Stok (Selisih Qty Lama vs Baru)
-                    const oldItems = initialTx.items || [];
-                    const stockDiff = new Map(); // Map<idBuku, deltaQty>
-
-                    // Kembalikan stok lama
-                    oldItems.forEach(i => stockDiff.set(i.idBuku, (stockDiff.get(i.idBuku)||0) + Number(i.jumlah)));
-                    // Kurangi stok baru
-                    processedItems.forEach(i => stockDiff.set(i.idBuku, (stockDiff.get(i.idBuku)||0) - Number(i.jumlah)));
-
-                    for (const [idBuku, delta] of stockDiff.entries()) {
-                        if (delta === 0) continue;
-                        const buku = processedItems.find(i => i.idBuku === idBuku)?._bukuData || bukuList.find(b => b.id === idBuku);
-                        if (buku) {
-                            const stokBaru = Number(buku.stok || 0) + delta;
-                            updates[`buku/${idBuku}/stok`] = stokBaru;
-                            updates[`buku/${idBuku}/updatedAt`] = serverTimestamp();
-                            
-                            const logKey = push(ref(db, 'historiStok')).key;
-                            updates[`historiStok/${logKey}`] = {
-                                bukuId: buku.id, judul: buku.judul, kode_buku: buku.kode_buku, penerbit: buku.penerbit,
-                                perubahan: delta, stokSebelum: buku.stok, stokSesudah: stokBaru,
-                                // [UPDATE] Tambah nama pelanggan
-                                keterangan: `Revisi Invoice ${data.nomorInvoice} - ${pelanggan.nama}`, 
-                                refId: editTxKey, timestamp: serverTimestamp()
-                            };
-                        }
-                    }
-                }
-
-                await update(ref(db), updates);
-                message.success({ content: 'Berhasil disimpan!', key: 'tx' });
+            } else if (mode === 'create') {
                 form.resetFields();
-                onSuccess?.();
-            } catch (error) {
-                console.error("Save error:", error);
-                message.error({ content: `Gagal: ${error.message}`, key: 'tx' });
-            } finally {
-                setIsSaving(false);
+                form.setFieldsValue({
+                    tanggal: dayjs(),
+                    items: [{}],
+                    totalDiskon: 0,
+                    biayaTentu: 0
+                });
+                setSelectedPelanggan(null);
+                setOldItemsForStock([]);
+                setIsGeneratingInvoice(true);
             }
-        };
+        }
+    }, [mode, initialTx, pelangganList, form, open, loadingDependencies]);
 
-        // ===== Delete Logic =====
-        const handleDelete = async () => {
-            if (mode !== 'edit' || !initialTx?.id) return;
-            setIsSaving(true);
-            message.loading({ content: 'Menghapus...', key: 'del', duration: 0 });
+    // ===== Generate Nomor Invoice =====
+    useEffect(() => {
+        if (mode !== 'create' || !open || !isGeneratingInvoice) return;
+        let isMounted = true;
+        const generateInvoiceNumber = async () => {
             try {
-                const txKey = initialTx.id;
-                const updates = {};
-                updates[`transaksiJualBuku/${txKey}`] = null; // Hapus transaksi
-
-                // Ambil nama pelanggan untuk log
-                const namaPelanggan = initialTx.namaPelanggan || 'Tanpa Nama';
-
-                // Kembalikan Stok
-                for (const item of (initialTx.items || [])) {
-                    const buku = bukuList.find(b => b.id === item.idBuku);
-                    if (buku) {
-                        const stokBaru = Number(buku.stok || 0) + Number(item.jumlah);
-                        updates[`buku/${item.idBuku}/stok`] = stokBaru;
-                        updates[`buku/${item.idBuku}/updatedAt`] = serverTimestamp();
-                        
-                        const logKey = push(ref(db, 'historiStok')).key;
-                        updates[`historiStok/${logKey}`] = {
-                            bukuId: buku.id, judul: buku.judul, kode_buku: buku.kode_buku, penerbit: buku.penerbit,
-                            perubahan: Number(item.jumlah), stokSebelum: buku.stok, stokSesudah: stokBaru,
-                            // [UPDATE] Tambah nama pelanggan
-                            keterangan: `Hapus Invoice ${initialTx.nomorInvoice} - ${namaPelanggan}`, 
-                            refId: txKey, timestamp: serverTimestamp()
-                        };
-                    }
+                const now = dayjs();
+                const keyPrefix = `INV-${now.format('YY-MM-DD')}-`;
+                const qy = query(ref(db, 'invoices'), orderByKey(), startAt(keyPrefix), endAt(keyPrefix + '\uf8ff'));
+                const snapshot = await get(qy);
+                let nextNum = 1;
+                if (snapshot.exists()) {
+                    const keys = Object.keys(snapshot.val()).sort();
+                    const lastNum = parseInt(keys[keys.length - 1].split('-').pop() || '0');
+                    if (!isNaN(lastNum)) nextNum = lastNum + 1;
                 }
-                
-                await update(ref(db), updates);
-                message.success({ content: 'Transaksi dihapus', key: 'del' });
-                onSuccess?.();
-            } catch (e) {
-                message.error({ content: `Gagal hapus: ${e.message}`, key: 'del' });
-            } finally {
-                setIsSaving(false);
-            }
+                if (isMounted) form.setFieldsValue({ nomorInvoice: `${keyPrefix}${String(nextNum).padStart(4, '0')}` });
+            } catch (e) { console.error(e); } 
+            finally { if (isMounted) setIsGeneratingInvoice(false); }
         };
+        generateInvoiceNumber();
+        return () => { isMounted = false; };
+    }, [mode, open, isGeneratingInvoice]);
 
-        // ===== Subtotal Component =====
-        const SubtotalField = ({ index }) => (
-            <Form.Item noStyle shouldUpdate={(p, c) => 
-                p.items?.[index]?.jumlah !== c.items?.[index]?.jumlah || 
-                p.items?.[index]?.hargaSatuan !== c.items?.[index]?.hargaSatuan || 
-                p.items?.[index]?.diskonPersen !== c.items?.[index]?.diskonPersen
-            }>
-                {({ getFieldValue }) => {
-                    const jml = Number(getFieldValue(['items', index, 'jumlah']) || 0);
-                    const hrg = Number(getFieldValue(['items', index, 'hargaSatuan']) || 0);
-                    const disc = Number(getFieldValue(['items', index, 'diskonPersen']) || 0);
-                    return <InputNumber value={Math.round(hrg * jml * (1 - disc / 100))} readOnly disabled formatter={rupiahFormatter} parser={rupiahParser} style={{ width: '100%', textAlign: 'right', background: '#f5f5f5', color: 'black' }} />;
-                }}
-            </Form.Item>
-        );
+    // ===== Handlers =====
+    const handlePelangganChange = (id) => {
+        const pel = pelangganList.find((p) => p.id === id) || null;
+        setSelectedPelanggan(pel);
+    };
 
-        return (
-            <Modal
-                title={mode === 'create' ? 'Tambah Transaksi' : 'Edit Transaksi'}
-                open={open}
-                onCancel={onCancel}
-                width={900}
-                confirmLoading={isSaving}
-                destroyOnClose
-                footer={null}
-                maskClosable={false}
-            >
-                {/* LAZY LOAD INDICATOR */}
-                <Spin spinning={loadingDependencies} tip="Memuat data Buku & Pelanggan..." size="large">
-                    {!loadingDependencies && (
-                        <Form form={form} layout="vertical" onFinish={handleFinish} initialValues={{ tanggal: dayjs(), items: [{}], diskonLain: 0, biayaTentu: 0 }}>
-                            <Row gutter={16}>
-                                <Col xs={24} md={12}><Form.Item name="nomorInvoice" label="Nomor Invoice" rules={[{ required: true }]}><Input disabled readOnly placeholder={isGeneratingInvoice ? "Generating..." : ""} /></Form.Item></Col>
-                                <Col xs={24} md={12}><Form.Item name="tanggal" label="Tanggal" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item></Col>
-                            </Row>
+    const handleBukuChange = useCallback((index, idBuku) => {
+        const selectedOption = bukuOptions.find(opt => opt.value === idBuku);
+        const bukuData = selectedOption?._data;
 
-                            <Form.Item name="idPelanggan" label="Pelanggan" rules={[{ required: true }]}>
-                                <Select showSearch placeholder="Pilih Pelanggan" onChange={handlePelangganChange} filterOption={(input, option) => (option?.children?.toString() ?? '').toLowerCase().includes(input.toLowerCase())} disabled={isGeneratingInvoice && mode === 'create'}>
-                                    {pelangganList.map(p => <Option key={p.id} value={p.id}>{p.nama} {p.isSpesial && '(Spesial)'}</Option>)}
-                                </Select>
-                            </Form.Item>
+        if (bukuData) {
+            const items = form.getFieldValue('items') || [];
+            items[index] = {
+                ...items[index],
+                idBuku,
+                hargaSatuan: Number(bukuData.harga || 0),
+                diskonPersen: Number(bukuData.diskon || 0),
+                jumlah: items[index]?.jumlah || 1
+            };
+            form.setFieldsValue({ items: [...items] });
+            calculateTotalDiskon(items);
+        }
+    }, [bukuOptions, form]);
 
-                            <Row gutter={16}>
-                                <Col xs={24} md={12}><Form.Item name="daerah" label="Daerah (Opsional)"><Input /></Form.Item></Col>
-                                <Col xs={24} md={12}><Form.Item name="keterangan" label="Catatan (Opsional)"><Input /></Form.Item></Col>
-                            </Row>
+    const calculateTotalDiskon = (items) => {
+        if (!items || !Array.isArray(items)) return;
+        let sumDisc = 0;
+        items.forEach(i => {
+            if(!i) return;
+            const h = Number(i.hargaSatuan || 0);
+            const q = Number(i.jumlah || 0);
+            const d = Number(i.diskonPersen || 0);
+            sumDisc += Math.round((h * q) * d / 100);
+        });
+        form.setFieldsValue({ totalDiskon: sumDisc });
+    };
 
-<Divider orientation="left" orientationMargin={0}>
-    Detail Item Buku
-</Divider>
+    const onFormValuesChange = (changedValues, allValues) => {
+        if (changedValues.items) {
+            calculateTotalDiskon(allValues.items);
+        }
+    };
 
+    // ==========================================
+    // SUBMIT LOGIC (STOCK HISTORY UPDATE)
+    // ==========================================
+    const handleFinish = async (values) => {
+        setIsSaving(true);
+        message.loading({ content: 'Menyimpan...', key: 'tx', duration: 0 });
+
+        try {
+            const { customerId, items, totalDiskon, biayaTentu, nomorInvoice, tanggal, keterangan } = values;
+            
+            if (!items?.length || items.some(i => !i?.idBuku)) throw new Error('Minimal 1 item buku valid.');
+            const pelanggan = pelangganList.find((p) => p.id === customerId);
+            if (!pelanggan) throw new Error('Pelanggan tidak valid.');
+
+            let totalBruto = 0;
+            let totalQty = 0;
+
+            const processedItems = items.map((item) => {
+                const option = bukuOptions.find(b => b.value === item.idBuku);
+                if (!option) throw new Error(`Buku tidak ditemukan`);
+                const buku = option._data;
+
+                const hargaSatuan = Number(item.hargaSatuan);
+                const diskonPersen = Number(item.diskonPersen || 0);
+                const jumlah = Number(item.jumlah);
+                
+                const brutoItem = hargaSatuan * jumlah;
+                const diskonItem = Math.round(brutoItem * (diskonPersen / 100));
+                const subtotal = brutoItem - diskonItem;
+
+                totalBruto += brutoItem;
+                totalQty += jumlah;
+
+                return {
+                    idBuku: item.idBuku,
+                    judul: buku.nama,
+                    jumlah,
+                    hargaSatuan,
+                    diskonPersen,
+                    subtotal,
+                    _bukuData: buku 
+                };
+            });
+
+            const totalNetto = (totalBruto - Number(totalDiskon || 0)) + Number(biayaTentu || 0);
+            const txKey = nomorInvoice;
+            const updates = {};
+
+            // --- Hitung Status Pembayaran & Composite ---
+            let statusPembayaran = 'BELUM';
+            let existingBayar = 0;
+
+            if (mode === 'create') {
+                statusPembayaran = 'BELUM';
+                existingBayar = 0;
+            } else {
+                existingBayar = Number(initialTx.totalBayar || 0);
+                if (existingBayar >= totalNetto) statusPembayaran = 'LUNAS';
+                else if (existingBayar > 0) statusPembayaran = 'BELUM'; // Atau 'PARSIAL' jika ada logika itu
+            }
+
+            // [NEW] Composite Status: NAMA_STATUS (e.g., "PAK IKO_BELUM")
+            const compositeStatus = `${pelanggan.nama}_${statusPembayaran}`;
+
+            // --- Update Header ---
+            const headerData = {
+                id: nomorInvoice,
+                tanggal: tanggal.valueOf(),
+                customerId,
+                namaCustomer: pelanggan.nama,
+                keterangan: keterangan || 'NULL',
+                totalBruto,
+                totalDiskon: Number(totalDiskon || 0),
+                totalBiayaLain: Number(biayaTentu || 0),
+                totalNetto,
+                totalQty,
+                totalBayar: existingBayar,
+                statusPembayaran: statusPembayaran,
+                compositeStatus: compositeStatus, // <-- Ditambahkan di sini
+                totalRetur: mode === 'edit' ? (initialTx.totalRetur || 0) : 0,
+                updatedAt: serverTimestamp()
+            };
+
+            // itemsSummary TIDAK LAGI dimasukkan ke header invoice
+            // agar data invoice utama ringan.
+            
+            if (mode === 'create') {
+                updates[`invoices/${txKey}`] = { 
+                    ...headerData, 
+                    createdAt: serverTimestamp() 
+                };
+            } else {
+                updates[`invoices/${txKey}`] = { 
+                    ...initialTx, 
+                    ...headerData
+                };
+            }
+
+            // --- Update Items Detail (Tetap di invoice_items) ---
+            if (mode === 'edit') {
+                const newIds = processedItems.map(i => i.idBuku);
+                oldItemsForStock.forEach(old => {
+                    if (!newIds.includes(old.idBuku)) updates[`invoice_items/ITEM_${txKey}_${old.idBuku}`] = null;
+                });
+            }
+
+            processedItems.forEach(i => {
+                const itemId = `ITEM_${txKey}_${i.idBuku}`;
+                updates[`invoice_items/${itemId}`] = {
+                    id: itemId, invoiceId: txKey, productId: i.idBuku, judul: i.judul,
+                    qty: i.jumlah, harga: i.hargaSatuan, diskonPersen: i.diskonPersen, subtotal: i.subtotal,
+                    createdAt: mode === 'create' ? serverTimestamp() : null, updatedAt: serverTimestamp()
+                };
+            });
+
+            // ===============================================
+            // UPDATE STOK (products/) & HISTORY (stock_history/)
+            // ===============================================
+            
+            // Map<productId, changeInStock>
+            const stockDiff = new Map();
+
+            // 1. Jika Edit, kembalikan stok lama
+            if (mode === 'edit') {
+                oldItemsForStock.forEach(i => {
+                    const currentVal = stockDiff.get(i.idBuku) || 0;
+                    stockDiff.set(i.idBuku, currentVal + Number(i.jumlah));
+                });
+            }
+
+            // 2. Kurangi stok baru
+            processedItems.forEach(i => {
+                const currentVal = stockDiff.get(i.idBuku) || 0;
+                stockDiff.set(i.idBuku, currentVal - Number(i.jumlah));
+            });
+
+            // 3. Eksekusi Update
+            const timestampNow = Date.now();
+            let histCounter = 0;
+
+            for (const [productId, change] of stockDiff.entries()) {
+                if (change === 0) continue;
+
+                const buku = bukuList.find(b => b.id === productId);
+                if (buku) {
+                    const stokAwal = Number(buku.stok || 0);
+                    const stokAkhir = stokAwal + change;
+
+                    updates[`products/${productId}/stok`] = stokAkhir;
+                    updates[`products/${productId}/updatedAt`] = serverTimestamp();
+
+                    const histId = `HIST_${txKey}_${productId}_${timestampNow + histCounter}`;
+                    histCounter++;
+
+                    updates[`stock_history/${histId}`] = {
+                        id: histId,
+                        bukuId: productId,
+                        judul: buku.nama,
+                        nama: "ADMIN",
+                        keterangan: mode === 'create' ? `Penjualan Ref: ${txKey}` : `Edit Ref: ${txKey}`,
+                        perubahan: change,
+                        stokAwal: stokAwal,
+                        stokAkhir: stokAkhir,
+                        refId: txKey,
+                        tanggal: timestampNow,
+                        createdAt: timestampNow,
+                        updatedAt: timestampNow
+                    };
+                }
+            }
+
+            await update(ref(db), updates);
+            message.success({ content: 'Tersimpan!', key: 'tx' });
+            form.resetFields();
+            onSuccess?.();
+        } catch (error) {
+            console.error(error);
+            message.error({ content: error.message, key: 'tx' });
+        } finally { setIsSaving(false); }
+    };
+
+    // ==========================================
+    // DELETE LOGIC
+    // ==========================================
+    const handleDelete = async () => {
+        if (mode !== 'edit' || !initialTx?.id) return;
+        setIsSaving(true);
+        message.loading({ content: 'Menghapus...', key: 'del', duration: 0 });
+        try {
+            const txKey = initialTx.id;
+            const updates = {};
+            updates[`invoices/${txKey}`] = null;
+
+            const timestampNow = Date.now();
+            let histCounter = 0;
+
+            for (const item of oldItemsForStock) {
+                const buku = bukuList.find(b => b.id === item.idBuku);
+                const itemId = `ITEM_${txKey}_${item.idBuku}`;
+                updates[`invoice_items/${itemId}`] = null;
+
+                if (buku) {
+                    const perubahanStok = Number(item.jumlah);
+                    const stokAwal = Number(buku.stok || 0);
+                    const stokAkhir = stokAwal + perubahanStok;
+
+                    updates[`products/${item.idBuku}/stok`] = stokAkhir;
+                    updates[`products/${item.idBuku}/updatedAt`] = serverTimestamp();
+
+                    const histId = `HIST_${txKey}_${item.idBuku}_${timestampNow + histCounter}`;
+                    histCounter++;
+
+                    updates[`stock_history/${histId}`] = {
+                        id: histId,
+                        bukuId: item.idBuku,
+                        judul: buku.nama,
+                        nama: "ADMIN",
+                        keterangan: `Hapus Ref: ${txKey}`,
+                        perubahan: perubahanStok,
+                        stokAwal: stokAwal,
+                        stokAkhir: stokAkhir,
+                        refId: txKey,
+                        tanggal: timestampNow,
+                        createdAt: timestampNow,
+                        updatedAt: timestampNow
+                    };
+                }
+            }
+            await update(ref(db), updates);
+            message.success({ content: 'Dihapus!', key: 'del' });
+            onSuccess?.();
+        } catch (e) {
+            message.error({ content: e.message, key: 'del' });
+        } finally { setIsSaving(false); }
+    };
+
+    return (
+        <Modal
+            title={mode === 'create' ? 'Transaksi Baru' : 'Edit Transaksi'}
+            open={open} onCancel={onCancel}
+            width={1000} confirmLoading={isSaving}
+            destroyOnClose footer={null} maskClosable={false}
+            style={{ top: 20 }}
+        >
+            <Spin spinning={loadingDependencies || isLoadingEditData}>
+                <Form form={form} layout="vertical" onFinish={handleFinish} onValuesChange={onFormValuesChange}>
+                    
+                    {/* --- HEADER --- */}
+                    <div style={{ background: '#f5f5f5', padding: '12px', borderRadius: 8, marginBottom: 16 }}>
+                        <Row gutter={12}>
+                            <Col xs={12} sm={8}>
+                                <Form.Item name="nomorInvoice" label="No. Invoice" rules={[{ required: true }]}>
+                                    <Input disabled style={{ fontWeight: 'bold' }} placeholder="Auto..." />
+                                </Form.Item>
+                            </Col>
+                            <Col xs={12} sm={8}>
+                                <Form.Item name="tanggal" label="Tanggal" rules={[{ required: true }]}>
+                                    <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" />
+                                </Form.Item>
+                            </Col>
+                            <Col xs={24} sm={8}>
+                                <Form.Item name="customerId" label="Pelanggan" rules={[{ required: true }]}>
+                                    <Select 
+                                        showSearch placeholder="Pilih Pelanggan"
+                                        optionFilterProp="children"
+                                        filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+                                        disabled={isGeneratingInvoice && mode === 'create'}
+                                        options={pelangganList.map(p => ({ label: p.nama, value: p.id }))}
+                                    />
+                                </Form.Item>
+                            </Col>
+                            <Col xs={24}>
+                                <Form.Item name="keterangan" label="Catatan" style={{ marginBottom: 0 }}>
+                                    <Input placeholder="Keterangan tambahan..." />
+                                </Form.Item>
+                            </Col>
+                        </Row>
+                    </div>
+
+                    {/* --- ITEM LIST --- */}
+                    <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: 4 }}>
+                        <div style={{ padding: '8px 12px', background: '#fafafa', borderBottom: '1px solid #f0f0f0', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Item Buku</span>
+                            <span style={{ fontSize: 12, color: '#888' }}>Total {form.getFieldValue('items')?.length || 0} item</span>
+                        </div>
+                        
+                        <div style={{ maxHeight: '400px', overflowY: 'auto', padding: '8px' }}>
                             <Form.List name="items">
                                 {(fields, { add, remove }) => (
                                     <>
-                                        {fields.map(({ key, name, ...restField }, index) => {
-                                            const sortedBuku = [...bukuList].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
-                                            return (
-                                                <Card key={key} size="small" style={{ marginBottom: 12, background: '#fafafa' }} extra={fields.length > 1 && <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(name)} />}>
-                                                    <Row gutter={12}>
-                                                        <Col span={24}>
-                                                            <Form.Item {...restField} name={[name, 'idBuku']} label={`Buku #${index+1}`} rules={[{ required: true }]}>
-                                                                <Select 
-                                                                    showSearch 
-                                                                    placeholder="Pilih Buku (Cari berdasarkan Judul, Penerbit, atau Kode Buku)" 
-                                                                    onChange={(val) => handleBukuChange(index, val)} 
-                                                                    // filterOption mencakup 'label' yang kini berisi kode_buku
-                                                                    filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())} 
-                                                                    optionLabelProp="label" 
-                                                                    disabled={!selectedPelanggan}
-                                                                >
-                                                                    {sortedBuku.map(b => (
-                                                                            <Option 
-                                                                                key={b.id} 
-                                                                                value={b.id} 
-                                                                                // [UPDATE] Menyertakan kode_buku di label untuk pencarian
-                                                                                label={`${b.kode_buku} | ${b.judul} (${b.penerbit}) | ${b.peruntukan} | Stok: ${b.stok}`}
-                                                                            >
-                                                                            <Text strong>{b.judul}</Text>
-                                                                            <br/>
-                                                                           <div
-    style={{
-        display: "flex",
-        flexWrap: "wrap", // Agar tidak berantakan di layar kecil
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 12px",
-        background: "#f9f9f9",
-        borderRadius: 6,
-        border: "1px solid #f0f0f0",
-        marginTop: 6
-    }}
->
-    {/* 1. Kode Buku: Pakai Tag Biru (Geekblue) agar terlihat identitas unik */}
-    <Tag color="geekblue" style={{ margin: 0, fontFamily: 'monospace', fontWeight: 600 }}>
-        {b.kode_buku}
-    </Tag>
-
-    {/* Divider Vertikal Halus */}
-    <div style={{ width: 1, height: 14, background: '#d9d9d9' }} />
-
-    {/* 2. Penerbit: Info Sekunder (Abu-abu) */}
-    <Text type="secondary" style={{ fontSize: 12 }}>
-        <span style={{ color: '#8c8c8c' }}>Penerbit:</span> 
-        <span style={{ color: '#262626', marginLeft: 4, fontWeight: 500 }}>{b.penerbit}</span>
-    </Text>
-
-    {/* Divider Vertikal Halus */}
-    <div style={{ width: 1, height: 14, background: '#d9d9d9' }} />
-
-    {/* 3. Peruntukan: Info Tambahan */}
-    <Text type="secondary" style={{ fontSize: 12 }}>
-        {b.peruntukan}
-    </Text>
-
-    {/* Spacer otomatis agar Stok terdorong ke kanan (opsional, atau biarkan nempel) */}
-    <div style={{ flex: 1 }} /> 
-
-    {/* 4. Stok: Highlight dengan Background Pill */}
-    <div 
-        style={{ 
-            fontSize: 12, 
-            fontWeight: 'bold',
-            padding: '2px 8px',
-            borderRadius: 20,
-            // Logika Warna: Hijau (Aman) vs Merah (Habis/Sedikit)
-            background: b.stok > 0 ? '#f6ffed' : '#fff1f0', 
-            color: b.stok > 0 ? '#389e0d' : '#cf1322',
-            border: `1px solid ${b.stok > 0 ? '#b7eb8f' : '#ffa39e'}`
-        }}
-    >
-        Stok: {b.stok}
-    </div>
-</div>
-                                                                        </Option>
-                                                                    ))}
-                                                                </Select>
-                                                            </Form.Item>
-                                                        </Col>
-                                                        <Col span={6}><Form.Item {...restField} name={[name, 'jumlah']} label="Qty" initialValue={1} rules={[{required:true}]}><InputNumber min={1} style={{width:'100%'}} /></Form.Item></Col>
-                                                        <Col span={6}><Form.Item {...restField} name={[name, 'diskonPersen']} label="Disc %" initialValue={0}><InputNumber min={0} max={100} style={{width:'100%'}} /></Form.Item></Col>
-                                                        <Col span={6}><Form.Item {...restField} name={[name, 'hargaSatuan']} label="Harga" rules={[{required:true}]}><InputNumber formatter={rupiahFormatter} parser={rupiahParser} style={{width:'100%'}} /></Form.Item></Col>
-                                                        <Col span={6}><Form.Item label="Subtotal"><SubtotalField index={index} /></Form.Item></Col>
-                                                    </Row>
-                                                </Card>
-                                            );
-                                        })}
-                                        <Form.Item><Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} disabled={!selectedPelanggan}>Tambah Buku</Button></Form.Item>
+                                        {fields.map(({ key, name, ...restField }, index) => (
+                                            <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8, paddingBottom: 8, borderBottom: '1px dashed #eee' }}>
+                                                <Col xs={24} md={10}>
+                                                    <Form.Item {...restField} name={[name, 'idBuku']} style={{ marginBottom: 4 }} rules={[{ required: true, message: 'Pilih buku' }]}>
+                                                        <Select
+                                                            showSearch
+                                                            placeholder={`Cari Nama / Kode Buku...`}
+                                                            onChange={(val) => handleBukuChange(index, val)}
+                                                            style={{ width: '100%' }}
+                                                            options={bukuOptions.map(opt => ({
+                                                                value: opt.value,
+                                                                label: opt.label,
+                                                                title: opt.title
+                                                            }))}
+                                                            optionLabelProp="title" 
+                                                            filterOption={(input, option) => {
+                                                                const originalOption = bukuOptions.find(o => o.value === option.value);
+                                                                if (!originalOption) return false;
+                                                                return originalOption._search.includes(input.toLowerCase());
+                                                            }}
+                                                            listHeight={300} 
+                                                            virtual={true}
+                                                        />
+                                                    </Form.Item>
+                                                </Col>
+                                                <Col xs={6} md={3}>
+                                                    <Form.Item {...restField} name={[name, 'jumlah']} style={{ marginBottom: 4 }}>
+                                                        <InputNumber min={1} placeholder="Qty" style={{ width: '100%' }} />
+                                                    </Form.Item>
+                                                </Col>
+                                                <Col xs={10} md={4}>
+                                                    <Form.Item {...restField} name={[name, 'hargaSatuan']} style={{ marginBottom: 4 }}>
+                                                        <InputNumber 
+                                                            formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                                            parser={(v) => v.replace(/\$\s?|(,*)/g, '')}
+                                                            style={{ width: '100%' }} placeholder="Harga" 
+                                                        />
+                                                    </Form.Item>
+                                                </Col>
+                                                <Col xs={8} md={2}>
+                                                    <Form.Item {...restField} name={[name, 'diskonPersen']} style={{ marginBottom: 4 }}>
+                                                        <InputNumber min={0} max={100} formatter={v => `${v}%`} parser={v => v.replace('%', '')} style={{ width: '100%' }} />
+                                                    </Form.Item>
+                                                </Col>
+                                                <Col xs={12} md={4}>
+                                                    <SimpleSubtotal index={index} />
+                                                </Col>
+                                                <Col xs={2} md={1} style={{ textAlign: 'center' }}>
+                                                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(name)} />
+                                                </Col>
+                                            </Row>
+                                        ))}
+                                        <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} style={{ marginTop: 8 }}>
+                                            Tambah Item
+                                        </Button>
                                     </>
                                 )}
                             </Form.List>
+                        </div>
+                    </div>
 
-                            <Row gutter={16} style={{ marginTop: 16 }}>
-                                <Col span={12}><Form.Item name="diskonLain" label="Diskon Lain (Rp)"><InputNumber min={0} formatter={rupiahFormatter} parser={rupiahParser} style={{width:'100%'}} /></Form.Item></Col>
-                                <Col span={12}><Form.Item name="biayaTentu" label="Biaya Lain (Rp)"><InputNumber min={0} formatter={rupiahFormatter} parser={rupiahParser} style={{width:'100%'}} /></Form.Item></Col>
-                            </Row>
+                    {/* --- FOOTER SUMMARY --- */}
+                    <div style={{ marginTop: 16, background: '#f0f9ff', padding: 16, borderRadius: 8, border: '1px solid #bae7ff' }}>
+                        <Row gutter={16}>
+                            <Col xs={24} md={12}>
+                                <Form.Item name="totalDiskon" label="Total Diskon (Rp) - Auto/Manual">
+                                    <InputNumber 
+                                        style={{ width: '100%' }} 
+                                        formatter={v => `Rp ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                        parser={v => v.replace(/Rp\s?|(,*)/g, '')}
+                                        placeholder="Otomatis terhitung"
+                                    />
+                                </Form.Item>
+                                <Form.Item name="biayaTentu" label="Biaya Lain (Rp)">
+                                    <InputNumber 
+                                        style={{ width: '100%' }}
+                                        formatter={v => `Rp ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                        parser={v => v.replace(/Rp\s?|(,*)/g, '')}
+                                    />
+                                </Form.Item>
+                            </Col>
+                            <Col xs={24} md={12}>
+                                <Form.Item noStyle shouldUpdate>
+                                    {({ getFieldValue }) => {
+                                        const items = getFieldValue('items') || [];
+                                        const disc = getFieldValue('totalDiskon') || 0;
+                                        const cost = getFieldValue('biayaTentu') || 0;
+                                        const bruto = items.reduce((acc, i) => acc + ((i?.hargaSatuan||0) * (i?.jumlah||0)), 0);
+                                        const netto = (bruto - disc) + cost;
 
-                            {/* Grand Total Summary */}
-                            <Form.Item noStyle shouldUpdate>
-                                {({ getFieldValue }) => {
-                                    const items = getFieldValue('items') || [];
-                                    const diskonLain = Number(getFieldValue('diskonLain') || 0);
-                                    const biayaTentu = Number(getFieldValue('biayaTentu') || 0);
-                                    
-                                    let subtotal = 0;
-                                    let totalDiscItem = 0;
-                                    let totalQty = 0;
+                                        return (
+                                            <div style={{ textAlign: 'right' }}>
+                                                <Text type="secondary">Total Bruto</Text>
+                                                <div style={{ fontSize: 16, marginBottom: 8 }}>{rupiahFormatter(bruto)}</div>
+                                                
+                                                <Text type="secondary">Grand Total (Netto)</Text>
+                                                {/* FIX: Menghapus string "Rp" yang double */}
+                                                <div style={{ fontSize: 28, fontWeight: 'bold', color: '#3f8600' }}>
+                                                    {rupiahFormatter(netto)}
+                                                </div>
+                                            </div>
+                                        );
+                                    }}
+                                </Form.Item>
+                            </Col>
+                        </Row>
+                    </div>
 
-                                    items.forEach(i => {
-                                        const h = Number(i?.hargaSatuan||0), q = Number(i?.jumlah||0), d = Number(i?.diskonPersen||0);
-                                        const bruto = h * q;
-                                        const discVal = Math.round(bruto * d / 100);
-                                        subtotal += (bruto - discVal);
-                                        totalDiscItem += discVal;
-                                        totalQty += q;
-                                    });
-
-                                    const grandTotal = subtotal - diskonLain + biayaTentu;
-                                    const totalDiscAll = totalDiscItem + diskonLain;
-
-                                    return (
-                                        <Card style={{ background: '#f0f2f5', border: 'none' }}>
-                                            <Row gutter={16} style={{ textAlign: 'center' }}>
-                                                <Col span={8}><Statistic title="Total Qty" value={totalQty} /></Col>
-                                                <Col span={8}><Statistic title="Total Hemat" value={totalDiscAll} valueStyle={{ color: '#faad14' }} prefix="Rp" /></Col>
-                                                <Col span={8}><Statistic title="Grand Total" value={grandTotal} valueStyle={{ color: '#3f8600', fontWeight: 'bold' }} prefix="Rp" /></Col>
-                                            </Row>
-                                        </Card>
-                                    );
-                                }}
-                            </Form.Item>
-
-                            <Row justify="space-between" style={{ marginTop: 24 }}>
-                                <Col>{mode === 'edit' && <Popconfirm title="Hapus?" onConfirm={handleDelete} okButtonProps={{ danger: true }}><Button danger loading={isSaving}>Hapus</Button></Popconfirm>} <Button style={{ marginLeft: 8 }} onClick={onCancel}>Batal</Button></Col>
-                                <Col><Button type="primary" htmlType="submit" loading={isSaving} size="large">Simpan</Button></Col>
-                            </Row>
-                        </Form>
-                    )}
-                </Spin>
-            </Modal>
-        );
-    }
+                    {/* --- ACTIONS --- */}
+                    <Row justify="end" style={{ marginTop: 24, gap: 8 }}>
+                        {mode === 'edit' && (
+                            <Popconfirm title="Hapus transaksi ini? Stok akan dikembalikan." onConfirm={handleDelete} okButtonProps={{ danger: true }}>
+                                <Button danger loading={isSaving}>Hapus</Button>
+                            </Popconfirm>
+                        )}
+                        <Button onClick={onCancel}>Batal</Button>
+                        <Button type="primary" htmlType="submit" loading={isSaving} size="large">Simpan Transaksi</Button>
+                    </Row>
+                </Form>
+            </Spin>
+        </Modal>
+    );
+}
