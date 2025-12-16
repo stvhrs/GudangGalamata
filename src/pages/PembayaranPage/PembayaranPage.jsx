@@ -179,14 +179,14 @@ const PembayaranPage = () => {
             render: (text) => <Text type="secondary" style={{ fontSize: 13 }}>{text || '-'}</Text>,
             sorter: (a, b) => (a.keterangan || '').localeCompare(b.keterangan || ''),
         },
-        {
-            title: "Sumber",
-            dataIndex: 'sumber',
-            key: 'sumber',
-            width: 150,
-            render: (text) => <Tag color={text === 'INVOICE_PAYMENT' ? 'blue' : 'cyan'}>{text}</Tag>,
-            sorter: (a, b) => (a.sumber || '').localeCompare(b.sumber || ''),
-        },
+        // {
+        //     title: "Sumber",
+        //     dataIndex: 'sumber',
+        //     key: 'sumber',
+        //     width: 150,
+        //     render: (text) => <Tag color={text === 'INVOICE_PAYMENT' ? 'blue' : 'cyan'}>{text}</Tag>,
+        //     sorter: (a, b) => (a.sumber || '').localeCompare(b.sumber || ''),
+        // },
         {
             title: "Total Bayar",
             dataIndex: 'totalBayar',
