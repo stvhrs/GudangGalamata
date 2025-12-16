@@ -27,7 +27,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const [dateRange, setDateRange] = useState([null, null]);
     const [searchText, setSearchText] = useState('');
 
-    // State untuk data yang siap print (sesuai sort/filter tabel)
+    // State untuk data yang siap print
     const [printableData, setPrintableData] = useState([]); 
     
     // Format mata uang
@@ -52,8 +52,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     }, [open, customer]);
 
- // ... (Kode import dan state sebelumnya tetap sama)
-
     const fetchAllTransactionStreams = async (customerId) => {
         setLoading(true);
         try {
@@ -62,8 +60,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             const paymentsRef = query(ref(db, 'payments'), orderByChild('customerId'), equalTo(customerId));
             const nonFakturRef = query(ref(db, 'non_faktur'), orderByChild('customerId'), equalTo(customerId));
             const returnsRef = query(ref(db, 'returns'), orderByChild('customerId'), equalTo(customerId));
-            
-            // Tambahan: Ambil data customer spesifik untuk cek saldoAwal
             const customerRef = ref(db, `customers/${customerId}`);
 
             // 2. Fetch semua secara paralel
@@ -84,12 +80,12 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
 
                 if (saldoAwal !== 0) {
                     mergedData.push({
-                        key: 'MIGRASI_SALDO_AWAL', 
+                        key: 'MIGRASI_SALDO_AWAL',
                         id: 'MIGRASI',
                         type: 'MIGRASI',
-                        keterangan: 'Migrasi Saldo Awal',
+                        keterangan: 'Migrasi Mas Steve',
                         amount: Math.abs(saldoAwal),
-                        isDebit: true, // Asumsi Saldo Awal = Hutang
+                        isDebit: true, 
                         date: new Date('2018-01-01').getTime() 
                     });
                 }
@@ -102,30 +98,20 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 const val = invSnap.val();
                 Object.keys(val).forEach(key => {
                     const item = val[key];
-                    
-                    // --- PERBAIKAN DI SINI ---
-                    // Gunakan item.totalBayar langsung jika ada (lebih akurat), 
-                    // atau hitung manual: Bruto - Diskon + BiayaLain
-                    
                     const bruto = parseFloat(item.totalBruto) || 0;
-                    const diskon = parseFloat(item.totalDiskon) || 0;
                     const biayaLain = parseFloat(item.totalBiayaLain) || 0;
+                    const diskon = parseFloat(item.totalDiskon) || 0;
                     
-                    // Rumus disesuaikan agar cocok dengan totalBayar di JSON (1.403.500)
-                    let totalInvoice = 0;
-                    if (item.totalBayar) {
-                         totalInvoice = parseFloat(item.totalBayar);
-                    } else {
-                         // Biaya Lain DITAMBAH (+), bukan dikurang
-                         totalInvoice = bruto - diskon + biayaLain; 
-                    }
+                    // KOREKSI RUMUS DI SINI:
+                    // Total = Bruto + Biaya Lain - Diskon
+                    const totalInvoice = bruto + biayaLain - diskon;
 
                     mergedData.push({
                         ...item,
                         key: key,
                         type: 'INVOICE',
                         amount: totalInvoice,
-                        isDebit: true, // Menambah Hutang
+                        isDebit: true, 
                         date: item.tanggal
                     });
                 });
@@ -164,8 +150,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             setLoading(false);
         }
     };
-
-// ... (Sisa kode UseEffect, Logic Calculation, dan Render tetap sama)
 
     // --- LOGIC CALCULATION ---
     const processedData = useMemo(() => {
@@ -241,7 +225,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         setPrintableData(extra.currentDataSource);
     };
 
-    // --- FUNGSI PRINT (DIPERBAIKI) ---
+    // --- FUNGSI PRINT ---
     const handlePrint = () => {
         const totalDebitPrint = printableData.reduce((acc, curr) => acc + (curr.isDebit ? curr.amount : 0), 0);
         const totalCreditPrint = printableData.reduce((acc, curr) => acc + (!curr.isDebit ? curr.amount : 0), 0);
@@ -264,26 +248,17 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         win.document.write(`
             <style>
                 body { font-family: sans-serif; padding: 20px; color: #000; }
-                
-                /* HEADER DIPERBESAR */
                 .header { text-align: center; margin-bottom: 25px; border-bottom: 3px solid #000; padding-bottom: 15px; }
                 .header h1 { font-size: 26px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
                 .header h2 { font-size: 20px; margin: 5px 0; font-weight: bold; }
-                
-                /* META TABLE DIPERBESAR */
                 .meta-table { width: 100%; margin-bottom: 20px; font-size: 14px; font-weight: bold; }
                 .meta-table td { padding: 4px 0; }
-                
                 .summary-box { border: 1px solid #000; padding: 10px; margin-bottom: 20px; font-size: 13px; }
-                
-                /* TABEL UTAMA DIKECILKAN AGAR MUAT */
                 .main-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
                 .main-table th, .main-table td { border: 1px solid #999; padding: 4px; text-align: left; }
                 .main-table th { background-color: #eee; text-align: center; font-weight: bold; padding: 6px; }
-                
                 .text-right { text-align: right; }
                 .total-row td { font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #000; }
-                
                 @media print {
                     @page { margin: 10mm; }
                     .header h1 { font-size: 24px; }
@@ -460,7 +435,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     return (
         <>
             <Modal
-style={{ top: 20 }}
                 title={
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginRight: 24 }}>
                         <span>Riwayat: {customer?.nama}</span>
@@ -471,6 +445,7 @@ style={{ top: 20 }}
                 onCancel={onCancel}
                 width={1100}
                 footer={null}
+                style={{ top: 20 }}
                 bodyStyle={{ padding: '16px 24px' }}
             >
                 {/* 1. REKAP ATAS */}
@@ -508,13 +483,11 @@ style={{ top: 20 }}
                         </Card>
                     </Col>
                     <Col span={6}>
-                        {/* KARTU SALDO DENGAN STATUS */}
                         <Card bodyStyle={{ padding: '12px' }} style={{ background: '#e6f7ff', borderRadius: 8 }} size="small" bordered={false}>
                             <Statistic 
                                 title={
                                     <Space>
                                         <span>Saldo Akhir</span>
-                                        {/* INDIKATOR STATUS UI */}
                                         <Tag color={processedData.status === 'HUTANG' ? 'red' : processedData.status === 'DEPOSIT' ? 'green' : 'blue'}>
                                             {processedData.status}
                                         </Tag>

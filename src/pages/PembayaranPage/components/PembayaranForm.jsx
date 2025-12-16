@@ -6,10 +6,10 @@ import {
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
-// --- IMPORT HOOK PELANGGAN ---
+// --- IMPORT HOOK PELANGGAN (Sesuaikan path jika perlu) ---
 import { usePelangganStream } from '../../../hooks/useFirebaseData';
 
-// IMPORT FIREBASE
+// IMPORT FIREBASE (Sesuaikan path jika perlu)
 import { db, storage } from '../../../api/firebase'; 
 import {
     ref, update, get, query, orderByChild, orderByKey,
@@ -24,8 +24,14 @@ const { Option } = Select;
 const SOURCE_DEFAULT = 'INVOICE_PAYMENT'; 
 const ARAH_TRANSAKSI = 'IN';
 
+// UPDATED: Formatter mata uang mendukung koma
 const currencyFormatter = (value) =>
-    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
+    new Intl.NumberFormat('id-ID', { 
+        style: 'currency', 
+        currency: 'IDR', 
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2 // Mengizinkan sampai 2 desimal
+    }).format(value);
 
 const generateAllocationId = (paymentId, invoiceId) => `ALLOC_${paymentId}_${invoiceId}`;
 
@@ -88,13 +94,27 @@ const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, on
                                 <InputNumber
                                     value={allocation}
                                     onChange={(v) => onNominalChange(v, item.id)}
-                                    formatter={value => value ? `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''}
-                                    parser={value => value ? value.replace(/\./g, '') : ''}
-                                    style={{ width: 130, fontSize: 13 }}
+                                    style={{ width: 140, fontSize: 13 }}
                                     placeholder="Nominal"
-                                    min={1} 
-                                    max={item.sisaTagihan} // User tidak boleh bayar lebih dari sisa
+                                    min={0} 
+                                    max={item.sisaTagihan} 
                                     status={!allocation ? 'error' : ''}
+                                    
+                                    // UPDATED: Support Desimal di item list juga
+                                    decimalSeparator=","
+                                    step={0.01}
+                                    formatter={value => {
+                                        if (!value && value !== 0) return '';
+                                        const str = String(value);
+                                        const parts = str.split('.');
+                                        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                                        return parts.join(',');
+                                    }}
+                                    parser={value => {
+                                        if (!value) return '';
+                                        let val = value.replace(/[^\d,]/g, ''); // Hapus selain angka & koma
+                                        return val.replace(',', '.'); // Ubah koma ke titik
+                                    }}
                                 />
                             ) : (
                                 <Tag color="red" style={{ fontSize: 10 }}>
@@ -141,7 +161,10 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
     // --- STATE ---
     const [selectedCustomerName, setSelectedCustomerName] = useState(null);
     const [fileList, setFileList] = useState([]);
+    
+    // eslint-disable-next-line no-unused-vars
     const [previewOpen, setPreviewOpen] = useState(false);
+    // eslint-disable-next-line no-unused-vars
     const [previewImage, setPreviewImage] = useState('');
 
     const [invoiceList, setInvoiceList] = useState([]); 
@@ -331,8 +354,14 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         for (const invoice of invoiceList) {
             if (remainingMoney <= 0) break;
             const amountNeeded = invoice.sisaTagihan;
+            // Gunakan parseFloat untuk memastikan presisi desimal
             let amountToPay = remainingMoney >= amountNeeded ? amountNeeded : remainingMoney;
+            
+            // Fix javascript floating point issues
+            amountToPay = Math.round(amountToPay * 100) / 100;
+            
             remainingMoney = remainingMoney >= amountNeeded ? remainingMoney - amountNeeded : 0;
+            
             newAllocations[invoice.id] = amountToPay;
             newSelectedIds.push(invoice.id);
         }
@@ -342,6 +371,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
 
     const handleTotalBayarChange = (val) => {
         let amount = val || 0;
+        // Tidak perlu replace manual karena parser InputNumber sudah menanganinya
         if (amount > maxPayableAmount) amount = maxPayableAmount; 
         setTotalInputAmount(amount);
         distributeAmount(amount);
@@ -551,7 +581,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         <>
             {contextHolder}
             <Modal
-style={{ top: 20 }}
+                style={{ top: 20 }}
                 open={open}
                 title={initialValues ? "Detail Pembayaran" : "Input Pembayaran Customer"}
                 onCancel={onCancel}
@@ -607,13 +637,34 @@ style={{ top: 20 }}
                                     <Form.Item label="2. Total Uang Diterima" style={{marginBottom: 8}} required>
                                         <InputNumber
                                             style={{ width: '100%', fontWeight: 'bold', fontSize: 16 }}
-                                            formatter={v => v ? `Rp ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : 'Rp 0'}
-                                            parser={v => v ? v.replace(/\D/g, '') : ''}
                                             value={totalInputAmount}
                                             onChange={handleTotalBayarChange}
                                             placeholder="Input Nominal..."
                                             disabled={invoiceList.length === 0}
-                                            max={maxPayableAmount} 
+                                            max={maxPayableAmount}
+                                            
+                                            // --- UPDATE UNTUK SUPPORT KOMA ---
+                                            decimalSeparator="," 
+                                            step={0.01}
+                                            formatter={value => {
+                                                if (!value && value !== 0) return 'Rp 0';
+                                                // 1. Ubah ke string
+                                                const str = String(value);
+                                                // 2. Pisahkan bagian bulat dan desimal
+                                                const parts = str.split('.');
+                                                // 3. Format bagian bulat dengan titik ribuan
+                                                parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                                                // 4. Gabungkan dengan koma
+                                                return `Rp ${parts.join(',')}`;
+                                            }}
+                                            parser={value => {
+                                                if (!value) return '';
+                                                // 1. Hapus 'Rp', spasi, dan titik ribuan. Biarkan koma.
+                                                let val = value.replace(/[^\d,]/g, '');
+                                                // 2. Ubah koma menjadi titik untuk diproses JS
+                                                return val.replace(',', '.');
+                                            }}
+                                            // ---------------------------------
                                         />
                                     </Form.Item>
                                 </Col>
@@ -701,45 +752,23 @@ style={{ top: 20 }}
                         </div>
                     </div>
 
-                    <Row gutter={16}>
-                        <Col span={12}>
-                            <Form.Item name="tanggal" label="Tanggal Pembayaran" rules={[{ required: true }]}>
-                                <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" disabled={!!initialValues} />
-                            </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                            <Form.Item name="keterangan" label="Keterangan">
-                                <Input placeholder="Contoh: Transfer BCA..." disabled={!!initialValues} />
-                            </Form.Item>
-                        </Col>
-                    </Row>
+                    <Form.Item label="Keterangan (Opsional)" name="keterangan">
+                        <Input.TextArea rows={2} placeholder="Catatan tambahan..." />
+                    </Form.Item>
 
-                    {!initialValues && (
-                        <Form.Item label="Bukti Transfer (Opsional)">
-                            <Upload 
-                                accept="image/*" 
-                                listType="picture-card" 
-                                maxCount={1} 
-                                fileList={fileList} 
-                                onPreview={async (file) => {
-                                    if (!file.url && !file.preview) file.preview = await getBase64(file.originFileObj);
-                                    setPreviewImage(file.url || file.preview);
-                                    setPreviewOpen(true);
-                                }}
-                                onChange={({ fileList }) => setFileList(fileList)} 
-                                beforeUpload={() => false}
-                            >
-                                {fileList.length < 1 && <div><PlusOutlined /><div style={{marginTop: 8}}>Upload</div></div>}
-                            </Upload>
-                        </Form.Item>
-                    )}
+                    <Form.Item label="Upload Bukti (Opsional)" >
+                         <Upload
+                            listType="picture"
+                            fileList={fileList}
+                            maxCount={1}
+                            beforeUpload={() => false} 
+                            onChange={({ fileList: newFileList }) => setFileList(newFileList)}
+                         >
+                            <Button icon={<PlusOutlined />}>Pilih Gambar</Button>
+                         </Upload>
+                    </Form.Item>
 
                 </Form>
-            </Modal>
-            
-            <Modal
-style={{ top: 20 }} open={previewOpen} footer={null} onCancel={() => setPreviewOpen(false)}>
-                <img alt="bukti" style={{ width: '100%' }} src={previewImage} />
             </Modal>
         </>
     );
