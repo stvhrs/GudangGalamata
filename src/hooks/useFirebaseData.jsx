@@ -313,7 +313,7 @@ const connectPelangganStream = () => {
     globalPelangganLoading = true;
     notifyPelangganSubscribers();
 
-    const pelangganRef = ref(db, 'pelanggan');
+    const pelangganRef = ref(db, 'customers');
 
     globalPelangganUnsubscribe = onValue(pelangganRef, (snapshot) => {
         const data = snapshotToArrayWithId(snapshot);

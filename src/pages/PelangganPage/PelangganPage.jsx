@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-    Layout, Card, Table, Button, Input, Space, Popconfirm, message, Spin, Tag, Row, Col, Tooltip
+    Layout, Card, Table, Button, Input, Space, message, Popconfirm, Tooltip
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, HistoryOutlined } from '@ant-design/icons';
+import { DeleteOutlined, HistoryOutlined, UserAddOutlined } from '@ant-design/icons';
 import { ref, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
 
@@ -17,15 +17,14 @@ const { Search } = Input;
 export default function PelangganPage() {
     const { pelangganList, loadingPelanggan } = usePelangganStream();
 
-    // --- 1. SETUP DEBOUNCE SEARCH YANG BENAR ---
+    // --- SETUP SEARCH & PAGINATION ---
     const [searchText, setSearchText] = useState('');
-    
-    // Delay 500ms: Filter baru jalan setengah detik setelah user BERHENTI mengetik
-    const debouncedSearchText = useDebounce(searchText, 500); 
+    const debouncedSearchText = useDebounce(searchText, 500);
 
-    // State Modal
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPelanggan, setEditingPelanggan] = useState(null);
+    
+    // State Modal History
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [selectedHistoryCustomer, setSelectedHistoryCustomer] = useState(null);
 
@@ -37,12 +36,9 @@ export default function PelangganPage() {
         showTotal: (total, range) => `${range[0]}-${range[1]} dari ${total} pelanggan`
     });
 
-    // --- 2. LOGIC FILTERING (Berat) DIPISAHKAN KE MEMO ---
-    // Variable ini hanya akan dihitung ulang jika 'debouncedSearchText' berubah
+    // --- FILTERING ---
     const filteredPelanggan = useMemo(() => {
         let data = pelangganList || [];
-        
-        // Gunakan debouncedSearchText untuk filter, BUKAN searchText langsung
         if (debouncedSearchText) {
             const query = debouncedSearchText.toLowerCase();
             data = data.filter(p =>
@@ -51,30 +47,20 @@ export default function PelangganPage() {
             );
         }
         return data;
-    }, [pelangganList, debouncedSearchText]); // Dependency array: debouncedSearchText
+    }, [pelangganList, debouncedSearchText]);
 
-    // --- 3. HANDLER INPUT (Ringan) ---
-    // Hanya mengupdate text field agar UI input tidak delay
+    // --- HANDLERS ---
     const handleSearchChange = useCallback((e) => {
         setSearchText(e.target.value);
-        // Reset pagination ke halaman 1 saat user mengetik
-        if (pagination.current !== 1) {
-            setPagination(prev => ({ ...prev, current: 1 }));
-        }
+        if (pagination.current !== 1) setPagination(prev => ({ ...prev, current: 1 }));
     }, [pagination.current]);
 
-    // Handlers lainnya tetap sama...
     const handleTableChange = useCallback((paginationConfig) => {
         setPagination(paginationConfig);
     }, []);
 
     const handleOpenCreate = useCallback(() => {
         setEditingPelanggan(null);
-        setIsModalOpen(true);
-    }, []);
-
-    const handleOpenEdit = useCallback((pelanggan) => {
-        setEditingPelanggan(pelanggan);
         setIsModalOpen(true);
     }, []);
 
@@ -91,15 +77,17 @@ export default function PelangganPage() {
         if (!idPelanggan) return;
         message.loading({ content: 'Menghapus pelanggan...', key: 'del_pel' });
         try {
-            await remove(ref(db, `pelanggan/${idPelanggan}`));
+            await remove(ref(db, `customers/${idPelanggan}`));
             message.success({ content: 'Pelanggan berhasil dihapus', key: 'del_pel' });
         } catch (error) {
-            console.error("Error deleting pelanggan:", error);
-            message.error({ content: `Gagal menghapus: ${error.message}`, key: 'del_pel' });
+            console.error("Error deleting:", error);
+            message.error({ content: `Gagal: ${error.message}`, key: 'del_pel' });
         }
     }, []);
 
     const handleOpenHistory = useCallback((pelanggan) => {
+        // Debugging: Cek ID yang dikirim
+        console.log("Membuka history untuk:", pelanggan);
         setSelectedHistoryCustomer(pelanggan);
         setIsHistoryModalOpen(true);
     }, []);
@@ -109,11 +97,13 @@ export default function PelangganPage() {
         setTimeout(() => setSelectedHistoryCustomer(null), 300);
     }, []);
 
+    // --- COLUMNS ---
     const columns = useMemo(() => [
         {
             title: 'No.',
             key: 'index',
             width: 60,
+            align: 'center',
             render: (text, record, index) => ((pagination.current - 1) * pagination.pageSize) + index + 1,
         },
         {
@@ -121,7 +111,6 @@ export default function PelangganPage() {
             dataIndex: 'nama',
             key: 'nama',
             sorter: (a, b) => (a.nama || '').localeCompare(b.nama || ''),
-            ellipsis: true,
         },
         {
             title: 'Telepon',
@@ -131,35 +120,21 @@ export default function PelangganPage() {
             render: (tel) => tel || '-',
         },
         {
-            title: 'Status',
-            dataIndex: 'isSpesial',
-            key: 'isSpesial',
-            align: 'center',
-            width: 130,
-            render: (isSpesial) => isSpesial ? <Tag color="gold">Spesial</Tag> : <Tag>Biasa</Tag>,
-            filters: [{ text: 'Spesial', value: true }, { text: 'Biasa', value: false }],
-            onFilter: (value, record) => !!record.isSpesial === value,
-        },
-        {
             title: 'Aksi',
             key: 'aksi',
             align: 'center',
-            width: 180,
+            width: 150,
             render: (_, record) => (
                 <Space size="small">
                     <Tooltip title="Lihat Riwayat Transaksi">
-                        <Button 
-                            type="default" 
-                            icon={<HistoryOutlined />} 
-                            onClick={() => handleOpenHistory(record)} 
+                        <Button
+                            size="small"
+                            type="default"
+                            icon={<HistoryOutlined />}
+                            onClick={() => handleOpenHistory(record)}
                             style={{ color: '#1890ff', borderColor: '#1890ff' }}
                         />
                     </Tooltip>
-                    
-                    {/* <Tooltip title="Edit">
-                        <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenEdit(record)} />
-                    </Tooltip>
-
                     <Popconfirm
                         title="Hapus pelanggan?"
                         onConfirm={() => handleDelete(record.id)}
@@ -167,71 +142,60 @@ export default function PelangganPage() {
                         cancelText="Batal"
                         okButtonProps={{ danger: true }}
                     >
-                        <Button type="link" danger icon={<DeleteOutlined />} />
-                    </Popconfirm> */}
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
                 </Space>
             ),
         },
-    ], [pagination, handleOpenEdit, handleDelete, handleOpenHistory]);
-
-    // Indikator Loading: Aktif jika data sedang di-fetch ATAU user sedang mengetik (debounce belum selesai)
-    const isSearching = searchText !== debouncedSearchText;
+    ], [pagination, handleDelete, handleOpenHistory]);
 
     return (
-        <Layout>
-            <Content style={{ padding: '24px', backgroundColor: '#f0f2f5' }}>
-                <Card>
-                    <Row justify="space-between" align="middle" gutter={[16, 16]} style={{ marginBottom: 24 }}>
-                        <Col xs={24} sm={12}>
-                            {/* INPUT SEARCH */}
-                            <Search
-                                placeholder="Cari nama atau telepon..."
-                                value={searchText} // Bound ke state langsung agar responsif
-                                onChange={handleSearchChange}
-                                allowClear
-                                loading={isSearching} // Menampilkan spinner kecil di kanan input saat debounce berjalan
-                                style={{ width: '100%' }}
-                            />
-                        </Col>
-                        <Col xs={24} sm={12} style={{ textAlign: 'right' }}>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreate}>
-                                Tambah Pelanggan
-                            </Button>
-                        </Col>
-                    </Row>
-
-                    {/* TABLE */}
-                    <Spin spinning={loadingPelanggan && !pelangganList?.length}>
-                        <Table
-                            columns={columns}
-                            dataSource={filteredPelanggan} // Bound ke hasil DEBOUNCE
-                            rowKey="id"
-                            pagination={pagination}
-                            onChange={handleTableChange}
-                            scroll={{ x: 'max-content' }}
-                            rowClassName={(record, index) => (index % 2 === 0 ? 'table-row-even' : 'table-row-odd')}
+        <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
+            <Content style={{ padding: '24px' }}>
+                <Card 
+                    title="Data Pelanggan" 
+                    bordered={false}
+                    extra={
+                        <Button type="primary" icon={<UserAddOutlined />} onClick={handleOpenCreate}>
+                            Tambah Pelanggan
+                        </Button>
+                    }
+                    style={{ borderRadius: 8 }}
+                >
+                    <div style={{ marginBottom: 16, maxWidth: 400 }}>
+                        <Search
+                            placeholder="Cari nama atau telepon..."
+                            onChange={handleSearchChange}
+                            allowClear
+                            enterButton
                         />
-                    </Spin>
+                    </div>
+
+                    <Table
+                        columns={columns}
+                        dataSource={filteredPelanggan}
+                        rowKey="id"
+                        loading={loadingPelanggan}
+                        pagination={pagination}
+                        onChange={handleTableChange}
+                        size="middle"
+                        bordered
+                        style={{ background: '#fff', borderRadius: 8 }}
+                    />
                 </Card>
 
-                {/* MODALS */}
-                {isModalOpen && (
-                    <PelangganForm
-                        key={editingPelanggan?.id || 'create'}
-                        open={isModalOpen}
-                        onCancel={handleCloseModal}
-                        onSuccess={handleFormSuccess}
-                        initialData={editingPelanggan}
-                        pelangganList={pelangganList}
-                    />
-                )}
-
-                <CustomerHistoryModal 
-                    open={isHistoryModalOpen}
-                    onCancel={handleCloseHistory}
-                    pelanggan={selectedHistoryCustomer}
+                <PelangganForm
+                    open={isModalOpen}
+                    onCancel={handleCloseModal}
+                    onSuccess={handleFormSuccess}
+                    initialValues={editingPelanggan}
                 />
 
+                <CustomerHistoryModal
+                    open={isHistoryModalOpen}
+                    onCancel={handleCloseHistory}
+                    customer={selectedHistoryCustomer}
+                />
             </Content>
         </Layout>
     );

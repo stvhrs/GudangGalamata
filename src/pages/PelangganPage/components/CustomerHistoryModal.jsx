@@ -1,566 +1,530 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, Table, Button, Typography, Tag, Spin, message, Statistic, Card, Row, Col, Input, Divider, Tooltip, DatePicker } from 'antd';
-import { FilePdfOutlined, SearchOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { 
+    Modal, Table, DatePicker, Row, Col, Card, Statistic, Tag, Spin, Empty, Typography, Input, Button, Space 
+} from 'antd';
+import { 
+    ArrowUpOutlined,
+    ArrowDownOutlined,
+    SearchOutlined,
+    PrinterOutlined
+} from '@ant-design/icons';
 import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../../../api/firebase'; 
 import dayjs from 'dayjs';
-import isBetween from 'dayjs/plugin/isBetween';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import 'dayjs/locale/id'; 
 
-// --- KONFIGURASI AWAL ---
-dayjs.extend(isBetween); 
-const { Text } = Typography;
+// Set locale global ke Indonesia
+dayjs.locale('id');
+
 const { RangePicker } = DatePicker;
+const { Text } = Typography;
 
-// --- CSS KUSTOM UNTUK TABEL EXCEL LOOK ---
-const excelTableStyles = `
-  .excel-table .ant-table-container {
-    border-left: 2px solid #000 !important;
-    border-top: 2px solid #000 !important;
-  }
-  .excel-table .ant-table-cell {
-    border-bottom: 2px solid #000 !important;
-    border-right: 2px solid #000 !important;
-  }
-  .excel-table .ant-table-thead > tr > th {
-    background-color: #d9d9d9 !important;
-    color: #000 !important;
-    font-weight: bold !important;
-    border-bottom: 2px solid #000 !important;
-  }
-`;
-
-// --- HELPER FUNCTIONS ---
-const formatCurrency = (value) => 
-    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
-
-const parseNumber = (val) => {
-    if (!val) return 0;
-    if (typeof val === 'number') return val;
-    const cleanStr = String(val).replace(/[^0-9.-]+/g, ""); 
-    return Number(cleanStr) || 0;
-};
-
-const rangePresets = [
-    { label: 'Hari Ini', value: [dayjs().startOf('day'), dayjs().endOf('day')] },
-    { label: '7 Hari Terakhir', value: [dayjs().subtract(6, 'days'), dayjs()] },
-    { label: 'Bulan Ini', value: [dayjs().startOf('month'), dayjs().endOf('month')] },
-    { label: 'Bulan Lalu', value: [dayjs().subtract(1, 'month').startOf('month'), dayjs().subtract(1, 'month').endOf('month')] },
-];
-
-const CustomerHistoryModal = ({ open, onCancel, pelanggan }) => {
+export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const [loading, setLoading] = useState(false);
-    const [allTransactions, setAllTransactions] = useState([]); 
+    const [rawData, setRawData] = useState([]);
     
-    // State Filter
-    const [searchText, setSearchText] = useState(''); 
-    const [dateRange, setDateRange] = useState(null);
-    
-    // State Summary Global
-    const [globalSummary, setGlobalSummary] = useState({ 
-        saldoAkhir: 0, 
-        totalDebit: 0, 
-        totalCredit: 0 
-    });
+    // State Filter & Search
+    const [dateRange, setDateRange] = useState([null, null]);
+    const [searchText, setSearchText] = useState('');
 
-    const getSaldoStyle = (val) => {
-        if (val > 0) return { color: '#cf1322', label: 'Hutang' };
-        if (val < 0) return { color: '#3f8600', label: 'Deposit' };
-        return { color: '#595959', label: 'Lunas' };
+    // State untuk data yang siap print (sesuai sort/filter tabel)
+    const [printableData, setPrintableData] = useState([]); 
+    
+    // Format mata uang
+    const formatRupiah = (num) => {
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0
+        }).format(num || 0);
     };
 
-    // --- 1. FETCH DATA UTAMA ---
-    const fetchHistory = async () => {
-        if (!pelanggan) return;
+    // --- FETCH DATA ---
+    useEffect(() => {
+        if (open && customer?.id) {
+            const safeId = String(customer.id);
+            fetchAllTransactionStreams(safeId);
+        } else {
+            setRawData([]);
+            setSearchText('');
+            setDateRange([null, null]);
+            setPrintableData([]);
+        }
+    }, [open, customer]);
+
+    const fetchAllTransactionStreams = async (customerId) => {
         setLoading(true);
         try {
-            // Kita ambil data berdasarkan nama atau ID
-            // NOTE: Pastikan di Firebase Rules ".indexOn": ["idPelanggan", "namaPelanggan"] sudah ada untuk performa
-            const qInvoice = query(ref(db, 'transaksiJualBuku'), orderByChild('idPelanggan'), equalTo(pelanggan.id));
-            const qBayar = query(ref(db, 'historiPembayaran'), orderByChild('namaPelanggan'), equalTo(pelanggan.nama));
-            const qRetur = query(ref(db, 'historiRetur'), orderByChild('namaPelanggan'), equalTo(pelanggan.nama));
-            const qDp = query(ref(db, 'nonFaktur'), orderByChild('namaPelanggan'), equalTo(pelanggan.nama));
+            const invoicesRef = query(ref(db, 'invoices'), orderByChild('customerId'), equalTo(customerId));
+            const paymentsRef = query(ref(db, 'payments'), orderByChild('customerId'), equalTo(customerId));
+            const nonFakturRef = query(ref(db, 'non_faktur'), orderByChild('customerId'), equalTo(customerId));
+            const returnsRef = query(ref(db, 'returns'), orderByChild('customerId'), equalTo(customerId));
 
-            const [snapInvoice, snapBayar, snapRetur, snapDp] = await Promise.all([
-                get(qInvoice), get(qBayar), get(qRetur), get(qDp)
+            const [invSnap, paySnap, nfSnap, retSnap] = await Promise.all([
+                get(invoicesRef), get(paymentsRef), get(nonFakturRef), get(returnsRef)
             ]);
 
-            let rawData = [];
+            let mergedData = [];
 
-            // A. INVOICE
-            if (snapInvoice.exists()) {
-                snapInvoice.forEach(child => {
-                    const val = child.val();
-                    // Double check ID pelanggan (Safety)
-                    if (val.idPelanggan !== pelanggan.id) return;
+            // 1. INVOICES
+            if (invSnap.exists()) {
+                const val = invSnap.val();
+                Object.keys(val).forEach(key => {
+                    const item = val[key];
+                    const bruto = parseFloat(item.totalBruto) || 0;
+                    const diskon = parseFloat(item.totalDiskon) || 0;
+                    const biayaLain = parseFloat(item.totalBiayaLain) || 0;
+                    const totalInvoice = bruto - diskon - biayaLain;
 
-                    rawData.push({
-                        id: child.key,
-                        rawId: val.nomorInvoice || child.key,
-                        dateObj: val.tanggal,
+                    mergedData.push({
+                        ...item,
+                        key: key,
                         type: 'INVOICE',
-                        keterangan: 'Pembelian Buku',
-                        debit: parseNumber(val.totalTagihan), 
-                        credit: 0 
+                        amount: totalInvoice,
+                        isDebit: true, 
+                        date: item.tanggal
                     });
                 });
             }
 
-            // B. PEMBAYARAN
-            if (snapBayar.exists()) {
-                snapBayar.forEach(child => {
-                    const val = child.val();
-                    // Safety check nama (Case insensitive)
-                    if ((val.namaPelanggan || '').toLowerCase() !== (pelanggan.nama || '').toLowerCase()) return;
+            // Helper Push Data
+            const pushData = (snapshot, type, amountField, isDebitDefault, isIncomingCheck = false) => {
+                if (snapshot.exists()) {
+                    const val = snapshot.val();
+                    Object.keys(val).forEach(key => {
+                        const item = val[key];
+                        let isDebit = isDebitDefault;
+                        if (isIncomingCheck) { isDebit = item.arah !== 'IN'; } 
 
-                    rawData.push({
-                        id: child.key,
-                        rawId: val.id || child.key,
-                        dateObj: val.tanggal,
-                        type: 'PAYMENT',
-                        keterangan: val.keterangan || 'Pembayaran',
-                        debit: 0,
-                        credit: parseNumber(val.jumlah) 
+                        mergedData.push({
+                            ...item,
+                            key: key,
+                            type: type,
+                            amount: parseFloat(item[amountField]) || 0,
+                            isDebit: isDebit,
+                            date: item.tanggal
+                        });
                     });
-                });
-            }
+                }
+            };
 
-            // C. RETUR
-            if (snapRetur.exists()) {
-                snapRetur.forEach(child => {
-                    const val = child.val();
-                    if ((val.namaPelanggan || '').toLowerCase() !== (pelanggan.nama || '').toLowerCase()) return;
+            pushData(paySnap, 'PAYMENT', 'totalBayar', false);
+            pushData(nfSnap, 'NON_FAKTUR', 'totalBayar', false, true);
+            pushData(retSnap, 'RETURN', 'totalRetur', false);
 
-                    rawData.push({
-                        id: child.key,
-                        rawId: val.id || child.key,
-                        dateObj: val.timestamp || val.tanggal, 
-                        type: 'RETUR',
-                        keterangan: 'Retur Barang', 
-                        debit: 0,
-                        credit: parseNumber(val.jumlahKeluar) 
-                    });
-                });
-            }
-
-            // D. DP / DOWN PAYMENT (FIX BUG 300JT)
-            if (snapDp.exists()) {
-                snapDp.forEach(child => {
-                    const val = child.val();
-                    
-                    // --- SAFETY FILTER: Cegah data orang lain masuk ---
-                    // Pastikan nama pelanggan persis sama (atau mirip)
-                    const dbName = (val.namaPelanggan || '').trim().toLowerCase();
-                    const targetName = (pelanggan.nama || '').trim().toLowerCase();
-                    
-                    if (dbName !== targetName) {
-                        return; // Skip jika bukan milik pelanggan ini
-                    }
-
-                    rawData.push({
-                        id: child.key,
-                        rawId: val.id || child.key, // Ambil ID DP (misal DP998187)
-                        dateObj: val.tanggal, // Timestamp (misal 1765430666902)
-                        type: 'DP',
-                        keterangan: val.keterangan || 'Down Payment (DP)', 
-                        debit: 0,
-                        credit: parseNumber(val.jumlah) // Menggunakan field 'jumlah' sesuai data Anda
-                    });
-                });
-            }
-
-            // Sort Kronologis (Lama -> Baru) untuk hitung saldo berjalan
-            rawData.sort((a, b) => {
-                const timeA = dayjs(a.dateObj).valueOf();
-                const timeB = dayjs(b.dateObj).valueOf();
-                return timeA - timeB;
-            });
-
-            let currentBalance = 0;
-            let tempTotalDebit = 0;
-            let tempTotalCredit = 0;
-
-            const dataWithBalance = rawData.map(item => {
-                tempTotalDebit += item.debit;
-                tempTotalCredit += item.credit;
-                
-                // Rumus: Saldo = Saldo Sebelumnya + Tagihan (Debit) - Bayar/Retur/DP (Credit)
-                currentBalance = currentBalance + item.debit - item.credit;
-                
-                return {
-                    ...item,
-                    saldo: currentBalance
-                };
-            });
-
-            setGlobalSummary({ 
-                saldoAkhir: currentBalance,
-                totalDebit: tempTotalDebit,
-                totalCredit: tempTotalCredit
-            });
-            
-            // Reverse agar yang terbaru muncul paling atas di tabel
-            setAllTransactions(dataWithBalance.reverse());
+            setRawData(mergedData);
 
         } catch (error) {
-            console.error("Error fetch history:", error);
-            message.error("Gagal memuat data histori");
+            console.error("Error fetching history:", error);
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => {
-        if (open && pelanggan) {
-            setSearchText(''); 
-            setDateRange(null);
-            fetchHistory();
-        }
-    }, [open, pelanggan]);
+    // --- LOGIC CALCULATION ---
+    const processedData = useMemo(() => {
+        const allDataAsc = [...rawData].sort((a, b) => a.date - b.date);
 
-    const handleResetFilter = () => {
-        setSearchText('');
-        setDateRange(null);
-    };
+        let startFilter = dateRange?.[0] ? dateRange[0].startOf('day').valueOf() : 0;
+        let endFilter = dateRange?.[1] ? dateRange[1].endOf('day').valueOf() : Infinity;
 
-    // --- 2. LOGIKA FILTER UI ---
-    const filteredTransactions = useMemo(() => {
-        let data = allTransactions;
-
-        if (searchText) {
-            const lower = searchText.toLowerCase();
-            data = data.filter(item => 
-                (item.rawId && item.rawId.toLowerCase().includes(lower)) ||
-                (item.type && item.type.toLowerCase().includes(lower)) ||
-                (item.keterangan && item.keterangan.toLowerCase().includes(lower))
-            );
-        }
-
-        if (dateRange && dateRange[0] && dateRange[1]) {
-            const start = dateRange[0].startOf('day');
-            const end = dateRange[1].endOf('day');
-            data = data.filter(item => {
-                const itemDate = dayjs(item.dateObj);
-                return itemDate.isAfter(start.subtract(1, 'second')) && itemDate.isBefore(end.add(1, 'second'));
-            });
-        }
-
-        return data;
-    }, [allTransactions, searchText, dateRange]);
-
-    // --- 3. SUMMARY DINAMIS (Berdasarkan Filter) ---
-    const displaySummary = useMemo(() => {
-        const currentDebit = filteredTransactions.reduce((acc, curr) => acc + curr.debit, 0);
-        const currentCredit = filteredTransactions.reduce((acc, curr) => acc + curr.credit, 0);
-
-        return {
-            totalDebit: currentDebit,      
-            totalCredit: currentCredit,   
-            saldoAkhir: globalSummary.saldoAkhir // Saldo akhir tetap global (hutang real)
-        };
-    }, [filteredTransactions, globalSummary.saldoAkhir]);
-
-
-    // --- 4. GENERATE PDF ---
-    const handleDownloadPDF = () => {
-        const doc = new jsPDF();
+        let runningBalance = 0;
+        let openingBalance = 0;
         
-        doc.setFontSize(14);
-        doc.text("KARTU PIUTANG PELANGGAN", 14, 20);
-        
-        let periodeStr = "Semua Waktu";
-        if(dateRange) {
-            periodeStr = `${dateRange[0].format('DD/MM/YY')} s/d ${dateRange[1].format('DD/MM/YY')}`;
-        }
-        
-        doc.setFontSize(10);
-        doc.text(`Nama : ${pelanggan.nama}`, 14, 30);
-        doc.text(`Periode : ${periodeStr}`, 14, 35);
-        
-        const tableColumn = ["Tanggal", "ID Transaksi", "Ket.", "Bayar/DP", "Piutang", "Saldo"];
-        const tableRows = [];
-        
-        // Sort data lama -> baru untuk PDF agar alur saldo enak dibaca
-        const dataForPdf = [...filteredTransactions].sort((a, b) => dayjs(a.dateObj).valueOf() - dayjs(b.dateObj).valueOf()); 
+        let displayList = [];
+        let totalDebitRange = 0;
+        let totalCreditRange = 0;
 
-        dataForPdf.forEach(t => {
-            tableRows.push([
-                dayjs(t.dateObj).format('DD/MM/YY'),
-                t.rawId,
-                t.keterangan,
-                t.credit > 0 ? formatCurrency(t.credit) : '-',
-                t.debit > 0 ? formatCurrency(t.debit) : '-',
-                formatCurrency(Math.abs(t.saldo)) 
-            ]);
-        });
-
-        const footerRow = [
-            "TOTAL",                                
-            "",                                     
-            "",                                     
-            formatCurrency(displaySummary.totalCredit),     
-            formatCurrency(displaySummary.totalDebit),
-            formatCurrency(Math.abs(displaySummary.saldoAkhir))       
-        ];
-
-        const getPdfColor = (val) => {
-            if (val > 0) return [207, 19, 34]; // Merah
-            if (val < 0) return [63, 134, 0];  // Hijau
-            return [0, 0, 0];
-        };
-
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            foot: [footerRow], 
-            startY: 45,
-            theme: 'grid',
-            styles: { fontSize: 8, cellPadding: 2 },
-            columnStyles: {
-                3: { halign: 'right' }, 
-                4: { halign: 'right' }, 
-                5: { halign: 'right', fontStyle: 'bold' }
-            },
+        allDataAsc.forEach(item => {
+            const amount = item.amount;
             
-            didParseCell: (data) => {
-                if (data.section === 'body' && data.column.index === 5) {
-                    const rowIndex = data.row.index;
-                    const rowData = dataForPdf[rowIndex];
-                    if (rowData) {
-                        data.cell.styles.textColor = getPdfColor(rowData.saldo);
-                    }
-                }
-                if (data.section === 'foot') {
-                    data.cell.styles.fontStyle = 'bold';
-                    if (data.column.index === 0) data.cell.styles.halign = 'left';
-                    else data.cell.styles.halign = 'right';
+            if (item.isDebit) {
+                runningBalance += amount;
+            } else {
+                runningBalance -= amount;
+            }
 
-                    if (data.column.index === 5) {
-                        data.cell.styles.textColor = getPdfColor(displaySummary.saldoAkhir);
-                    }
+            if (item.date < startFilter) {
+                openingBalance = runningBalance;
+            } else if (item.date <= endFilter) {
+                const query = searchText.toLowerCase();
+                const matchSearch = 
+                    (item.id && item.id.toLowerCase().includes(query)) ||
+                    (item.keterangan && item.keterangan.toLowerCase().includes(query));
+
+                if (matchSearch) {
+                    displayList.push({
+                        ...item,
+                        balance: runningBalance
+                    });
+
+                    if (item.isDebit) totalDebitRange += amount;
+                    else totalCreditRange += amount;
                 }
-            },
-            footStyles: {
-                fillColor: [240, 240, 240], 
-                textColor: [0, 0, 0],       
             }
         });
 
-        doc.save(`Kartu_Piutang_${pelanggan.nama}.pdf`);
+        // Tentukan Status Saldo Akhir
+        let status = 'LUNAS';
+        let statusColor = 'blue';
+        if (runningBalance > 0) {
+            status = 'HUTANG';
+            statusColor = '#cf1322'; // Merah
+        } else if (runningBalance < 0) {
+            status = 'DEPOSIT';
+            statusColor = '#3f8600'; // Hijau
+        }
+
+        return {
+            list: displayList.reverse(),
+            openingBalance,
+            totalDebitRange,
+            totalCreditRange,
+            finalBalance: runningBalance,
+            status,
+            statusColor
+        };
+
+    }, [rawData, dateRange, searchText]);
+
+    useEffect(() => {
+        setPrintableData(processedData.list);
+    }, [processedData.list]);
+
+    const handleTableChange = (pagination, filters, sorter, extra) => {
+        setPrintableData(extra.currentDataSource);
     };
 
-    // --- KOLOM TABEL UI ---
+    // --- FUNGSI PRINT (DIPERBAIKI) ---
+    const handlePrint = () => {
+        const totalDebitPrint = printableData.reduce((acc, curr) => acc + (curr.isDebit ? curr.amount : 0), 0);
+        const totalCreditPrint = printableData.reduce((acc, curr) => acc + (!curr.isDebit ? curr.amount : 0), 0);
+
+        const win = window.open('', '', 'height=700,width=1000');
+        
+        const tableRows = printableData.map(item => `
+            <tr>
+                <td>${dayjs(item.date).format('DD MMM YYYY')}</td>
+                <td>${item.id}</td>
+                <td>${item.type}</td>
+                <td>${item.keterangan || ''}</td>
+                <td class="text-right" style="color: green">${!item.isDebit ? '+ ' + formatRupiah(item.amount) : '-'}</td>
+                <td class="text-right" style="color: red">${item.isDebit ? '- ' + formatRupiah(item.amount) : '-'}</td>
+                <td class="text-right">${formatRupiah(item.balance)}</td>
+            </tr>
+        `).join('');
+
+        win.document.write('<html><head><title>Cetak Riwayat Transaksi</title>');
+        win.document.write(`
+            <style>
+                body { font-family: sans-serif; padding: 20px; color: #000; }
+                
+                /* HEADER DIPERBESAR */
+                .header { text-align: center; margin-bottom: 25px; border-bottom: 3px solid #000; padding-bottom: 15px; }
+                .header h1 { font-size: 26px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 1px; }
+                .header h2 { font-size: 20px; margin: 5px 0; font-weight: bold; }
+                
+                /* META TABLE DIPERBESAR */
+                .meta-table { width: 100%; margin-bottom: 20px; font-size: 14px; font-weight: bold; }
+                .meta-table td { padding: 4px 0; }
+                
+                .summary-box { border: 1px solid #000; padding: 10px; margin-bottom: 20px; font-size: 13px; }
+                
+                /* TABEL UTAMA DIKECILKAN AGAR MUAT */
+                .main-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
+                .main-table th, .main-table td { border: 1px solid #999; padding: 4px; text-align: left; }
+                .main-table th { background-color: #eee; text-align: center; font-weight: bold; padding: 6px; }
+                
+                .text-right { text-align: right; }
+                .total-row td { font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #000; }
+                
+                @media print {
+                    @page { margin: 10mm; }
+                    .header h1 { font-size: 24px; }
+                    .main-table { font-size: 9px; } 
+                }
+            </style>
+        `);
+        win.document.write('</head><body>');
+        
+        // Header
+        win.document.write(`
+            <div class="header">
+                <h1>Laporan Riwayat Transaksi</h1>
+                <h2>${customer?.nama || ''} - ${customer?.id || ''}</h2>
+            </div>
+            <table class="meta-table">
+                <tr>
+                    <td>Periode: ${dateRange[0] ? dayjs(dateRange[0]).format('DD MMMM YYYY') : 'Awal'} s/d ${dateRange[1] ? dayjs(dateRange[1]).format('DD MMMM YYYY') : 'Sekarang'}</td>
+                    <td class="text-right">Tgl Cetak: ${dayjs().format('DD MMMM YYYY HH:mm')}</td>
+                </tr>
+            </table>
+        `);
+
+        // Rekap Saldo
+        win.document.write(`
+            <div class="summary-box">
+                <table style="width: 100%">
+                    <tr>
+                        <td>Saldo Awal: <strong>${formatRupiah(processedData.openingBalance)}</strong></td>
+                        <td class="text-right">
+                            Status Akhir: 
+                            <span style="color: ${processedData.statusColor}; font-size: 16px; font-weight: bold; border: 1px solid ${processedData.statusColor}; padding: 2px 8px; border-radius: 4px;">
+                                ${processedData.status}
+                            </span>
+                             &nbsp; <strong>${formatRupiah(processedData.finalBalance)}</strong>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        `);
+
+        // Tabel Data
+        win.document.write(`
+            <table class="main-table">
+                <thead>
+                    <tr>
+                        <th style="width: 12%">Tanggal</th>
+                        <th style="width: 15%">ID</th>
+                        <th style="width: 10%">Tipe</th>
+                        <th>Keterangan</th>
+                        <th class="text-right" style="width: 12%">Kredit (+)</th>
+                        <th class="text-right" style="width: 12%">Debit (-)</th>
+                        <th class="text-right" style="width: 15%">Saldo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                    <tr class="total-row">
+                        <td colspan="4" class="text-right">TOTAL HALAMAN INI:</td>
+                        <td class="text-right" style="color: green">+ ${formatRupiah(totalCreditPrint)}</td>
+                        <td class="text-right" style="color: red">- ${formatRupiah(totalDebitPrint)}</td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table>
+        `);
+
+        win.document.write('</body></html>');
+        win.document.close();
+        win.focus();
+        setTimeout(() => {
+            win.print();
+            win.close();
+        }, 500);
+    };
+
+    // --- TABLE COLUMNS ---
     const columns = [
         {
-            title: 'Tgl',
-            dataIndex: 'dateObj',
-            key: 'tanggal',
-            width: 100,
-            render: (val) => dayjs(val).format('DD MMM YY'),
-            sorter: (a, b) => dayjs(a.dateObj).valueOf() - dayjs(b.dateObj).valueOf(),
+            title: 'Tanggal',
+            dataIndex: 'date',
+            key: 'date',
+            width: 140,
+            defaultSortOrder: 'descend',
+            sorter: (a, b) => a.date - b.date,
+            render: (val) => val ? dayjs(val).format('DD MMMM YYYY') : '-'
         },
         {
             title: 'ID Transaksi',
-            dataIndex: 'rawId',
-            key: 'idTransaksi',
-            width: 140,
-            render: (text, r) => {
+            dataIndex: 'id',
+            key: 'id',
+            width: 130,
+            sorter: (a, b) => a.id.localeCompare(b.id),
+            render: (text) => <Text copyable={{ text: text }} style={{ fontSize: '12px' }}>{text}</Text>
+        },
+        {
+            title: 'Tipe',
+            dataIndex: 'type',
+            key: 'type',
+            width: 110,
+            filters: [
+                { text: 'Invoice', value: 'INVOICE' },
+                { text: 'Bayar', value: 'PAYMENT' },
+                { text: 'Retur', value: 'RETURN' },
+                { text: 'Non-Faktur', value: 'NON_FAKTUR' },
+            ],
+            onFilter: (value, record) => record.type === value,
+            sorter: (a, b) => a.type.localeCompare(b.type),
+            render: (type) => {
                 let color = 'default';
-                if(r.type === 'INVOICE') color = 'blue';
-                if(r.type === 'PAYMENT') color = 'green';
-                if(r.type === 'RETUR') color = 'orange'; 
-                if(r.type === 'DP') color = 'purple'; 
-                return <Tag color={color}>{text}</Tag>
-            },
+                let label = type;
+                if(type === 'INVOICE') { color = 'blue'; label = 'Faktur'; }
+                if(type === 'PAYMENT') { color = 'green'; label = 'Bayar'; }
+                if(type === 'RETURN') { color = 'orange'; label = 'Retur'; }
+                if(type === 'NON_FAKTUR') { color = 'purple'; label = 'Lainnya'; }
+                return <Tag color={color}>{label}</Tag>;
+            }
         },
         {
             title: 'Keterangan',
             dataIndex: 'keterangan',
             key: 'keterangan',
-            width: 150,
+            ellipsis: true,
+            sorter: (a, b) => (a.keterangan || '').localeCompare(b.keterangan || ''),
+            render: (text) => <span style={{ fontSize: '13px', color: '#666' }}>{text || '-'}</span>
         },
         {
-            title: 'Bayar / Retur / VF',
-            dataIndex: 'credit',
-            key: 'bayar',
-            align: 'right',
-            width: 140,
-            render: (val, r) => {
-                if (val > 0) {
-                    let color = '#3f8600'; 
-                    let tooltip = 'Pembayaran Masuk';
-
-                    if (r.type === 'RETUR') {
-                        color = '#d46b08'; 
-                        tooltip = 'Pengurangan hutang dari Retur';
-                    } else if (r.type === 'DP') {
-                        color = '#722ed1'; 
-                        tooltip = 'Uang Muka (DP)';
-                    }
-
-                    return (
-                        <Tooltip title={tooltip}>
-                             <Text style={{color: color, fontWeight: 'bold'}}>{formatCurrency(val)}</Text>
-                        </Tooltip>
-                    );
-                }
-                return '-';
-            },
-            sorter: (a, b) => a.credit - b.credit,
-        },
-        {
-            title: 'Tagihan',
-            dataIndex: 'debit',
-            key: 'piutang',
+            title: 'Kredit (+)',
+            key: 'credit',
             align: 'right',
             width: 130,
-            render: (val) => val > 0 ? <Text style={{color: '#cf1322'}}>{formatCurrency(val)}</Text> : '-',
-            sorter: (a, b) => a.debit - b.debit,
+            sorter: (a, b) => {
+                const valA = !a.isDebit ? a.amount : 0;
+                const valB = !b.isDebit ? b.amount : 0;
+                return valA - valB;
+            },
+            render: (_, record) => (
+                !record.isDebit 
+                ? <span style={{ color: '#3f8600', fontWeight: 'bold' }}>+ {formatRupiah(record.amount)}</span> 
+                : '-'
+            )
+        },
+        {
+            title: 'Debit (-)',
+            key: 'debit',
+            align: 'right',
+            width: 130,
+            sorter: (a, b) => {
+                const valA = a.isDebit ? a.amount : 0;
+                const valB = b.isDebit ? b.amount : 0;
+                return valA - valB;
+            },
+            render: (_, record) => (
+                record.isDebit 
+                ? <span style={{ color: '#cf1322', fontWeight: 'bold' }}>- {formatRupiah(record.amount)}</span> 
+                : '-'
+            )
         },
         {
             title: 'Saldo',
-            dataIndex: 'saldo',
-            key: 'saldo',
+            dataIndex: 'balance',
+            key: 'balance',
             align: 'right',
             width: 140,
-            render: (val) => {
-                const style = getSaldoStyle(val);
-                return (
-                    <Text strong style={{ color: style.color }}>
-                        {formatCurrency(Math.abs(val))}
-                    </Text>
-                )
-            },
-            sorter: (a, b) => a.saldo - b.saldo,
+            sorter: (a, b) => a.balance - b.balance,
+            render: (val) => (
+                <span style={{ fontWeight: 'bold', color: val > 0 ? '#cf1322' : '#3f8600' }}>
+                    {formatRupiah(val)}
+                </span>
+            )
         }
     ];
 
-    const saldoStatus = getSaldoStyle(displaySummary.saldoAkhir);
-    const titleSaldo = displaySummary.saldoAkhir < 0 ? "Sisa Saldo (Deposit)" : "Sisa Saldo (Hutang)";
-
     return (
         <>
-            <style>{excelTableStyles}</style>
-
             <Modal
                 title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>Riwayat Transaksi: {pelanggan?.nama}</span>
-                        {displaySummary.saldoAkhir < 0 && <Tag color="green">DEPOSIT</Tag>}
-                        {displaySummary.saldoAkhir > 0 && <Tag color="red">HUTANG</Tag>}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginRight: 24 }}>
+                        <span>Riwayat: {customer?.nama}</span>
+                        <Button icon={<PrinterOutlined />} onClick={handlePrint}>Cetak</Button>
                     </div>
                 }
                 open={open}
                 onCancel={onCancel}
-                width={1000}
-                footer={[
-                    <Button key="close" onClick={onCancel}>Tutup</Button>,
-                    <Button key="pdf" type="primary" icon={<FilePdfOutlined />} onClick={handleDownloadPDF} disabled={filteredTransactions.length === 0}>
-                        Download PDF
-                    </Button>
-                ]}
+                width={1100}
+                footer={null}
+                style={{ top: 20 }}
+                bodyStyle={{ padding: '16px 24px' }}
             >
-                <Spin spinning={loading}>
-                    {/* SUMMARY CARD */}
-                    <Card style={{ marginBottom: 16, background: '#f5f5f5', border: `1px solid ${saldoStatus.color}` }} bodyStyle={{ padding: '16px' }}>
-                        <Row gutter={[16, 16]}>
-                            <Col xs={24} sm={8}>
-                                <Statistic 
-                                    title={<Text type="secondary">Total Tagihan (Terfilter)</Text>}
-                                    value={displaySummary.totalDebit} 
-                                    precision={0}
-                                    valueStyle={{ color: '#cf1322' }} 
-                                    prefix="Rp"
-                                />
-                            </Col>
-                            <Col xs={24} sm={8}>
-                                <Statistic 
-                                    title={<Text type="secondary">Total Bayar/DP (Terfilter)</Text>}
-                                    value={displaySummary.totalCredit} 
-                                    precision={0}
-                                    valueStyle={{ color: '#3f8600' }} 
-                                    prefix="Rp"
-                                />
-                            </Col>
-                            <Col xs={24} sm={8}>
-                                <Statistic 
-                                    title={
-                                        <div style={{display:'flex', justifyContent:'space-between'}}>
-                                            <span>{titleSaldo} (Global)</span>
-                                            <Tooltip title="Saldo ini adalah total hutang saat ini (tidak terpengaruh filter tanggal)">
-                                                <InfoCircleOutlined />
-                                            </Tooltip>
-                                        </div>
-                                    }
-                                    value={Math.abs(displaySummary.saldoAkhir)} 
-                                    precision={0}
-                                    valueStyle={{ color: saldoStatus.color, fontWeight: 'bold' }} 
-                                    prefix="Rp"
-                                />
-                            </Col>
-                        </Row>
-                        
-                        <Divider style={{ margin: '12px 0' }} />
-                        
-                        {/* INPUT FILTER AREA */}
-                        <Row gutter={[12, 12]} align="middle">
-                            <Col xs={24} md={10}>
-                                <Text strong style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>
-                                    Filter Tanggal:
-                                </Text>
-                                <RangePicker 
-                                    style={{ width: '100%' }}
-                                    value={dateRange}
-                                    onChange={(dates) => setDateRange(dates)}
-                                    format="DD/MM/YYYY"
-                                    presets={rangePresets} 
-                                    placeholder={['Mulai', 'Sampai']}
-                                />
-                            </Col>
+                {/* 1. REKAP ATAS */}
+                <Row gutter={16} style={{ marginBottom: 20 }}>
+                    <Col span={6}>
+                        <Card bodyStyle={{ padding: '12px' }} style={{ background: '#fafafa', borderRadius: 8 }} size="small" bordered={false}>
+                            <Statistic 
+                                title="Saldo Awal" 
+                                value={processedData.openingBalance} 
+                                valueStyle={{ fontSize: '16px', fontWeight: 'bold' }} 
+                                formatter={(val) => formatRupiah(val)}
+                            />
+                        </Card>
+                    </Col>
+                    <Col span={6}>
+                        <Card bodyStyle={{ padding: '12px' }} style={{ background: '#fff1f0', borderRadius: 8 }} size="small" bordered={false}>
+                            <Statistic 
+                                title="Total Tagihan (Debit)" 
+                                value={processedData.totalDebitRange} 
+                                valueStyle={{ color: '#cf1322', fontSize: '16px' }} 
+                                prefix={<ArrowUpOutlined />}
+                                formatter={(val) => formatRupiah(val)}
+                            />
+                        </Card>
+                    </Col>
+                    <Col span={6}>
+                        <Card bodyStyle={{ padding: '12px' }} style={{ background: '#f6ffed', borderRadius: 8 }} size="small" bordered={false}>
+                            <Statistic 
+                                title="Total Bayar/Retur (Kredit)" 
+                                value={processedData.totalCreditRange} 
+                                valueStyle={{ color: '#3f8600', fontSize: '16px' }} 
+                                prefix={<ArrowDownOutlined />}
+                                formatter={(val) => formatRupiah(val)}
+                            />
+                        </Card>
+                    </Col>
+                    <Col span={6}>
+                        {/* KARTU SALDO DENGAN STATUS */}
+                        <Card bodyStyle={{ padding: '12px' }} style={{ background: '#e6f7ff', borderRadius: 8 }} size="small" bordered={false}>
+                            <Statistic 
+                                title={
+                                    <Space>
+                                        <span>Saldo Akhir</span>
+                                        {/* INDIKATOR STATUS UI */}
+                                        <Tag color={processedData.status === 'HUTANG' ? 'red' : processedData.status === 'DEPOSIT' ? 'green' : 'blue'}>
+                                            {processedData.status}
+                                        </Tag>
+                                    </Space>
+                                }
+                                value={processedData.finalBalance} 
+                                valueStyle={{ color: processedData.statusColor, fontSize: '18px', fontWeight: 'bold' }} 
+                                formatter={(val) => formatRupiah(val)}
+                            />
+                        </Card>
+                    </Col>
+                </Row>
 
-                            <Col xs={24} md={10}>
-                                <Text strong style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>
-                                    Pencarian:
-                                </Text>
-                                <Input
-                                    placeholder="Cari ID / Ket..."
-                                    prefix={<SearchOutlined />}
-                                    value={searchText}
-                                    onChange={(e) => setSearchText(e.target.value)}
-                                    allowClear
-                                />
-                            </Col>
+                {/* 2. FILTER & SEARCH */}
+                <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
+                    <Col flex="auto">
+                        <Input 
+                            placeholder="Cari ID Transaksi atau Keterangan..." 
+                            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} 
+                            value={searchText}
+                            onChange={(e) => setSearchText(e.target.value)}
+                            allowClear
+                        />
+                    </Col>
+                    <Col>
+                        <RangePicker 
+                            value={dateRange}
+                            onChange={(dates) => setDateRange(dates || [null, null])}
+                            format="DD MMMM YYYY"
+                            placeholder={['Mulai', 'Sampai']}
+                        />
+                    </Col>
+                </Row>
 
-                            <Col xs={24} md={4} style={{ display: 'flex', alignItems: 'flex-end' }}>
-                                <Button 
-                                    icon={<ReloadOutlined />} 
-                                    onClick={handleResetFilter}
-                                    block
-                                    disabled={!searchText && !dateRange}
-                                    title="Reset Filter"
-                                >
-                                    Reset
-                                </Button>
-                            </Col>
-                        </Row>
-                    </Card>
-
-                    {/* TABEL DENGAN STYLE EXCEL */}
+                {/* 3. TABEL DATA */}
+                {loading ? (
+                    <div style={{ textAlign: 'center', padding: '40px' }}><Spin size="large" /></div>
+                ) : (
                     <Table
                         columns={columns}
-                        dataSource={filteredTransactions}
-                        rowKey="id"
-                        pagination={{ pageSize: 8 }}
+                        dataSource={processedData.list}
+                        onChange={handleTableChange}
+                        rowKey="key"
+                        pagination={{ pageSize: 10, size: "small" }}
                         size="small"
-                        scroll={{ x: 800 }}
                         bordered
-                        className="excel-table" 
+                        scroll={{ x: 800 }}
+                        locale={{ emptyText: <Empty description="Tidak ada data ditemukan" /> }}
+                        rowClassName={(record) => record.type === 'RETURN' ? 'bg-orange-50' : ''}
                     />
-                </Spin>
+                )}
             </Modal>
+
+            <div style={{ display: 'none' }}>
+                <div id="printable-area"></div> 
+            </div>
         </>
     );
-};
-
-export default CustomerHistoryModal;
+}
