@@ -61,8 +61,8 @@ const buildDoc = (transaksi, type) => {
     // --- 2. HEADER DOKUMEN ---
     doc.setFontSize(16);
     // Company Name adalah variable/value -> NORMAL
-    doc.setFont(fontName, 'normal'); 
-    doc.text(companyInfo.nama, margin.left, currentY);
+    doc.setFont(fontName, 'bold'); 
+    doc.text(companyInfo.nama, margin.left, currentY,);
     
     doc.setFontSize(12);
     // Title adalah Label Dokumen -> BOLD
@@ -345,7 +345,7 @@ const buildDoc = (transaksi, type) => {
         summaryY += 5;
 
         // TOTAL TAGIHAN Label -> BOLD
-        doc.setFontSize(11);
+        doc.setFontSize(9);
         doc.setFont(fontName, 'bold');
         doc.text('TOTAL TAGIHAN:', totalColLabelX, summaryY);
         // TOTAL TAGIHAN Value -> NORMAL

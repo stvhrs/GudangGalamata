@@ -203,7 +203,6 @@ style={{ top: 20 }}
             open={open}
             onCancel={onCancel}
             footer={null}
-            style={{ top: 24 }}
             width={920}
             destroyOnClose
             title={

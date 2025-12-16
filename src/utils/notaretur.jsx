@@ -56,7 +56,6 @@ const buildDoc = (returData, returItems) => {
     // --- 2. INFO TRANSAKSI ---
     const idDokumen = returData.id || '-';
     const refInvoice = returData.invoiceId || '-';
-    // Logic: Ambil nama dari field namaCustomer, jika kosong coba parsing dari keterangan (opsional)
     const namaPelanggan = returData.namaCustomer || 'Umum';
     
     const infoX = pageWidth / 2 + 10;
@@ -93,6 +92,7 @@ const buildDoc = (returData, returItems) => {
             const judul = item.judul || '-';
             const qty = Number(item.qty || 0);
             const harga = Number(item.harga || 0);
+            // Hitung subtotal kasar per item (sebelum diskon global)
             const subtotal = Number(item.subtotal || (qty * harga));
 
             calculatedTotal += subtotal;
@@ -106,7 +106,6 @@ const buildDoc = (returData, returItems) => {
             ];
         });
     } else {
-        // Fallback jika tidak ada detail item
         const total = Number(returData.totalRetur || 0);
         calculatedTotal = total;
         body = [['1', 'Retur Manual (Tanpa Detail)', '-', '-', formatNumber(total)]];
@@ -140,7 +139,7 @@ const buildDoc = (returData, returItems) => {
         },
         columnStyles: { 
             0: { halign: 'center', cellWidth: 10 }, 
-            1: { cellWidth: 'auto' }, // Judul Auto
+            1: { cellWidth: 'auto' }, 
             2: { halign: 'center', cellWidth: 15 }, 
             3: { halign: 'right', cellWidth: 35 }, 
             4: { halign: 'right', cellWidth: 40 } 
@@ -148,23 +147,49 @@ const buildDoc = (returData, returItems) => {
         margin: { left: margin.left, right: margin.right },
     });
 
-    // --- 4. SUMMARY FOOTER ---
-    currentY = doc.lastAutoTable.finalY + 5;
+    // --- 4. SUMMARY FOOTER (UPDATED) ---
+    currentY = doc.lastAutoTable.finalY + 6;
     
-    // Gunakan totalRetur dari header jika ada
-    const finalTotal = Number(returData.totalRetur) || calculatedTotal;
+    // --- KALKULASI TOTAL BRUTO ---
+    const valRetur = Number(returData.totalRetur) || 0;   // Netto
+    const valDiskon = Number(returData.totalDiskon) || 0; // Diskon
+    
+    // Jika ada property totalBruto di DB pakai itu, jika tidak hitung manual
+    let valBruto = Number(returData.totalBruto) || 0;
+    if (valBruto === 0) {
+        valBruto = valRetur + valDiskon;
+    }
 
     const totalColValueX = pageWidth - margin.right; 
     const totalColLabelX = totalColValueX - 50;
 
     doc.setFontSize(9);
-    doc.setFont(fontName, 'bold');
-    doc.text('Total Retur:', totalColLabelX, currentY);
-    doc.text(formatNumber(finalTotal), totalColValueX, currentY, { align: 'right' });
 
-    // Keterangan Footer (Opsional)
+    // 1. Total Harga (Bruto)
+    doc.setFont(fontName, 'bold'); doc.text('Total Harga:', totalColLabelX, currentY);
+    doc.setFont(fontName, 'normal'); doc.text(formatNumber(valBruto), totalColValueX, currentY, { align: 'right' });
+    currentY += 5;
+
+    // 2. Potongan / Diskon (Jika Ada)
+    if (valDiskon > 0) {
+        doc.setFont(fontName, 'bold'); doc.text('Potongan:', totalColLabelX, currentY);
+        doc.setFont(fontName, 'normal'); doc.text(`(${formatNumber(valDiskon)})`, totalColValueX, currentY, { align: 'right' });
+        currentY += 5;
+    }
+
+    // Garis Pemisah Summary
+    doc.setLineWidth(0.1);
+    doc.line(totalColLabelX, currentY - 1, totalColValueX, currentY - 1);
+    currentY += 3;
+
+    // 3. Total Retur (Netto)
+    doc.setFontSize(10);
+    doc.setFont(fontName, 'bold'); doc.text('Total Retur:', totalColLabelX, currentY);
+    doc.setFont(fontName, 'bold'); doc.text(formatNumber(valRetur), totalColValueX, currentY, { align: 'right' });
+
+    // Keterangan Footer
     if (returData.keterangan) {
-        currentY += 8;
+        currentY += 10;
         doc.setFont(fontName, 'normal');
         doc.setFontSize(8);
         doc.text(`Keterangan: ${returData.keterangan}`, margin.left, currentY);
