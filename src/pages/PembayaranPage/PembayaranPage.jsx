@@ -32,9 +32,9 @@ const { RangePicker } = DatePicker;
 
 // --- STYLING ---
 const styles = {
-    pageContainer: { padding: '24px', backgroundColor: '#f0f5ff', minHeight: '100vh' },
+    pageContainer: { padding: '24px', backgroundColor: '#00ff1514', minHeight: '100vh' },
     card: { borderRadius: 8, border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', background: '#fff' },
-    headerTitle: { fontSize: 16, fontWeight: 600, color: '#1d39c4' },
+    headerTitle: { fontSize: 16, fontWeight: 600, color: '#1dc42bff' },
 };
 
 const PembayaranPage = () => {
@@ -244,8 +244,8 @@ const PembayaranPage = () => {
                             onChange={(e) => setSearchText(e.target.value)}
                             allowClear
                         />
-                        <Button type="primary" icon={<PlusOutlined />} onClick={handleTambah}>
-                            Baru
+                        <Button backgroundColor='#1dc42bff' type="primary" icon={<PlusOutlined />} onClick={handleTambah}>
+                            Input Pembayaran
                         </Button>
                     </Col>
                 </Row>

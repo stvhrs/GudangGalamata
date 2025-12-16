@@ -26,7 +26,7 @@ const generateCustomerReportPdfBlob = (data, searchText, periodText) => {
 
     const doc = new jsPDF('l'); // Landscape agar muat banyak kolom
     let startY = 36; 
-    const title = 'Laporan Rekap Tagihan per Pelanggan';
+    const title = 'Laporan Rekap Tagihan per Customer';
     
     // Header
     doc.setFontSize(16);
@@ -57,7 +57,7 @@ const generateCustomerReportPdfBlob = (data, searchText, periodText) => {
         { bruto: 0, diskon: 0, retur: 0, tagihan: 0, terbayar: 0, sisa: 0 }
     );
 
-    const tableHead = ['No.', 'Nama Pelanggan', 'Bruto', 'Diskon', 'Retur', 'Netto (Tagihan)', 'Bayar', 'Sisa'];
+    const tableHead = ['No.', 'Nama Customer', 'Bruto', 'Diskon', 'Retur', 'Netto (Tagihan)', 'Bayar', 'Sisa'];
     const tableBody = data.map((item, idx) => [
         idx + 1,
         item.namaCustomer,
@@ -137,7 +137,7 @@ export default function TagihanPelangganTab({ allTransaksi, loadingTransaksi, da
         
         allTransaksi.forEach(tx => {
             // Gunakan namaCustomer sesuai struktur baru
-            const customerName = tx.namaCustomer || '(Pelanggan Umum)';
+            const customerName = tx.namaCustomer || '(Customer Umum)';
             
             let entry = summary.get(customerName);
             if (!entry) {
@@ -191,7 +191,7 @@ export default function TagihanPelangganTab({ allTransaksi, loadingTransaksi, da
             render: (_t, _r, idx) => ((pagination.current - 1) * pagination.pageSize) + idx + 1 
         },
         { 
-            title: 'Nama Pelanggan', 
+            title: 'Nama Customer', 
             dataIndex: 'namaCustomer', 
             key: 'namaCustomer', 
             width: 250,
@@ -268,7 +268,7 @@ export default function TagihanPelangganTab({ allTransaksi, loadingTransaksi, da
             return;
         }
 
-        const title = 'Laporan Tagihan per Pelanggan';
+        const title = 'Laporan Tagihan per Customer';
         setPdfTitle(title);
         setIsGeneratingPdf(true);
         setIsPdfModalOpen(true);

@@ -80,13 +80,13 @@ const buildDoc = (transaksi, type) => {
     let leftY = currentY;
     let rightY = currentY;
 
-    // KIRI: Pelanggan
+    // KIRI: Customer
     // UPDATE: Menggunakan variabel 'namaCustomer' sesuai data baru untuk semua tipe
     doc.setFontSize(9);
     doc.text('Kepada Yth:', margin.left, leftY); // Label tetap BOLD
     leftY += 4;
 
-    // NOTE: Teks Pelanggan DIBIARKAN NORMAL agar mudah dibaca dan ada kontras
+    // NOTE: Teks Customer DIBIARKAN NORMAL agar mudah dibaca dan ada kontras
     doc.setFont(fontName, 'normal');
     const namaPelanggan = transaksi.namaCustomer || '-'; // UPDATED: variable name match
     const splitNama = doc.splitTextToSize(namaPelanggan, 80); 

@@ -1,15 +1,15 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Upload, Button, Card, Row, Col, Typography, Spin, notification, Statistic, Divider, Alert, Tag, Tabs, Table, Collapse } from 'antd';
-import { FileExcelOutlined, CheckCircleOutlined, CloudUploadOutlined, BankOutlined, RollbackOutlined, DatabaseOutlined, StopOutlined, CodeOutlined, HistoryOutlined, WalletOutlined } from '@ant-design/icons';
+import { FileExcelOutlined, CheckCircleOutlined, CloudUploadOutlined, BankOutlined, RollbackOutlined, DatabaseOutlined, StopOutlined, CodeOutlined, WalletOutlined, DownloadOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 const { Panel } = Collapse;
 
-// --- 1. KONFIGURASI KOLOM (Sesuai Request) ---
+// --- 1. KONFIGURASI KOLOM (Updated) ---
 const COLS = {
   PRODUK_BUKU: { ID: 0, NAME: 4, PRICE: 17, GROUP_ID: 6 }, 
-  CUSTOMER: { CUSTOMER_ID: 0, NAMA: 1, HP: 4, ADDRESS: 3 }, 
+  CUSTOMER: { CUSTOMER_ID: 0, NAMA: 1, HP: 4, ADDRESS: 3, SALDO_AWAL: 16 }, 
   TRANSAKSI_PENJUALAN: { 
     ID: 0, NO_SL: 1, TGL: 2, CUST_ID: 3, 
     TOTAL_GROSS: 6, TOTAL_DISKON: 7, TOTAL_NET: 8, 
@@ -36,23 +36,38 @@ const COLS = {
 };
 
 // --- HELPER UTILS ---
-const normalizeId = (v) => (!v ? "" : String(v).trim().replace(/\u00A0/g, '').replace(/\s+/g, '').toUpperCase().replace(/[.#$[\]/]/g, '_'));
-
-const parseNum = (val) => {
-  if (typeof val === 'number') return val;
-  const str = String(val || '').trim();
-  if (!str) return 0;
-  let clean = str.replace(/[^0-9,.-]/g, '');
-  if (clean.indexOf('.') !== -1 && clean.indexOf(',') !== -1) clean = clean.replace(/\./g, '').replace(',', '.');
-  else if (clean.indexOf('.') !== -1) {
-      const parts = clean.split('.');
-      if (parts[parts.length - 1].length === 3) clean = clean.replace(/\./g, '');
-  } else if (clean.indexOf(',') !== -1) clean = clean.replace(',', '.');
-  const num = parseFloat(clean);
-  return isNaN(num) ? 0 : num;
+// Strict Normalization for Firebase Keys (Only A-Z, 0-9, _)
+const normalizeId = (v) => {
+  if (v === null || v === undefined) return "";
+  const str = String(v).trim();
+  if (str === "") return "";
+  // 1. Hapus spasi
+  // 2. Uppercase
+  // 3. Ganti SEMUA karakter aneh (termasuk . / # $) dengan underscore (_)
+  return str.replace(/\s+/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '_');
 };
 
-// Helper untuk parsing Judul Buku -> Penerbit & Kelas
+const parseNum = (val) => {
+  if (typeof val === 'number') return Math.round(val);
+  const str = String(val || '').trim();
+  if (!str || str.toUpperCase() === 'NULL') return 0;
+  
+  let clean = str.replace(/[^0-9,.-]/g, '');
+  if (clean.indexOf('.') !== -1 && clean.indexOf(',') !== -1) {
+      clean = clean.replace(/\./g, '').replace(',', '.');
+  } else if (clean.indexOf('.') !== -1) {
+      const parts = clean.split('.');
+      if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+          clean = clean.replace(/\./g, '');
+      }
+  } else if (clean.indexOf(',') !== -1) {
+      clean = clean.replace(',', '.');
+  }
+  
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : Math.round(num);
+};
+
 const parseBookTitle = (title) => {
   if (!title) return { penerbit: "BSE", kelas: 1 };
   const penerbitMatch = title.match(/\(([^)]+)\)/);
@@ -73,7 +88,6 @@ const parseBookTitle = (title) => {
   return { penerbit, kelas };
 };
 
-// Helper untuk filter ID Barang (Bukan Buku)
 const isExcludedBookId = (id) => {
   if (!id) return false;
   if (/^\d+$/.test(id)) {
@@ -97,16 +111,20 @@ const downloadJson = (data, filename) => {
     notification.warning({ message: 'Data Kosong', description: 'Tidak ada data valid untuk diunduh.' });
     return;
   }
-  const jsonString = JSON.stringify(data, null, 2);
-  const blob = new Blob([jsonString], { type: "application/json" });
-  const href = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = href;
-  link.download = filename + ".json";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  notification.success({ message: 'Download Berhasil', description: `File ${filename}.json telah diunduh.` });
+  try {
+      const jsonString = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename + ".json";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      notification.success({ message: 'Download Berhasil', description: `File ${filename}.json telah diunduh.` });
+  } catch (error) {
+      notification.error({ message: 'Export Error', description: error.message });
+  }
 };
 
 // --- MAIN LOGIC PROCESSOR ---
@@ -158,15 +176,13 @@ const useDataProcessor = () => {
     const dbReturns = {};            
     const dbReturnItems = {};        
     const dbStockHistory = {};       
-    const dbNonFaktur = {}; // NEW: Separate Non-Faktur container
+    const dbNonFaktur = {}; 
     
     const voidedRows = [];
     
     // Lookup Maps
     const bookMap = new Map();     
     const invTotalQtyMap = new Map(); 
-
-    // --- GLOBAL LOOKUP MAPS ---
     const transOwnerMap = new Map(); 
     
     if (transaksiPenjualan) {
@@ -229,13 +245,13 @@ const useDataProcessor = () => {
           id: id,
           nama: row[COLS.CUSTOMER.NAMA],
           telepon: row[COLS.CUSTOMER.HP] ? String(row[COLS.CUSTOMER.HP]).trim() : "",
+          saldoAwal: parseNum(row[COLS.CUSTOMER.SALDO_AWAL]), 
           createdAt: Date.now(),
           updatedAt: Date.now()
         };
       }
     });
 
-    // Helper: Get Customer Name
     const getCustName = (cid) => dbCustomers[cid]?.nama || "UNKNOWN";
 
     // 3. INVOICE ITEMS
@@ -270,7 +286,7 @@ const useDataProcessor = () => {
       });
     }
 
-    // 4. INVOICES (HEADER)
+    // 4. INVOICES
     if (transaksiPenjualan) {
         transaksiPenjualan.forEach(row => {
             const val = checkRowValidity(row, COLS.TRANSAKSI_PENJUALAN.VALIDATED_BY, COLS.TRANSAKSI_PENJUALAN.VOID_BY);
@@ -294,14 +310,15 @@ const useDataProcessor = () => {
                 dbInvoices[invId] = {
                     id: invId,
                     customerId: custId,
-                    namaCustomer: getCustName(custId), // ADDED
+                    namaCustomer: getCustName(custId), 
                     tanggal: ts,
                     totalQty: invTotalQtyMap.get(invId) || 0,
                     totalBruto: gross,
-                    totalDiskon: diskon,
+                    totalDiskon: diskon, 
                     totalRetur: 0,
                     totalBiayaLain: 0,
                     totalNetto: net,
+                    totalBayar: 0, 
                     statusPembayaran: "BELUM",
                     keterangan: row[COLS.TRANSAKSI_PENJUALAN.KET] || "",
                     createdAt: ts,
@@ -311,19 +328,16 @@ const useDataProcessor = () => {
         });
     }
 
-    // --- HELPER BUAT PAYMENT & ALLOC ---
-    // UPDATED: Rename amount -> totalBayar, Remove metode, Add namaCustomer
     const createPayment = (targetDb, id, custId, dateRaw, amount, ket, source) => {
         const ts = dateRaw ? new Date(dateRaw).getTime() : Date.now();
         targetDb[id] = {
             id: id,
             customerId: custId,
-            namaCustomer: getCustName(custId), // ADDED
+            namaCustomer: getCustName(custId), 
             tanggal: ts,
             arah: "IN",
             sumber: source,
-            totalBayar: amount, // RENAMED from amount
-            // metode: "TUNAI", // REMOVED
+            totalBayar: amount, 
             keterangan: ket,
             createdAt: ts,
             updatedAt: Date.now()
@@ -343,7 +357,7 @@ const useDataProcessor = () => {
         };
     };
 
-    // 5. PAYMENTS - PIUTANG (Pelunasan)
+    // 5. PAYMENTS & ALLOCATIONS
     if (piutangHeader) {
         piutangHeader.forEach(row => {
             const val = checkRowValidity(row, COLS.PIUTANG_HEADER.VALIDATED_BY, COLS.PIUTANG_HEADER.VOID_BY);
@@ -363,7 +377,7 @@ const useDataProcessor = () => {
             }
         });
     }
-    // Allocations Piutang
+    
     if (piutangDetail) {
         piutangDetail.forEach(row => {
             const pid = normalizeId(row[COLS.PIUTANG_DETAIL.HEADER_ID]);
@@ -375,7 +389,6 @@ const useDataProcessor = () => {
         });
     }
 
-    // 6. PAYMENTS - DETAIL BAYAR
     if (detailBayar) {
         detailBayar.forEach(row => {
             const invId = normalizeId(row[COLS.DETAIL_BAYAR.TRAS_ID]);
@@ -392,7 +405,6 @@ const useDataProcessor = () => {
         });
     }
 
-    // 7. PAYMENTS - NON FAKTUR (SEPARATED DB)
     if (nonFaktur) {
         nonFaktur.forEach(row => {
             const val = checkRowValidity(row, COLS.NON_FAKTUR.VALIDATED_BY, COLS.NON_FAKTUR.VOID_BY);
@@ -400,7 +412,6 @@ const useDataProcessor = () => {
             if(!val.valid) { voidedRows.push({type: 'NonFaktur', id: nid, reason: val.reason}); return; }
 
             if(nid) {
-                // Gunakan createPayment tapi targetnya dbNonFaktur
                 createPayment(
                     dbNonFaktur,
                     nid,
@@ -414,7 +425,6 @@ const useDataProcessor = () => {
         });
     }
 
-    // 8. RETURNS
     if (returHeader) {
         returHeader.forEach(row => {
             const val = checkRowValidity(row, COLS.RETUR_HEADER.VALIDATED_BY, COLS.RETUR_HEADER.VOID_BY);
@@ -438,7 +448,7 @@ const useDataProcessor = () => {
                     id: rid,
                     invoiceId: invId,
                     customerId: custId,
-                    namaCustomer: getCustName(custId), // ADDED
+                    namaCustomer: getCustName(custId), 
                     tanggal: ts,
                     arah: "OUT",
                     sumber: "RETURN",
@@ -478,7 +488,6 @@ const useDataProcessor = () => {
         });
     }
 
-    // 9. STOCK HISTORY
     if (historyStok) {
         historyStok.forEach((row, idx) => {
              const refId = normalizeId(row[COLS.STOCK_HISTORY.TRANS_ID]);
@@ -534,7 +543,6 @@ const useDataProcessor = () => {
         });
     }
 
-    // 10. UPDATE STATUS INVOICE
     const invPaidMap = {};
     Object.values(dbPaymentAllocations).forEach(alloc => {
         invPaidMap[alloc.invoiceId] = (invPaidMap[alloc.invoiceId] || 0) + alloc.amount;
@@ -544,19 +552,25 @@ const useDataProcessor = () => {
         const paid = invPaidMap[inv.id] || 0;
         const sisa = inv.totalNetto - paid;
         
-        if (sisa <= 100) inv.statusPembayaran = "LUNAS";
-        else if (paid > 0) inv.statusPembayaran = "PARTIAL";
-        else inv.statusPembayaran = "BELUM";
+        inv.totalBayar = paid;
+
+        if (sisa <= 100) { 
+            inv.statusPembayaran = "LUNAS";
+        } else {
+            inv.statusPembayaran = "BELUM";
+        }
+
+        const custNameSafe = (inv.namaCustomer || "UNKNOWN").trim().replace(/[.#$[\]/]/g, '_');
+        inv.compositeStatus = `${custNameSafe}_${inv.statusPembayaran}`;
     });
 
-    // 11. FINAL PACKING
     return {
         products: dbProducts,
         customers: dbCustomers,
         invoices: dbInvoices,
         invoice_items: dbInvoiceItems,
         payments: dbPayments,
-        non_faktur: dbNonFaktur, // NEW SEPARATE ROOT
+        non_faktur: dbNonFaktur,
         payment_allocations: dbPaymentAllocations,
         returns: dbReturns,
         return_items: dbReturnItems,
@@ -673,6 +687,7 @@ export default function App() {
                                 <Button size="small" onClick={() => downloadJson(processedData.non_faktur, "non_faktur")}>4b. non_faktur</Button>
                                 <Button size="small" onClick={() => downloadJson(processedData.payment_allocations, "payment_allocations")}>5. payment_allocations</Button>
                                 <Button size="small" onClick={() => downloadJson(processedData.returns, "returns")}>6. returns</Button>
+                                <Button size="small" onClick={() => downloadJson(processedData.return_items, "return_items")}>7. return_items</Button>
                                 <Button size="small" onClick={() => downloadJson(processedData.stock_history, "stock_history")}>8. stock_history</Button>
                             </div>
                         </Col>
@@ -681,6 +696,17 @@ export default function App() {
 
                 {/* TAB 2: VOID TABLE */}
                 <TabPane tab={<span><StopOutlined /> Void Data</span>} key="2">
+                     <div style={{ marginBottom: 16 }}>
+                        <Button 
+                            type="primary" 
+                            danger 
+                            icon={<DownloadOutlined />} 
+                            onClick={() => downloadJson(processedData.voidedRows, "voided_rows")}
+                            disabled={processedData.voidedRows.length === 0}
+                        >
+                            Download Void Data (.json)
+                        </Button>
+                    </div>
                     <Table dataSource={processedData.voidedRows} columns={voidColumns} pagination={{ pageSize: 10 }} size="small" rowKey="id" />
                 </TabPane>
 

@@ -81,7 +81,7 @@ export default function PelangganForm({
             // 5. Simpan ke Firebase (Path: customers/{id})
             await set(ref(db, `customers/${customerId}`), dataToSave);
 
-            message.success({ content: isEditMode ? 'Data diperbarui' : 'Pelanggan berhasil ditambahkan', key: 'save_pelanggan' });
+            message.success({ content: isEditMode ? 'Data diperbarui' : 'Customer berhasil ditambahkan', key: 'save_pelanggan' });
             
             form.resetFields();
             onSuccess(); // Tutup modal & refresh parent jika perlu
@@ -96,7 +96,7 @@ export default function PelangganForm({
 
     return (
         <Modal
-            title={isEditMode ? 'Edit Pelanggan' : 'Tambah Pelanggan Baru'}
+            title={isEditMode ? 'Edit Customer' : 'Tambah Customer Baru'}
             open={open}
             onCancel={onCancel}
             footer={null}
@@ -111,7 +111,7 @@ export default function PelangganForm({
                 >
                     <Form.Item
                         name="nama"
-                        label="Nama Pelanggan"
+                        label="Nama Customer"
                         // Auto Uppercase saat diketik
                         normalize={(value) => (value || '').toUpperCase()} 
                         rules={[

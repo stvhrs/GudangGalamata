@@ -68,7 +68,7 @@ const buildDoc = (returData, returItems) => {
     doc.setFont(fontName, 'normal'); doc.text(idDokumen, margin.left + 30, currentY);
     currentY += 5;
     
-    doc.setFont(fontName, 'bold'); doc.text('Pelanggan:', margin.left, currentY);
+    doc.setFont(fontName, 'bold'); doc.text('Customer:', margin.left, currentY);
     doc.setFont(fontName, 'normal'); doc.text(namaPelanggan, margin.left + 30, currentY);
     currentY += 5;
 

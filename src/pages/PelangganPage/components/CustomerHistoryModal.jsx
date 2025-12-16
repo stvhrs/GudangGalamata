@@ -381,7 +381,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             render: (type) => {
                 let color = 'default';
                 let label = type;
-                if(type === 'INVOICE') { color = 'blue'; label = 'Faktur'; }
+                if(type === 'INVOICE') { color = 'blue'; label = 'Invoice'; }
                 if(type === 'PAYMENT') { color = 'green'; label = 'Bayar'; }
                 if(type === 'RETURN') { color = 'orange'; label = 'Retur'; }
                 if(type === 'NON_FAKTUR') { color = 'purple'; label = 'Non Faktur'; }

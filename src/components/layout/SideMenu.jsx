@@ -33,7 +33,7 @@ export const NavigationMenu = ({ activeKey, onLinkClick }) => (
             {
                 key: '/pelanggan',
                 icon: <TeamOutlined />, 
-                label: <Link to="/pelanggan">Data Pelanggan</Link>
+                label: <Link to="/pelanggan">Data Customer</Link>
             },
 
             // 2. TRANSAKSI UTAMA

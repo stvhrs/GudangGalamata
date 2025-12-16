@@ -145,7 +145,7 @@ const NonFakturPage = () => {
             sorter: (a, b) => (a.id || '').localeCompare(b.id || ''),
         },
         {
-            title: "Nama Pelanggan",
+            title: "Nama Customer",
             dataIndex: 'namaCustomer', // Variable sesuai JSON
             key: 'namaCustomer',
             width: 200,
@@ -209,7 +209,7 @@ const NonFakturPage = () => {
                             allowClear={false}
                         />
                         <Input
-                            placeholder="Cari VF, Pelanggan..."
+                            placeholder="Cari VF, Customer..."
                             suffix={isSearching ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
                             style={{ width: 200 }}
                             onChange={(e) => setSearchText(e.target.value)}

@@ -78,7 +78,7 @@ export default function PelangganPage() {
         message.loading({ content: 'Menghapus pelanggan...', key: 'del_pel' });
         try {
             await remove(ref(db, `customers/${idPelanggan}`));
-            message.success({ content: 'Pelanggan berhasil dihapus', key: 'del_pel' });
+            message.success({ content: 'Customer berhasil dihapus', key: 'del_pel' });
         } catch (error) {
             console.error("Error deleting:", error);
             message.error({ content: `Gagal: ${error.message}`, key: 'del_pel' });
@@ -107,7 +107,7 @@ export default function PelangganPage() {
             render: (text, record, index) => ((pagination.current - 1) * pagination.pageSize) + index + 1,
         },
         {
-            title: 'Nama Pelanggan',
+            title: 'Nama Customer',
             dataIndex: 'nama',
             key: 'nama',
             sorter: (a, b) => (a.nama || '').localeCompare(b.nama || ''),
@@ -153,11 +153,11 @@ export default function PelangganPage() {
         <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
             <Content style={{ padding: '24px' }}>
                 <Card 
-                    title="Data Pelanggan" 
+                    title="Data Customer" 
                     bordered={false}
                     extra={
                         <Button type="primary" icon={<UserAddOutlined />} onClick={handleOpenCreate}>
-                            Tambah Pelanggan
+                            Tambah Customer
                         </Button>
                     }
                     style={{ borderRadius: 8 }}

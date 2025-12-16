@@ -212,7 +212,7 @@ const TransaksiJualDetailModal = ({ open, onCancel, transaksi }) => {
         >
             {/* --- INFO PELANGGAN & TANGGAL --- */}
             <Descriptions size="small" bordered column={{ xs: 1, sm: 2 }} style={{ marginBottom: 20 }}>
-                <Descriptions.Item label="Pelanggan">
+                <Descriptions.Item label="Customer">
                     <Text strong>{namaCustomer}</Text>
                 </Descriptions.Item>
                 <Descriptions.Item label="Tanggal Transaksi">

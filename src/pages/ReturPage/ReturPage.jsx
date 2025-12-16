@@ -246,7 +246,7 @@ const ReturPage = () => {
                             allowClear
                         />
                         <Button type="primary" danger icon={<PlusOutlined />} onClick={handleTambah}>
-                            Retur Baru
+                           Input Retur
                         </Button>
                     </Col>
                 </Row>

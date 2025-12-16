@@ -428,8 +428,8 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                         <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
                             <Row gutter={16}>
                                 <Col span={12}>
-                                    <Form.Item label="1. Pelanggan" required style={{marginBottom:0}}>
-                                        <Select showSearch placeholder="Pilih Pelanggan..." onChange={handleCustomerSelect} value={selectedCustomerName} loading={loadingPelanggan} filterOption={(input, option) => (option?.value ?? '').toLowerCase().includes(input.toLowerCase())}>
+                                    <Form.Item label="1. Customer" required style={{marginBottom:0}}>
+                                        <Select showSearch placeholder="Pilih Customer..." onChange={handleCustomerSelect} value={selectedCustomerName} loading={loadingPelanggan} filterOption={(input, option) => (option?.value ?? '').toLowerCase().includes(input.toLowerCase())}>
                                             {pelangganList.map(p => (<Option key={p.id} value={p.displayName}>{p.displayName}</Option>))}
                                         </Select>
                                     </Form.Item>

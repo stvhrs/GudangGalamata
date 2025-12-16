@@ -552,7 +552,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             {contextHolder}
             <Modal
                 open={open}
-                title={initialValues ? "Detail Pembayaran" : "Input Pembayaran Pelanggan"}
+                title={initialValues ? "Detail Pembayaran" : "Input Pembayaran Customer"}
                 onCancel={onCancel}
                 width={750}
                 maskClosable={false}
@@ -576,7 +576,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                         {!initialValues ? (
                             <Row gutter={16}>
                                 <Col span={12}>
-                                    <Form.Item label="1. Pilih Pelanggan" style={{marginBottom: 8}} required>
+                                    <Form.Item label="1. Pilih Customer" style={{marginBottom: 8}} required>
                                         <Select
                                             showSearch
                                             placeholder="Ketik atau Pilih Nama..."
@@ -625,7 +625,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                                         Total Dibayar: {currencyFormatter(initialValues.totalBayar)}
                                     </div>
                                     <div style={{ color: '#666' }}>
-                                        Pelanggan: {initialValues.namaCustomer}
+                                        Customer: {initialValues.namaCustomer}
                                     </div>
                                     <div style={{marginTop: 5, fontStyle:'italic', fontSize: 12, color: '#ff4d4f'}}>
                                         *Hapus pembayaran ini untuk mengembalikan saldo dan status invoice.

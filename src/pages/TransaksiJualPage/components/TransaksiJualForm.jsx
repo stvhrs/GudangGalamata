@@ -263,7 +263,7 @@ export default function TransaksiJualForm({
             
             if (!items?.length || items.some(i => !i?.idBuku)) throw new Error('Minimal 1 item buku valid.');
             const pelanggan = pelangganList.find((p) => p.id === customerId);
-            if (!pelanggan) throw new Error('Pelanggan tidak valid.');
+            if (!pelanggan) throw new Error('Customer tidak valid.');
 
             let totalBruto = 0;
             let totalQty = 0;
@@ -512,9 +512,9 @@ export default function TransaksiJualForm({
                                 </Form.Item>
                             </Col>
                             <Col xs={24} sm={8}>
-                                <Form.Item name="customerId" label="Pelanggan" rules={[{ required: true }]}>
+                                <Form.Item name="customerId" label="Customer" rules={[{ required: true }]}>
                                     <Select 
-                                        showSearch placeholder="Pilih Pelanggan"
+                                        showSearch placeholder="Pilih Customer"
                                         optionFilterProp="children"
                                         filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                                         disabled={isGeneratingInvoice && mode === 'create'}

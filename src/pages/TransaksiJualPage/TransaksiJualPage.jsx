@@ -323,7 +323,7 @@ export default function TransaksiJualPage() {
                     (dateRange?.[0] ? `Periode: ${dateRange[0].format('DD MMM YYYY')} s/d ${dateRange[1].format('DD MMM YYYY')}` : "");
                 doc.text(periodeInfo, 14, 22);
 
-                const tableColumn = ["No", "Tanggal", "ID Invoice", "Pelanggan", "Bruto", "Diskon", "Retur", "Netto", "Bayar", "Sisa", "Status"];
+                const tableColumn = ["No", "Tanggal", "ID Invoice", "Customer", "Bruto", "Diskon", "Retur", "Netto", "Bayar", "Sisa", "Status"];
                 const tableRows = filteredTransaksi.map((tx, index) => [
                     index + 1,
                     formatDate(tx.tanggal),
@@ -407,7 +407,7 @@ export default function TransaksiJualPage() {
             sorter: (a, b) => (a.id || '').localeCompare(b.id || '')
         },
         { 
-            title: 'Pelanggan', dataIndex: 'namaCustomer', width: 180, 
+            title: 'Customer', dataIndex: 'namaCustomer', width: 180, 
             sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || '') 
         },
         { 
@@ -469,7 +469,7 @@ export default function TransaksiJualPage() {
                 <Card bodyStyle={{ padding: screens.xs ? '12px' : '24px' }}>
                     <Row gutter={[16, 16]} align="middle" style={{ marginBottom: 24 }}>
                         <Col xs={24} md={8} lg={6}>
-                            <Input placeholder="Cari Invoice / Pelanggan..." prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} value={searchText} onChange={handleSearchChange} allowClear />
+                            <Input placeholder="Cari Invoice / Customer..." prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} value={searchText} onChange={handleSearchChange} allowClear />
                         </Col>
                         <Col xs={24} md={16} lg={18}>
                             <div style={{ display: 'flex', justifyContent: screens.xs ? 'flex-start' : 'flex-end', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -501,7 +501,7 @@ export default function TransaksiJualPage() {
         },
         {
             key: '2',
-            label: <Space><PullRequestOutlined /> Tagihan Pelanggan</Space>,
+            label: <Space><PullRequestOutlined /> Tagihan Customer</Space>,
             children: <TagihanPelangganTab allTransaksi={allTransaksi} loadingTransaksi={loadingTransaksi} dateRange={dateRange} isAllTime={isAllTime} />
         }
     ];

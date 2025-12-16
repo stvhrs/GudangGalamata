@@ -18,7 +18,7 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
     // Modal Context
     const [modal, contextHolder] = Modal.useModal();
 
-    // Data Pelanggan
+    // Data Customer
     const { pelangganList = [], loadingPelanggan } = usePelangganStream();
     
     const isEditMode = !!initialValues;
@@ -196,13 +196,13 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
                     </Form.Item>
                     
                     <Form.Item 
-                        label="Nama Pelanggan" 
+                        label="Nama Customer" 
                         name="customerId" 
                         rules={[{ required: true, message: 'Harap pilih pelanggan' }]}
                     >
                         <Select 
                             showSearch 
-                            placeholder="Pilih Pelanggan" 
+                            placeholder="Pilih Customer" 
                             optionFilterProp="children" 
                             loading={loadingPelanggan}
                             filterOption={(input, option) =>
