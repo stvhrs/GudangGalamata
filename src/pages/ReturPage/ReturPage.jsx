@@ -36,7 +36,7 @@ const { RangePicker } = DatePicker;
 const styles = {
     pageContainer: { padding: '24px', backgroundColor: '#fff1f0', minHeight: '100vh' }, // Warna background agak merah utk Retur
     card: { borderRadius: 8, border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', background: '#fff' },
-    headerTitle: { fontSize: 16, fontWeight: 600, color: '#cf1322' },
+    headerTitle: { fontSize: 16, fontWeight: 600, color: '#cc6804ff' },
 };
 
 const ReturPage = () => {

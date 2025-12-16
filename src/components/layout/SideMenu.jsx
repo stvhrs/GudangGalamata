@@ -2,16 +2,13 @@ import React from 'react';
 import { Layout, Menu, Button, Typography } from 'antd';
 import { Link } from 'react-router-dom';
 import {
-   ReadOutlined, 
-    UserOutlined, 
-     
-    WalletOutlined, 
-    RollbackOutlined,  BookOutlined,
-    SwapOutlined,
-    ShoppingCartOutlined,
+    ReadOutlined,
     TeamOutlined,
+    ShoppingCartOutlined,
+    DollarCircleOutlined,
+    RollbackOutlined,
+    FileTextOutlined,
     LogoutOutlined,
-    AccountBookOutlined
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -21,55 +18,49 @@ const { Text } = Typography;
 // Navigation Menu Component
 // ============================
 export const NavigationMenu = ({ activeKey, onLinkClick }) => (
-   <Menu
-    theme="dark"
-    mode="inline"
-    selectedKeys={[activeKey]}
-    onClick={onLinkClick}
-    items={[
-        // 1. DATA MASTER (Paling atas karena setup awal)
-        { 
-            key: '/buku', 
-            icon: <ReadOutlined />, // Ikon buku terbuka, lebih relevan dari BookOutlined
-            label: <Link to="/buku">Data Buku</Link> 
-        },
-        { 
-            key: '/pelanggan', 
-            icon: <UserOutlined />, // Standar untuk user/customer
-            label: <Link to="/pelanggan">Data Pelanggan</Link> 
-        },
+    <Menu
+        theme="dark"
+        mode="inline"
+        selectedKeys={[activeKey]}
+        onClick={onLinkClick}
+        items={[
+            // 1. DATA MASTER
+            {
+                key: '/buku',
+                icon: <ReadOutlined />, 
+                label: <Link to="/buku">Data Buku</Link>
+            },
+            {
+                key: '/pelanggan',
+                icon: <TeamOutlined />, 
+                label: <Link to="/pelanggan">Data Pelanggan</Link>
+            },
 
-        // 2. TRANSAKSI UTAMA
-        { 
-            key: '/transaksi-jual', 
-            icon: <ShoppingCartOutlined />, // Ikon keranjang belanja
-            label: <Link to="/transaksi-jual">Transaksi Jual</Link> 
-        },
+            // 2. TRANSAKSI UTAMA
+            {
+                key: '/transaksi-jual',
+                icon: <ShoppingCartOutlined />, 
+                label: <Link to="/transaksi-jual">Transaksi Jual</Link>
+            },
 
-        // 3. KEUANGAN & PENYELESAIAN
-        { 
-            key: '/pembayaran', 
-            icon: <WalletOutlined />, // Dompet, merepresentasikan uang masuk/pelunasan
-            label: <Link to="/pembayaran">Pembayaran</Link> 
-        },
-        { 
-            key: '/retur', 
-            icon: <RollbackOutlined />, // Panah memutar balik, simbol universal "Undo" atau barang kembali
-            label: <Link to="/retur">Retur</Link> 
-        }, { 
-            key: '/nonFaktur', 
-            icon: <RollbackOutlined />, // Panah memutar balik, simbol universal "Undo" atau barang kembali
-            label: <Link to="/nonFaktur">Non Faktur</Link> 
-        },
-
-        // 4. PEMBUKUAN / LAPORAN
-        // { 
-        //     key: '/mutasi', 
-        //     icon: <AccountBookOutlined />, // Ikon buku akuntansi/ledger
-        //     label: <Link to="/mutasi">Mutasi & Kas</Link> 
-        // },
-    ]}
-/>
+            // 3. KEUANGAN & PENYELESAIAN
+            {
+                key: '/pembayaran',
+                icon: <DollarCircleOutlined />, 
+                label: <Link to="/pembayaran">Pembayaran</Link>
+            },
+            {
+                key: '/retur',
+                icon: <RollbackOutlined />, 
+                label: <Link to="/retur">Retur</Link>
+            }, 
+            {
+                key: '/nonFaktur',
+                icon: <FileTextOutlined />, 
+                label: <Link to="/nonFaktur">Non Faktur</Link>
+            },
+        ]}
+    />
 );
 
 // ============================
@@ -83,7 +74,7 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
             onCollapse={onCollapse}
             width={240}
             style={{
-                overflow: 'auto',
+                overflow: 'hidden', // Ubah ke hidden biar rapi
                 height: '100vh',
                 position: 'fixed',
                 left: 0,
@@ -92,7 +83,7 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
                 zIndex: 10,
             }}
         >
-            {/* Header Logo */}
+            {/* 1. Header Logo */}
             <div
                 style={{
                     height: '48px',
@@ -102,7 +93,7 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
                     justifyContent: collapsed ? 'center' : 'flex-start',
                 }}
             >
-                {!collapsed && (
+                {!collapsed ? (
                     <Text
                         style={{
                             color: 'white',
@@ -112,22 +103,38 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
                     >
                         CV Galatama
                     </Text>
+                ) : (
+                    <Text style={{ color: 'white', fontWeight: 'bold' }}>CVG</Text>
                 )}
             </div>
 
-            {/* Navigation Menu */}
-            <NavigationMenu activeKey={activeKey} onLinkClick={() => {}} />
+            {/* 2. Scrollable Menu Area */}
+            {/* Kita bungkus Menu dalam div tersendiri biar bisa di-scroll terpisah dari footer */}
+            <div style={{ 
+                height: 'calc(100vh - 64px - 130px)', // Kurangi tinggi header & footer & trigger
+                overflowY: 'auto',
+                scrollbarWidth: 'none', // Hide scrollbar Firefox
+                msOverflowStyle: 'none',  // Hide scrollbar IE/Edge
+            }}>
+                <NavigationMenu activeKey={activeKey} onLinkClick={() => {}} />
+            </div>
 
-            {/* Footer (Logout) */}
+            {/* 3. Footer (User Info & Logout) */}
             <div
                 style={{
                     position: 'absolute',
-                    bottom: 0,
+                    // vvv PERUBAHAN UTAMA DI SINI vvv
+                    bottom: 48, // Naikkan 48px supaya tidak ketutup tombol collapse (<)
+                    // ^^^ PERUBAHAN UTAMA DI SINI ^^^
+                    
                     width: '100%',
-                    padding: collapsed ? '10px 8px' : '12px 16px',
+                    padding: collapsed ? '10px 4px' : '16px',
                     borderTop: '1px solid #1f1f1f',
-                    background: '#001529', // warna dasar antd sider
-                    textAlign: 'center',
+                    background: '#001529',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    zIndex: 11, // Pastikan di atas layer lain jika perlu
                 }}
             >
                 {/* Email User */}
@@ -135,34 +142,38 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
                     <Text
                         style={{
                             color: 'rgba(255, 255, 255, 0.65)',
-                            display: 'block',
-                            marginBottom: '8px',
+                            marginBottom: '12px',
+                            width: '100%',
+                            textAlign: 'center',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
+                            fontSize: '13px'
                         }}
                         title={userEmail}
                     >
                         {userEmail}
                     </Text>
                 )}
-  {!collapsed && userEmail && (  <Button
-                    ghost
-                    danger
+
+                {/* Tombol Logout (Outline Subtle) */}
+                <Button
+                    type="default"
+                    ghost 
                     icon={<LogoutOutlined />}
                     onClick={onLogout}
                     style={{
                         width: '100%',
-                        borderColor: '#ff4d4f',
-                        color: '#ff4d4f',
-                        fontWeight: 500,
+                        color: 'rgba(255, 255, 255, 0.65)', 
+                        borderColor: 'rgba(255, 255, 255, 0.3)', 
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                     }}
-                    title="Logout"
+                    title="Keluar"
                 >
-                    {!collapsed && 'Logout'}
-                </Button> )}
-                {/* Tombol Logout (outline merah) */}
-              
+                    {!collapsed && 'Keluar'}
+                </Button>
             </div>
         </Sider>
     );

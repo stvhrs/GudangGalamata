@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Form, DatePicker, Select, Input, InputNumber, Button, message } from 'antd';
 import { SaveOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+// Tambahkan startAt dan endAt untuk query berdasarkan tanggal
 import { ref, get, set, update, remove, query, orderByKey, startAt, endAt, limitToLast } from 'firebase/database';
 
-import { db } from '../../../api/firebase'; // Sesuaikan path config
+import { db } from '../../../api/firebase'; 
 import { usePelangganStream } from '../../../hooks/useFirebaseData'; 
 
 const { TextArea } = Input;
@@ -14,56 +15,75 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
     const [form] = Form.useForm();
     const [loading, setLoading] = useState(false);
     
-    // Modal Context untuk Confirm Delete
+    // Modal Context
     const [modal, contextHolder] = Modal.useModal();
 
-    // Mengambil list pelanggan untuk Dropdown
+    // Data Pelanggan
     const { pelangganList = [], loadingPelanggan } = usePelangganStream();
     
     const isEditMode = !!initialValues;
 
-    // --- INIT FORM ---
+    // --- 1. INIT FORM ---
     useEffect(() => {
         if (open) {
             if (initialValues) {
-                // Mapping: pastikan nama field sesuai dengan JSON (namaCustomer, totalBayar)
                 form.setFieldsValue({
                     tanggal: initialValues.tanggal ? dayjs(initialValues.tanggal) : dayjs(),
-                    namaCustomer: initialValues.namaCustomer,
+                    customerId: initialValues.customerId,
                     totalBayar: initialValues.totalBayar,
                     keterangan: initialValues.keterangan,
                 });
             } else {
                 form.resetFields();
-                form.setFieldsValue({ tanggal: dayjs(), keterangan: 'NITIP' });
+                form.setFieldsValue({ 
+                    tanggal: dayjs(), 
+                    keterangan: 'NITIP' 
+                });
             }
         }
     }, [open, initialValues, form]);
 
-    // --- GENERATE ID (VF-YYYY-MM-XXXX) ---
+    // --- 2. GENERATE ID (Format: VF-YY-MM-DD-XXXX) ---
     const generateNewId = async (selectedDate) => {
-        const year = selectedDate.format('YYYY');
-        const month = selectedDate.format('MM');
+        // Format YY-MM-DD (Contoh: 25-12-16)
+        const yy = selectedDate.format('YY');
+        const mm = selectedDate.format('MM');
+        const dd = selectedDate.format('DD');
         
-        // Contoh ID: VF0000000001 (dari JSON user) atau VF-2025-12-0001 (Format baru yg lebih rapi)
-        // Disini saya pakai format VF-YYYY-MM-xxxx agar mudah di sort
-        const prefixKey = `VF-${year}-${month}-`;
+        // Prefix Tanggal: VF-25-12-16-
+        const prefixKey = `NF-${yy}-${mm}-${dd}-`;
         
-        // Query cari data terakhir di bulan tsb
-        const q = query(ref(db, 'non_faktur'), orderByKey(), startAt(prefixKey), endAt(prefixKey + '\uf8ff'), limitToLast(1));
+        // Query cari ID terakhir di HARI ITU
+        const q = query(
+            ref(db, 'non_faktur'), 
+            orderByKey(), 
+            startAt(prefixKey), 
+            endAt(prefixKey + '\uf8ff'), 
+            limitToLast(1)
+        );
+        
         const snapshot = await get(q);
         
-        let nextSequence = '0001';
+        let nextSeq = '0001'; // Default urutan pertama
+        
         if (snapshot.exists()) {
             const lastKey = Object.keys(snapshot.val())[0]; 
-            // Ambil 4 digit terakhir
-            const lastSeq = parseInt(lastKey.split('-').pop(), 10);
-            if (!isNaN(lastSeq)) nextSequence = (lastSeq + 1).toString().padStart(4, '0');
+            // Contoh lastKey: VF-25-12-16-0005
+            
+            const parts = lastKey.split('-');
+            const lastSeqStr = parts[parts.length - 1]; // Ambil bagian '0005'
+            const lastSeqNum = parseInt(lastSeqStr, 10);
+            
+            if (!isNaN(lastSeqNum)) {
+                nextSeq = (lastSeqNum + 1).toString().padStart(4, '0');
+            }
         }
-        return `${prefixKey}${nextSequence}`;
+        
+        // Hasil Akhir: VF-25-12-16-0001
+        return `${prefixKey}${nextSeq}`;
     };
 
-    // --- DELETE HANDLER ---
+    // --- 3. DELETE HANDLER ---
     const handleDelete = () => {
         const targetId = initialValues?.id;
         if (!targetId) return message.error("ID tidak ditemukan.");
@@ -89,49 +109,57 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
         });
     };
 
-    // --- SUBMIT HANDLER ---
+    // --- 4. SUBMIT HANDLER ---
     const handleFinish = async (values) => {
         setLoading(true);
         try {
             const tgl = values.tanggal;
-            
-            // Objek Data yang akan disimpan (Sesuaikan variable dengan JSON User)
-            const dataToSave = {
+
+            // Cari Nama Customer
+            const selectedCustomer = pelangganList.find(p => p.id === values.customerId);
+            const namaCust = selectedCustomer ? selectedCustomer.nama : 'Umum';
+
+            const dataPayload = {
+                arah: "IN", 
+                sumber: "NON_FAKTUR", 
+                
                 tanggal: tgl.valueOf(), // Timestamp
-                namaCustomer: values.namaCustomer,
+                customerId: values.customerId,
+                namaCustomer: namaCust,
                 totalBayar: values.totalBayar,
                 keterangan: values.keterangan || '-',
-                sumber: 'NON_FAKTUR',
+                
                 updatedAt: Date.now()
             };
 
             if (isEditMode) {
                 // UPDATE
-                await update(ref(db, `non_faktur/${initialValues.id}`), { 
-                    ...initialValues, // Keep existing fields like ID
-                    ...dataToSave 
+                await update(ref(db, `non_faktur/${initialValues.id}`), {
+                    ...initialValues,
+                    ...dataPayload
                 });
                 message.success('Data diperbarui');
             } else {
-                // CREATE
-                const newId = await generateNewId(tgl);
+                // CREATE BARU DENGAN ID FORMAT TANGGAL
+                const newId = await generateNewId(tgl); // Kirim tanggal yg dipilih user
+                
                 await set(ref(db, `non_faktur/${newId}`), {
-                    id: newId, 
+                    id: newId,
                     createdAt: Date.now(),
-                    ...dataToSave,
+                    ...dataPayload
                 });
                 message.success(`Tersimpan: ${newId}`);
             }
             onCancel();
         } catch (error) {
-            console.error(error);
+            console.error("Error Saving:", error);
             message.error('Gagal menyimpan data');
         } finally {
             setLoading(false);
         }
     };
 
-    // --- FOOTER BUTTONS ---
+    // --- FOOTER ---
     const renderFooter = () => (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <div>
@@ -167,21 +195,33 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
                         <DatePicker format="DD MMM YYYY" style={{ width: '100%' }} />
                     </Form.Item>
                     
-                    <Form.Item label="Nama Pelanggan" name="namaCustomer" rules={[{ required: true, message: 'Harap pilih pelanggan' }]}>
+                    <Form.Item 
+                        label="Nama Pelanggan" 
+                        name="customerId" 
+                        rules={[{ required: true, message: 'Harap pilih pelanggan' }]}
+                    >
                         <Select 
                             showSearch 
                             placeholder="Pilih Pelanggan" 
                             optionFilterProp="children" 
                             loading={loadingPelanggan}
+                            filterOption={(input, option) =>
+                                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                            }
                         >
-                            <Option value="Umum">Umum</Option>
                             {pelangganList.map(p => (
-                                <Option key={p.id} value={p.nama}>{p.nama}</Option>
+                                <Option key={p.id} value={p.id}>
+                                    {p.nama}
+                                </Option>
                             ))}
                         </Select>
                     </Form.Item>
                     
-                    <Form.Item label="Nominal (Rp)" name="totalBayar" rules={[{ required: true, message: 'Harap isi nominal' }]}>
+                    <Form.Item 
+                        label="Nominal (Rp)" 
+                        name="totalBayar" 
+                        rules={[{ required: true, message: 'Harap isi nominal' }]}
+                    >
                         <InputNumber 
                             style={{ width: '100%' }} 
                             formatter={v => `Rp ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} 
