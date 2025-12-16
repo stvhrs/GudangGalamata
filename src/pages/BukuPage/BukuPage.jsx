@@ -227,7 +227,7 @@ const BukuPage = () => {
         { title: 'Stok', dataIndex: 'stok', key: 'stok', align: 'right', width: 100, render: numberFormatter, sorter: (a, b) => (Number(a.stok) || 0) - (Number(b.stok) || 0) },
         { title: 'Hrg', dataIndex: 'harga', key: 'harga', align: 'right', width: 150, render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', sorter: (a, b) => (Number(a.harga) || 0) - (Number(b.harga) || 0) },
         { title: 'Kelas', dataIndex: 'kelas', key: 'kelas', width: 100, align: 'center', filters: kelasFilters, filteredValue: columnFilters.kelas || null, sorter: (a, b) => String(a.kelas || '').localeCompare(String(b.kelas || ''), undefined, { numeric: true }) },
-        { title: 'Tahun', dataIndex: 'tahunTerbit', key: 'tahunTerbit', width: 100, align: 'center', render: (v) => v || '-', filters: tahunTerbitFilters, filteredValue: columnFilters.tahunTerbit || null, sorter: (a, b) => (Number(a.tahunTerbit) || 0) - (Number(b.tahunTerbit) || 0) },
+        { title: 'Tahun', dataIndex: 'tahun', key: 'tahun', width: 100, align: 'center', render: (v) => v || '-', filters: tahunTerbitFilters, filteredValue: columnFilters.tahunTerbit || null, sorter: (a, b) => (Number(a.tahunTerbit) || 0) - (Number(b.tahunTerbit) || 0) },
         { title: 'Aksi', key: 'aksi', align: 'center', width: 100, fixed: screens.md ? 'right' : false, render: (_, record) => (<BukuActionButtons record={record} onEdit={handleEdit} onRestock={handleTambahStok} />) },
     ], [kelasFilters, tahunTerbitFilters, penerbitFilters, peruntukanFilters, columnFilters, screens.md, handleEdit, handleTambahStok]);
 

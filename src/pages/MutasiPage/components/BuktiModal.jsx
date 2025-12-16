@@ -64,6 +64,7 @@ const BuktiModal = ({ url, isOpen, onClose }) => {
 
     return (
         <Modal
+style={{ top: 20 }}
             open={isOpen}
             title="Bukti Transaksi"
             onCancel={onClose}

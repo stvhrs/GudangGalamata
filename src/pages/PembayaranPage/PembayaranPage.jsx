@@ -34,7 +34,7 @@ const { RangePicker } = DatePicker;
 const styles = {
     pageContainer: { padding: '24px', backgroundColor: '#00ff1514', minHeight: '100vh' },
     card: { borderRadius: 8, border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', background: '#fff' },
-    headerTitle: { fontSize: 16, fontWeight: 600, color: '#1dc42bff' },
+    headerTitle: { fontSize: 16, fontWeight: 600, color: '#1caa28ff' },
 };
 
 const PembayaranPage = () => {
@@ -244,7 +244,7 @@ const PembayaranPage = () => {
                             onChange={(e) => setSearchText(e.target.value)}
                             allowClear
                         />
-                        <Button backgroundColor='#1dc42bff' type="primary" icon={<PlusOutlined />} onClick={handleTambah}>
+                        <Button  type="primary" icon={<PlusOutlined />} onClick={handleTambah}style={{ background: '#1caa28ff', borderColor: '#1caa28ff' }}>
                             Input Pembayaran
                         </Button>
                     </Col>

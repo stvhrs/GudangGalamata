@@ -551,6 +551,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         <>
             {contextHolder}
             <Modal
+style={{ top: 20 }}
                 open={open}
                 title={initialValues ? "Detail Pembayaran" : "Input Pembayaran Customer"}
                 onCancel={onCancel}
@@ -736,7 +737,8 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 </Form>
             </Modal>
             
-            <Modal open={previewOpen} footer={null} onCancel={() => setPreviewOpen(false)}>
+            <Modal
+style={{ top: 20 }} open={previewOpen} footer={null} onCancel={() => setPreviewOpen(false)}>
                 <img alt="bukti" style={{ width: '100%' }} src={previewImage} />
             </Modal>
         </>

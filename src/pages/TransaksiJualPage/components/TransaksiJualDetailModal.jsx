@@ -198,6 +198,7 @@ const TransaksiJualDetailModal = ({ open, onCancel, transaksi }) => {
 
     return (
         <Modal
+style={{ top: 20 }}
             open={open} onCancel={onCancel} centered 
             footer={[<Button key="close" onClick={onCancel}>Tutup</Button>]}
             title={

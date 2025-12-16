@@ -285,37 +285,37 @@ const StokHistoryTabRestock = () => {
             width: 200,
             render: (text) => <span style={{ color: '#595959' }}>{text}</span>
         },
-        {
-            title: 'Aksi', 
-            key: 'aksi', 
-            width: 100, 
-            fixed: 'right', 
-            align: 'center',
-            render: (_, record) => (
-                <Space>
-                    <Button 
-                        icon={<EditOutlined />} 
-                        size="small" 
-                        onClick={() => handleEditClick(record)} 
-                    />
-                    <Popconfirm
-                        title="Hapus Data?"
-                        description={`Stok buku akan dikurangi ${record.perubahan} pcs.`}
-                        onConfirm={() => handleDelete(record)}
-                        okText="Hapus"
-                        cancelText="Batal"
-                        okButtonProps={{ loading: loadingAction, danger: true }}
-                    >
-                        <Button 
-                            icon={<DeleteOutlined />} 
-                            size="small" 
-                            danger 
-                            loading={loadingAction}
-                        />
-                    </Popconfirm>
-                </Space>
-            )
-        }
+        // {
+        //     title: 'Aksi', 
+        //     key: 'aksi', 
+        //     width: 100, 
+        //     fixed: 'right', 
+        //     align: 'center',
+        //     render: (_, record) => (
+        //         <Space>
+        //             <Button 
+        //                 icon={<EditOutlined />} 
+        //                 size="small" 
+        //                 onClick={() => handleEditClick(record)} 
+        //             />
+        //             <Popconfirm
+        //                 title="Hapus Data?"
+        //                 description={`Stok buku akan dikurangi ${record.perubahan} pcs.`}
+        //                 onConfirm={() => handleDelete(record)}
+        //                 okText="Hapus"
+        //                 cancelText="Batal"
+        //                 okButtonProps={{ loading: loadingAction, danger: true }}
+        //             >
+        //                 <Button 
+        //                     icon={<DeleteOutlined />} 
+        //                     size="small" 
+        //                     danger 
+        //                     loading={loadingAction}
+        //                 />
+        //             </Popconfirm>
+        //         </Space>
+        //     )
+        // }
     ];
 
     // --- RENDER ---
@@ -375,6 +375,7 @@ const StokHistoryTabRestock = () => {
             </Card>
 
             <Modal
+style={{ top: 20 }}
                 title={<span><EditOutlined /> Edit Restock</span>}
                 open={isEditModalOpen}
                 onOk={handleSaveEdit}

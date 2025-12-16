@@ -205,6 +205,7 @@ const MutasiForm = ({ open, onCancel, initialValues }) => {
         <>
             {contextHolder}
             <Modal
+style={{ top: 20 }}
                 open={open}
                 title={initialValues ? "Edit Mutasi Umum" : "Catat Mutasi Umum"}
                 onCancel={onCancel}

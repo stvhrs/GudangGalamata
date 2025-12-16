@@ -16,6 +16,7 @@ export default function PdfPreviewModal({ visible, onClose, pdfBlobUrl, fileName
 
     return (
         <Modal
+style={{ top: 20 }}
             title={`Preview: ${fileName || 'Dokumen'}`}
             open={visible} // AntD v5 pakai 'open', v4 pakai 'visible'
             onCancel={onClose}
@@ -35,7 +36,6 @@ export default function PdfPreviewModal({ visible, onClose, pdfBlobUrl, fileName
                 </Button>,
             ]}
             bodyStyle={{ padding: 0, height: '80vh' }}
-            style={{ top: 20 }}
         >
             {pdfBlobUrl ? (
                 <iframe

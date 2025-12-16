@@ -182,6 +182,7 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
         <>
             {contextHolder}
             <Modal
+style={{ top: 20 }}
                 title={isEditMode ? `Edit Non-Faktur (${initialValues?.id})` : "Input Non-Faktur Baru"}
                 open={open}
                 onCancel={onCancel}

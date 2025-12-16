@@ -96,6 +96,7 @@ export default function PelangganForm({
 
     return (
         <Modal
+style={{ top: 20 }}
             title={isEditMode ? 'Edit Customer' : 'Tambah Customer Baru'}
             open={open}
             onCancel={onCancel}

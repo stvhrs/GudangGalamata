@@ -186,6 +186,7 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
 
   return (
     <Modal
+style={{ top: 20 }}
       title="Restock Buku Borongan"
       open={open}
       onCancel={onClose}

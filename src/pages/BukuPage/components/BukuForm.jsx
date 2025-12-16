@@ -199,6 +199,7 @@ const BukuForm = ({ open, onCancel, initialValues }) => {
 
     return (
         <Modal
+style={{ top: 20 }}
             open={open}
             onCancel={onCancel}
             footer={null}

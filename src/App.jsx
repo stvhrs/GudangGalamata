@@ -65,7 +65,6 @@ const MainLayout = () => {
     const getActiveKey = () => {
         const path = location.pathname;
          if (path.startsWith('/buku')) return '/buku';
-         if (path.startsWith('/mutasi')) return '/mutasi';
          if (path.startsWith('/transaksi-jual')) return '/transaksi-jual';
          if (path.startsWith('/pelanggan')) return '/pelanggan';
          // Rute baru
@@ -128,7 +127,7 @@ const MainLayout = () => {
                  <Routes>
                       {/* Rute Internal Aplikasi */}
                       <Route path="/buku" element={<BukuPage />} />
-                      <Route path="/mutasi" element={<MutasiPage/>} />
+                     
                       <Route path="/transaksi-jual" element={<TransaksiJualPage />} />
                       <Route path="/pelanggan" element={<PelangganPage />} />
                       <Route path="/pembayaran" element={<PembayaranPage />} />
@@ -145,9 +144,8 @@ const MainLayout = () => {
                       {/* <Route path="/mutasi3" element={<DataGeneratorTransaksiJual />} /> */}
 
                       {/* Rute Default Internal */}
-                      <Route path="/" element={<Navigate to="/mutasi" replace />} />
-                      {/* Catch-all opsional untuk mengarahkan rute internal yg tidak dikenal */}
-                      <Route path="*" element={<Navigate to="/mutasi" replace />} />
+                      <Route path="/" element={<Navigate to="/pelanggan" replace />} />
+                     
                  </Routes>
 
 

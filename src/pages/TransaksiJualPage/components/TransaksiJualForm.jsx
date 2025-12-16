@@ -489,11 +489,11 @@ export default function TransaksiJualForm({
 
     return (
         <Modal
+style={{ top: 20 }}
             title={mode === 'create' ? 'Transaksi Baru' : 'Edit Transaksi'}
             open={open} onCancel={onCancel}
             width={1000} confirmLoading={isSaving}
             destroyOnClose footer={null} maskClosable={false}
-            style={{ top: 20 }}
         >
             <Spin spinning={loadingDependencies || isLoadingEditData}>
                 <Form form={form} layout="vertical" onFinish={handleFinish} onValuesChange={onFormValuesChange}>

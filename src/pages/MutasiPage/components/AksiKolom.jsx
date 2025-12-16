@@ -79,6 +79,7 @@ const AksiKolom = ({ record, onView, onEdit, onDelete }) => {
 
             {/* MODAL PREVIEW PDF */}
             <Modal
+style={{ top: 20 }}
                 title={pdfTitle}
                 open={isPdfVisible}
                 onCancel={() => setIsPdfVisible(false)}

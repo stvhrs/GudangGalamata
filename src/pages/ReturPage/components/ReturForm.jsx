@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
     Modal, Form, Input, InputNumber, DatePicker, Button,
-    message, List, Row, Col, Empty, Tag, Spin, Divider, Select, Checkbox
+    message, List, Row, Col, Empty, Tag, Spin, Divider, Select, Checkbox, Typography
 } from 'antd';
 import { DeleteOutlined, SaveOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -15,13 +15,21 @@ import {
 import { usePelangganStream } from '../../../hooks/useFirebaseData';
 
 const { Option } = Select;
+const { Text } = Typography;
 
 // Formatter
 const formatRupiah = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 
-// Helper List Item
+// --- HELPER LIST ITEM (Updated) ---
 const ReturnItemRow = React.memo(({ item, isSelected, returnQty, onToggle, onQtyChange, readOnly }) => {
-    const subtotalRetur = (Number(item.harga) || 0) * (Number(returnQty) || 0);
+    const harga = Number(item.harga) || 0;
+    const qty = Number(returnQty) || 0;
+    const diskonPersen = Number(item.diskonPersen) || 0;
+    
+    // Hitungan per baris (Hanya visual bantu, total asli dihitung di parent)
+    const bruto = harga * qty;
+    const nilaiDiskon = bruto * (diskonPersen / 100);
+    const netto = bruto - nilaiDiskon;
 
     return (
         <List.Item 
@@ -39,25 +47,33 @@ const ReturnItemRow = React.memo(({ item, isSelected, returnQty, onToggle, onQty
                     <Col flex="auto">
                         <div style={{ fontWeight: 'bold', fontSize: 13 }}>{item.judul || item.productName || 'Produk'}</div>
                         <div style={{ fontSize: 11, color: '#666' }}>
-                            Beli: <b>{item.qty}</b> x {formatRupiah(item.harga)}
+                            Beli: <b>{item.qty}</b> x {formatRupiah(harga)}
+                            {diskonPersen > 0 && <Tag color="red" style={{marginLeft: 5, fontSize: 10}}>-{diskonPersen}%</Tag>}
                         </div>
                     </Col>
                     <Col>
                         {readOnly ? (
                             <div style={{textAlign: 'right'}}>
-                                <div style={{fontSize: 10}}>Qty Retur: {returnQty}</div>
-                                <div style={{fontWeight:'bold', color: '#1890ff'}}>{formatRupiah(subtotalRetur)}</div>
+                                <div style={{fontSize: 10}}>Qty Retur: {qty}</div>
+                                <div style={{fontWeight:'bold', color: '#1890ff'}}>{formatRupiah(netto)}</div>
                             </div>
                         ) : (
                             isSelected ? (
                                 <div style={{textAlign: 'right'}}>
                                     <InputNumber
-                                        value={returnQty}
+                                        value={qty}
                                         onChange={(v) => onQtyChange(v, item.id)}
-                                        style={{ width: 70, fontSize: 13 }}
+                                        style={{ width: 70, fontSize: 13, marginBottom: 4 }}
                                         min={1} max={item.qty} size="small"
                                     />
-                                    <div style={{fontSize: 11, fontWeight:'bold', color: '#1890ff'}}>{formatRupiah(subtotalRetur)}</div>
+                                    <div style={{fontSize: 11, fontWeight:'bold', color: '#1890ff'}}>
+                                        {formatRupiah(netto)}
+                                    </div>
+                                    {diskonPersen > 0 && (
+                                        <div style={{fontSize: 10, color: '#ff4d4f'}}>
+                                            (Disc: {formatRupiah(nilaiDiskon)})
+                                        </div>
+                                    )}
                                 </div>
                             ) : <Tag>Tidak</Tag>
                         )}
@@ -71,6 +87,9 @@ const ReturnItemRow = React.memo(({ item, isSelected, returnQty, onToggle, onQty
 const ReturForm = ({ open, onCancel, initialValues }) => {
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
+    
+    // Watch nilai totalDiskon supaya UI update real-time saat user ketik
+    const watchedTotalDiskon = Form.useWatch('totalDiskon', form); 
 
     const { pelangganList: rawPelangganData, loadingPelanggan } = usePelangganStream();
     
@@ -96,16 +115,50 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
         return processed.map(p => ({ ...p, displayName: p.nama || p.name || `(ID:${p.id})` }));
     }, [rawPelangganData]);
 
-    const grandTotalRetur = useMemo(() => {
+    // --- KALKULASI TOTAL ---
+    // 1. Hitung Total Bruto (Harga x Qty) tanpa diskon
+    const totalBruto = useMemo(() => {
         let total = 0;
         selectedItemIds.forEach(itemId => {
             const item = sourceItems.find(i => i.id === itemId);
             const qty = returnQtys[itemId] || 0;
-            if (item && qty > 0) total += (Number(item.harga) || 0) * qty;
+            if (item && qty > 0) {
+                total += (Number(item.harga) || 0) * qty;
+            }
         });
         return total;
     }, [selectedItemIds, returnQtys, sourceItems]);
 
+    // 2. Hitung Auto Diskon berdasarkan Item (Harga x Qty x Diskon%)
+    const calculatedAutoDiskon = useMemo(() => {
+        let totalDisc = 0;
+        selectedItemIds.forEach(itemId => {
+            const item = sourceItems.find(i => i.id === itemId);
+            const qty = returnQtys[itemId] || 0;
+            const discP = Number(item.diskonPersen) || 0;
+            if (item && qty > 0 && discP > 0) {
+                const brutoItem = (Number(item.harga) || 0) * qty;
+                totalDisc += Math.round(brutoItem * (discP / 100));
+            }
+        });
+        return totalDisc;
+    }, [selectedItemIds, returnQtys, sourceItems]);
+
+    // 3. Efek Samping: Masukkan Auto Diskon ke Form (Kecuali user sedang edit / initial load view)
+    useEffect(() => {
+        if (!initialValues) {
+            form.setFieldsValue({ totalDiskon: calculatedAutoDiskon });
+        }
+    }, [calculatedAutoDiskon, form, initialValues]);
+
+    // 4. Hitung Grand Total (Bruto - Nilai Form Diskon)
+    const grandTotalRetur = useMemo(() => {
+        const diskonInput = Number(watchedTotalDiskon) || 0;
+        return Math.max(0, totalBruto - diskonInput);
+    }, [totalBruto, watchedTotalDiskon]);
+
+
+    // --- INITIAL LOAD ---
     useEffect(() => {
         if (open) {
             resetFormState();
@@ -114,13 +167,14 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 form.setFieldsValue({
                     tanggal: dayjs(initialValues.tanggal),
                     keterangan: initialValues.keterangan,
-                    id: initialValues.id
+                    id: initialValues.id,
+                    totalDiskon: initialValues.totalDiskon || 0 // Load saved discount
                 });
                 setSelectedCustomerName(initialValues.namaCustomer);
-                setSelectedInvoiceId(initialValues.invoiceId); // Penting untuk revert
+                setSelectedInvoiceId(initialValues.invoiceId);
                 fetchExistingReturnItems(initialValues.id);
             } else {
-                form.setFieldsValue({ tanggal: dayjs(), keterangan: '' });
+                form.setFieldsValue({ tanggal: dayjs(), keterangan: '', totalDiskon: 0 });
             }
         }
     }, [initialValues, open, form]);
@@ -158,11 +212,10 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
         }
     };
 
-    // --- GENERATE ID: RJ-YY-MM-DD-XXXX ---
+    // --- GENERATE ID ---
     const generateReturId = async (dateObj) => {
         const d = dayjs(dateObj);
         const prefix = `RJ-${d.format('YY-MM-DD')}-`;
-        
         try {
             const q = query(ref(db, 'returns'), orderByKey(), startAt(prefix), endAt(prefix + '\uf8ff'), limitToLast(1));
             const snap = await get(q);
@@ -175,7 +228,6 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             }
             return `${prefix}${String(nextNum).padStart(4, '0')}`;
         } catch (e) {
-            // Fallback random jika gagal
             return `${prefix}${Date.now().toString().slice(-4)}`;
         }
     };
@@ -210,17 +262,22 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
         setSelectedItemIds([]);
         setReturnQtys({});
         try {
+            // Ambil dari node terpisah invoice_items dulu
             const q = query(ref(db, 'invoice_items'), orderByChild('invoiceId'), equalTo(invId));
             const snap = await get(q);
             let items = [];
-            if (snap.exists()) snap.forEach(c => items.push({ id: c.key, ...c.val() }));
-            else {
+            
+            if (snap.exists()) {
+                snap.forEach(c => items.push({ id: c.key, ...c.val() }));
+            } else {
+                // Fallback ke struktur lama (items di dalam node invoice)
                 const invSnap = await get(ref(db, `invoices/${invId}/items`));
                 if(invSnap.exists()){
                     const raw = invSnap.val();
                     items = Array.isArray(raw) ? raw : Object.keys(raw).map(k=>({id:k, ...raw[k]}));
                 }
             }
+            
             if(items.length > 0) setSourceItems(items);
             else { message.warning("Invoice kosong detail"); setSourceItems([]); }
         } catch (err) { message.error("Gagal ambil item"); } 
@@ -241,7 +298,12 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
 
     // --- SAVE LOGIC (ATOMIC UPDATE) ---
     const handleSave = async (values) => {
-        if (grandTotalRetur <= 0 || selectedItemIds.length === 0) return message.error("Item/Qty tidak valid.");
+        if (grandTotalRetur <= 0 && selectedItemIds.length > 0 && values.totalDiskon >= totalBruto) {
+             // Validasi jika diskon melebihi harga barang
+             return message.error("Total diskon tidak boleh melebihi total retur.");
+        }
+        if (selectedItemIds.length === 0) return message.error("Pilih item yang diretur.");
+
         setIsSaving(true);
         message.loading({ content: 'Memproses Retur...', key: 'save' });
 
@@ -249,6 +311,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             const timestampNow = Date.now();
             const returId = await generateReturId(values.tanggal);
             const updates = {};
+            const finalDiskon = Number(values.totalDiskon) || 0;
 
             // 1. HEADER (returns)
             const returData = {
@@ -260,7 +323,8 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 keterangan: values.keterangan || '-',
                 sumber: 'SALES_RETURN',
                 arah: 'IN',
-                totalRetur: grandTotalRetur,
+                totalDiskon: finalDiskon, // Simpan total diskon (editable)
+                totalRetur: grandTotalRetur, // Hasil Netto (Bruto - Diskon)
                 createdAt: timestampNow,
                 updatedAt: timestampNow
             };
@@ -273,6 +337,9 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             const oldRetur = Number(curInv.totalRetur) || 0;
             const oldNetto = Number(curInv.totalNetto) || 0;
             
+            // Logika: 
+            // Total Netto Invoice berkurang sebesar GrandTotalRetur
+            // Total Retur Invoice bertambah sebesar GrandTotalRetur
             updates[`invoices/${selectedInvoiceId}/totalRetur`] = oldRetur + grandTotalRetur;
             updates[`invoices/${selectedInvoiceId}/totalNetto`] = oldNetto - grandTotalRetur;
             updates[`invoices/${selectedInvoiceId}/updatedAt`] = timestampNow;
@@ -282,7 +349,11 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 const source = sourceItems.find(i => i.id === itemId);
                 const qtyRetur = returnQtys[itemId];
                 const harga = Number(source.harga) || 0;
-
+                
+                // Hitung subtotal per item (Proposional Gross)
+                // Note: Kita simpan gross item di detail, diskon di header. 
+                // Atau mau simpan net per item? Biasanya detail simpan Gross + DiskonPersen asli.
+                
                 // A. return_items
                 const rItemId = `RITEM_${returId}_${Math.floor(Math.random() * 100000)}`;
                 updates[`return_items/${rItemId}`] = {
@@ -292,7 +363,8 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                     judul: source.judul || source.productName || '-',
                     qty: qtyRetur,
                     harga: harga,
-                    subtotal: qtyRetur * harga,
+                    diskonPersen: source.diskonPersen || 0, // Bawa info diskon item
+                    subtotal: qtyRetur * harga, // Gross subtotal per item
                     createdAt: timestampNow,
                     updatedAt: timestampNow
                 };
@@ -307,16 +379,16 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
 
                         updates[`products/${source.productId}/stok`] = stokAkhir;
 
-                        // C. Format History sesuai request
+                        // C. Format History
                         const histId = `HIST_${returId}_${source.productId}_${timestampNow}`;
                         updates[`stock_history/${histId}`] = {
                             id: histId,
                             bukuId: source.productId,
                             judul: source.judul || source.productName,
-                            nama: "ADMIN", // Hardcode/ambil dari auth context
-                            refId: returId, // Link ke Retur ID
+                            nama: "ADMIN",
+                            refId: returId,
                             keterangan: `Retur Invoice: ${selectedInvoiceId}`,
-                            perubahan: qtyRetur, // Positif karena masuk
+                            perubahan: qtyRetur, 
                             stokAwal: stokAwal,
                             stokAkhir: stokAkhir,
                             tanggal: timestampNow,
@@ -347,7 +419,8 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 try {
                     const returId = initialValues.id;
                     const invId = initialValues.invoiceId;
-                    const totalReturVal = Number(initialValues.totalRetur) || 0;
+                    // Ambil Total Retur Netto yang tersimpan
+                    const totalReturVal = Number(initialValues.totalRetur) || 0; 
                     const timestampNow = Date.now();
 
                     const updates = {};
@@ -361,6 +434,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                             const curRetur = Number(curInv.totalRetur) || 0;
                             const curNetto = Number(curInv.totalNetto) || 0;
                             
+                            // Kembalikan saldo
                             updates[`invoices/${invId}/totalRetur`] = Math.max(0, curRetur - totalReturVal);
                             updates[`invoices/${invId}/totalNetto`] = curNetto + totalReturVal;
                         }
@@ -375,11 +449,11 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                             if (prodSnap.exists()) {
                                 const stokAwal = Number(prodSnap.val().stok) || 0;
                                 const qtyBalik = Number(item.qty) || 0; 
-                                const stokAkhir = stokAwal - qtyBalik; // Stok dikurangi lagi
+                                const stokAkhir = stokAwal - qtyBalik; // Stok dikurangi lagi (seolah retur batal)
 
                                 updates[`products/${item.productId}/stok`] = stokAkhir;
 
-                                // History Koreksi/Keluar
+                                // History Koreksi
                                 const histId = `HIST_DEL_${returId}_${item.productId}_${timestampNow}`;
                                 updates[`stock_history/${histId}`] = {
                                     id: histId,
@@ -388,7 +462,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                                     nama: "ADMIN",
                                     refId: returId,
                                     keterangan: `Revert/Hapus Retur ${returId}`,
-                                    perubahan: -qtyBalik, // Negatif
+                                    perubahan: -qtyBalik, 
                                     stokAwal: stokAwal,
                                     stokAkhir: stokAkhir,
                                     tanggal: timestampNow,
@@ -412,6 +486,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
         <>
             {contextHolder}
             <Modal
+style={{ top: 20 }}
                 open={open}
                 title={initialValues ? `Detail Retur: ${initialValues.id}` : "Input Retur Penjualan"}
                 onCancel={onCancel}
@@ -452,13 +527,62 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                     <div style={{ border: '1px solid #d9d9d9', borderRadius: 8, minHeight: 200, maxHeight: 350, overflowY: 'auto' }}>
                         {loadingItems ? <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div> : sourceItems.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Pilih invoice dulu" style={{margin: '40px 0'}} /> : (
                             <List dataSource={sourceItems} renderItem={(item) => (
-                                <ReturnItemRow key={item.id} item={item} isSelected={selectedItemIds.includes(item.id)} returnQty={returnQtys[item.id]} onToggle={handleToggleItem} onQtyChange={handleQtyChange} readOnly={!!initialValues} />
+                                <ReturnItemRow 
+                                    key={item.id} 
+                                    item={item} 
+                                    isSelected={selectedItemIds.includes(item.id)} 
+                                    returnQty={returnQtys[item.id]} 
+                                    onToggle={handleToggleItem} 
+                                    onQtyChange={handleQtyChange} 
+                                    readOnly={!!initialValues} 
+                                />
                             )} />
                         )}
                     </div>
-                    <div style={{ marginTop: 16, textAlign: 'right', padding: 10, background: '#e6f7ff', borderRadius: 6 }}>
-                        <div style={{ fontSize: 13, color: '#666' }}>Total Retur:</div>
-                        <div style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>{initialValues ? formatRupiah(initialValues.totalRetur) : formatRupiah(grandTotalRetur)}</div>
+                    
+                    {/* --- FOOTER SUMMARY WITH EDITABLE DISCOUNT --- */}
+                    <div style={{ marginTop: 16, padding: 12, background: '#fafafa', borderRadius: 6, border: '1px solid #eee' }}>
+                         <Row gutter={16} align="middle">
+                            <Col span={12} style={{textAlign: 'right'}}>
+                                <Text type="secondary">Total Bruto Item:</Text>
+                            </Col>
+                            <Col span={12} style={{textAlign: 'right'}}>
+                                <Text strong>{formatRupiah(totalBruto)}</Text>
+                            </Col>
+                         </Row>
+                         <Row gutter={16} align="middle" style={{marginTop: 8}}>
+                            <Col span={12} style={{textAlign: 'right'}}>
+                                <div style={{display:'flex', alignItems:'center', justifyContent:'flex-end'}}>
+                                    <Text type="secondary" style={{marginRight: 8}}>Potongan / Diskon (Rp):</Text>
+                                    {/* FORM FIELD EDITABLE UNTUK DISKON */}
+                                    <Form.Item name="totalDiskon" style={{marginBottom: 0, width: 140}}>
+                                        <InputNumber 
+                                            disabled={!!initialValues}
+                                            formatter={value => `Rp ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                            parser={value => value.replace(/\Rp\s?|(,*)/g, '')}
+                                            style={{width: '100%', textAlign: 'right'}}
+                                            placeholder="0"
+                                        />
+                                    </Form.Item>
+                                </div>
+                            </Col>
+                            <Col span={12} style={{textAlign: 'right'}}>
+                                <Text type="danger">- {formatRupiah(Number(watchedTotalDiskon) || 0)}</Text>
+                            </Col>
+                         </Row>
+                         
+                         <Divider style={{margin: '12px 0'}} />
+                         
+                         <Row gutter={16} align="middle">
+                             <Col span={12} style={{textAlign: 'right'}}>
+                                <Text style={{fontSize: 16}}>Total Retur Bersih:</Text>
+                             </Col>
+                             <Col span={12} style={{textAlign: 'right'}}>
+                                <Text style={{fontSize: 20, color: '#1890ff'}} strong>
+                                    {initialValues ? formatRupiah(initialValues.totalRetur) : formatRupiah(grandTotalRetur)}
+                                </Text>
+                             </Col>
+                         </Row>
                     </div>
                 </Form>
             </Modal>
@@ -466,4 +590,4 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
     );
 };
 
-export default ReturForm;               
+export default ReturForm;

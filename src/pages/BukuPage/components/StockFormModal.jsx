@@ -395,13 +395,13 @@ const handleStokUpdate = async (values) => {
     return (
         <>
             <Modal
+style={{ top: 20 }}
                 title={`Kartu Stok: ${buku.id} - ${judulDisplay} -  ${buku.peruntukan}`}
                 open={open}
                 onCancel={onCancel}
                 footer={null}
                 destroyOnClose
                 width={1300}
-                style={{ top: 20 }}
             >
                 <Spin spinning={loading}>
                     <Row gutter={24}>
@@ -477,11 +477,11 @@ const handleStokUpdate = async (values) => {
 
             {/* MODAL PREVIEW PDF */}
             <Modal
+style={{ top: 20 }}
                 title="Preview Laporan Stok"
                 open={isPdfModalOpen}
                 onCancel={() => { setIsPdfModalOpen(false); setPdfPreviewUrl(null); }}
                 width="80vw"
-                style={{ top: 20 }}
                 footer={[
                     <Button key="close" onClick={() => setIsPdfModalOpen(false)}>Tutup</Button>
                 ]}

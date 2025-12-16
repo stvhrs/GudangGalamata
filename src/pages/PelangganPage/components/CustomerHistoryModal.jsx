@@ -52,6 +52,8 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     }, [open, customer]);
 
+ // ... (Kode import dan state sebelumnya tetap sama)
+
     const fetchAllTransactionStreams = async (customerId) => {
         setLoading(true);
         try {
@@ -80,40 +82,50 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 const custData = custSnap.val();
                 const saldoAwal = parseFloat(custData.saldoAwal) || 0;
 
-                // Hanya masukkan jika ada nilai saldo awal (tidak 0)
                 if (saldoAwal !== 0) {
                     mergedData.push({
-                        key: 'MIGRASI_SALDO_AWAL', // Key unik manual
+                        key: 'MIGRASI_SALDO_AWAL', 
                         id: 'MIGRASI',
                         type: 'MIGRASI',
-                        keterangan: 'Migrasi Mas Steve',
-                        // Jika saldoAwal positif di DB, anggap sebagai Hutang (Debit)
-                        // Jika negatif, anggap Deposit (Kredit), sesuaikan logika bisnis Anda
+                        keterangan: 'Migrasi Saldo Awal',
                         amount: Math.abs(saldoAwal),
-                        isDebit: true, 
-                        date: new Date('2018-01-01').getTime() // 1 Jan 2018
+                        isDebit: true, // Asumsi Saldo Awal = Hutang
+                        date: new Date('2018-01-01').getTime() 
                     });
                 }
             }
 
-            // --- B. PROSES DATA LAINNYA (Sama seperti sebelumnya) ---
+            // --- B. PROSES DATA LAINNYA ---
             
             // 1. INVOICES
             if (invSnap.exists()) {
                 const val = invSnap.val();
                 Object.keys(val).forEach(key => {
                     const item = val[key];
+                    
+                    // --- PERBAIKAN DI SINI ---
+                    // Gunakan item.totalBayar langsung jika ada (lebih akurat), 
+                    // atau hitung manual: Bruto - Diskon + BiayaLain
+                    
                     const bruto = parseFloat(item.totalBruto) || 0;
                     const diskon = parseFloat(item.totalDiskon) || 0;
                     const biayaLain = parseFloat(item.totalBiayaLain) || 0;
-                    const totalInvoice = bruto - diskon - biayaLain;
+                    
+                    // Rumus disesuaikan agar cocok dengan totalBayar di JSON (1.403.500)
+                    let totalInvoice = 0;
+                    if (item.totalBayar) {
+                         totalInvoice = parseFloat(item.totalBayar);
+                    } else {
+                         // Biaya Lain DITAMBAH (+), bukan dikurang
+                         totalInvoice = bruto - diskon + biayaLain; 
+                    }
 
                     mergedData.push({
                         ...item,
                         key: key,
                         type: 'INVOICE',
                         amount: totalInvoice,
-                        isDebit: true, 
+                        isDebit: true, // Menambah Hutang
                         date: item.tanggal
                     });
                 });
@@ -152,6 +164,8 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             setLoading(false);
         }
     };
+
+// ... (Sisa kode UseEffect, Logic Calculation, dan Render tetap sama)
 
     // --- LOGIC CALCULATION ---
     const processedData = useMemo(() => {
@@ -446,6 +460,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     return (
         <>
             <Modal
+style={{ top: 20 }}
                 title={
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginRight: 24 }}>
                         <span>Riwayat: {customer?.nama}</span>
@@ -456,7 +471,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 onCancel={onCancel}
                 width={1100}
                 footer={null}
-                style={{ top: 20 }}
                 bodyStyle={{ padding: '16px 24px' }}
             >
                 {/* 1. REKAP ATAS */}
