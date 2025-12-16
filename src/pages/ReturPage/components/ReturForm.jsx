@@ -537,7 +537,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
 
     // --- TABLE COLUMNS ---
     const columns = [
-        { title: 'Buku', dataIndex: 'judulBuku', key: 'judul', render: t => <b>{t}</b> },
+        { title: 'products', dataIndex: 'judulBuku', key: 'judul', render: t => <b>{t}</b> },
         { title: 'Harga', dataIndex: 'hargaSatuan', align: 'right', render: v => currencyFormatter(v) },
         { title: 'Qty Beli', dataIndex: 'jumlah', align: 'center', width: 80, render: v => <Tag>{v}</Tag> },
         { title: 'Disc %', dataIndex: 'diskonPersen', align: 'center', width: 80 },

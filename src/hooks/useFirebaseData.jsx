@@ -116,7 +116,7 @@ export const useReturStream = (dateRange) => {
         // Logic Query
         const startDate = dateRange ? dayjs(dateRange[0]).startOf('day').valueOf() : 0;
         const endDate = dateRange ? dayjs(dateRange[1]).endOf('day').valueOf() : Date.now();
-        const q = query(ref(db, 'historiRetur'), orderByChild('timestamp'), startAt(startDate), endAt(endDate));
+        const q = query(ref(db, 'historiRetur'), orderByChild('tanggal'), startAt(startDate), endAt(endDate));
 
         // Matikan listener "hantu" dari page sebelumnya
         if (globalRetur.unsubscribe) globalRetur.unsubscribe();
@@ -254,7 +254,7 @@ const connectBukuStream = () => {
     globalBukuLoading = true;
     notifyBukuSubscribers();
 
-    const bukuRef = ref(db, 'buku');
+    const bukuRef = ref(db, 'products');
 
     globalBukuUnsubscribe = onValue(bukuRef, (snapshot) => {
         const data = snapshotToArrayWithId(snapshot);
@@ -478,10 +478,10 @@ const connectHistoriStream = (filterParams) => {
     globalHistoriFilterKey = newFilterKey;
     notifyHistoriSubscribers();
 
-    const historiRef = ref(db, 'historiStok');
+    const historiRef = ref(db, 'stock_history');
     const q = query(
         historiRef,
-        orderByChild('timestamp'),
+        orderByChild('tanggal'),
         startAt(filterParams.startDate),
         endAt(filterParams.endDate)
     );
@@ -561,11 +561,11 @@ const connectHistoriStockRestockStream = (filterParams) => {
     globalHistoriStockRestockFilterKey = newFilterKey;
     notifyHistoriStockRestockSubscribers();
 
-    // Pastikan path database ('historiStok') sesuai dengan yang ada di Firebase Anda
-    const historiStockRestockRef = ref(db, 'historiStok');
+    // Pastikan path database ('stock_history') sesuai dengan yang ada di Firebase Anda
+    const historiStockRestockRef = ref(db, 'stock_history');
     const q = query(
         historiStockRestockRef,
-        orderByChild('timestamp'),
+        orderByChild('tanggal'),
         startAt(filterParams.startDate),
         endAt(filterParams.endDate)
     );

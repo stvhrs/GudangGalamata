@@ -56,6 +56,10 @@ export const NavigationMenu = ({ activeKey, onLinkClick }) => (
             key: '/retur', 
             icon: <RollbackOutlined />, // Panah memutar balik, simbol universal "Undo" atau barang kembali
             label: <Link to="/retur">Retur</Link> 
+        }, { 
+            key: '/nonFaktur', 
+            icon: <RollbackOutlined />, // Panah memutar balik, simbol universal "Undo" atau barang kembali
+            label: <Link to="/nonFaktur">Non Faktur</Link> 
         },
 
         // 4. PEMBUKUAN / LAPORAN

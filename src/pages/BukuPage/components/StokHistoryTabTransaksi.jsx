@@ -1,12 +1,12 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Card, Table, Input, Row, Col, Typography, DatePicker, Statistic, Button, Space, Spin } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useMemo } from 'react';
+import { Card, Table, Input, Row, Col, Typography, DatePicker, Statistic, Button, Space, Spin, Tag } from 'antd';
+import { ReloadOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 
 // --- CUSTOM HOOKS ---
-import { useHistoriStokStream } from '../../../hooks/useFirebaseData'; // Sesuaikan path import ini
+import { useHistoriStokStream } from '../../../hooks/useFirebaseData'; 
 import useDebounce from '../../../hooks/useDebounce'; 
 import { timestampFormatter, numberFormatter } from '../../../utils/formatters';
 
@@ -23,57 +23,39 @@ const StokHistoryTab = () => {
         dayjs().endOf('month')
     ]);
 
-    // Menyiapkan parameter untuk hook (convert dayjs to timestamp)
     const streamParams = useMemo(() => ({
         startDate: dateRange && dateRange[0] ? dateRange[0].startOf('day').valueOf() : null,
         endDate: dateRange && dateRange[1] ? dateRange[1].endOf('day').valueOf() : null
     }), [dateRange]);
 
-    // --- 2. USE STREAM HOOK (Gantikan manual fetch) ---
-    // Data akan otomatis update jika ada perubahan di Firebase atau jika dateRange berubah
+    // --- 2. USE STREAM HOOK ---
     const { historyList, loadingHistory } = useHistoriStokStream(streamParams);
 
-    // --- 3. FILTERING CLIENT SIDE (Search & Penerbit) ---
+    // --- 3. FILTERING CLIENT SIDE ---
     const [searchText, setSearchText] = useState('');
     const debouncedSearchText = useDebounce(searchText, 300);
-    const [selectedPenerbit, setSelectedPenerbit] = useState(undefined);
-
-    // List Penerbit Unik untuk Filter Kolom
-    const penerbitList = useMemo(() => {
-        if (!historyList) return [];
-        const allPenerbit = historyList
-            .map(item => item.penerbit)
-            .filter(Boolean);
-        return [...new Set(allPenerbit)].sort();
-    }, [historyList]);
 
     const filteredHistory = useMemo(() => {
-        let data = [...historyList];
+        let data = [...(historyList || [])];
 
-        // Filter Penerbit
-        if (selectedPenerbit) {
-            data = data.filter(item => item.penerbit === selectedPenerbit);
-        }
-
-        // Filter Search Text
         if (debouncedSearchText) {
             const lowerSearch = debouncedSearchText.toLowerCase();
             data = data.filter(item =>
                 (item.judul || '').toLowerCase().includes(lowerSearch) ||
-                (item.kode_buku || '').toLowerCase().includes(lowerSearch) ||
-                (item.penerbit || '').toLowerCase().includes(lowerSearch) ||
+                (item.bukuId || '').toLowerCase().includes(lowerSearch) ||
+                (item.nama || '').toLowerCase().includes(lowerSearch) ||
+                (item.refId || '').toLowerCase().includes(lowerSearch) || 
                 (item.keterangan || '').toLowerCase().includes(lowerSearch)
             );
         }
         
         return data;
-    }, [historyList, debouncedSearchText, selectedPenerbit]);
+    }, [historyList, debouncedSearchText]);
 
     // --- 4. DASHBOARD RINGKASAN ---
     const dashboardData = useMemo(() => {
         return filteredHistory.reduce((acc, item) => {
             const perubahan = Number(item.perubahan) || 0; 
-            
             if (perubahan > 0) {
                 acc.totalMasuk += perubahan;
             } else if (perubahan < 0) {
@@ -84,57 +66,74 @@ const StokHistoryTab = () => {
     }, [filteredHistory]);
 
     // --- 5. HANDLERS ---
-    const handleTableChange = (pagination, filters, sorter) => {
-        const penerbitFilterValue = filters.penerbit;
-        if (penerbitFilterValue && penerbitFilterValue.length > 0) {
-            setSelectedPenerbit(penerbitFilterValue[0]);
-        } else {
-            setSelectedPenerbit(undefined);
-        }
+    const handleRefresh = () => {
+       const current = [...dateRange];
+       setDateRange([]); 
+       setTimeout(() => setDateRange(current), 100);
     };
 
     const resetFilters = () => {
         setSearchText('');
-        // Reset tanggal ke default 1 bulan terakhir
         setDateRange([dayjs().subtract(1, 'month').startOf('month'), dayjs().endOf('month')]);
-        setSelectedPenerbit(undefined);
-    };
-
-    // Tombol refresh hanya mereset date range trigger agar hook melakukan refetch/re-sync
-    // Karena ini stream, tombol refresh sebenarnya jarang dibutuhkan kecuali koneksi putus
-    const handleRefresh = () => {
-       const current = [...dateRange];
-       setDateRange([]); // Clear sesaat
-       setTimeout(() => setDateRange(current), 100);
     };
 
     // --- 6. COLUMNS ---
     const historyColumns = [
         {
-            title: 'Waktu', dataIndex: 'timestamp', key: 'timestamp',
-            render: timestampFormatter,
-            width: 150,
+            title: 'Waktu', 
+            dataIndex: 'tanggal', 
+            key: 'tanggal',
+            render: (val) => timestampFormatter(val),
+            width: 140,
             fixed: 'left',
-            sorter: (a, b) => (a.timestamp || 0) - (b.timestamp || 0),
+            sorter: (a, b) => (a.tanggal || 0) - (b.tanggal || 0),
+            defaultSortOrder: 'descend',
         },
-        { title: 'Judul Buku', dataIndex: 'judul', key: 'judul', width: 250, fixed: 'left', },
-        { title: 'Kode', dataIndex: 'kode_buku', key: 'kode_buku', width: 120 },
         { 
-            title: 'Penerbit', 
-            dataIndex: 'penerbit', 
-            key: 'penerbit', 
-            width: 150,
-            filters: penerbitList.map(penerbit => ({
-                text: penerbit,
-                value: penerbit,
-            })),
-            filteredValue: selectedPenerbit ? [selectedPenerbit] : null,
-            filterMultiple: false, 
-            sorter: (a, b) => (a.penerbit || '').localeCompare(b.penerbit || ''),
+            title: 'Ref ID', // KOLOM BARU: REF ID
+            dataIndex: 'refId', 
+            key: 'refId', 
+            width: 140,
+            render: (text) => text ? <Tag color="geekblue" style={{ marginRight: 0 }}>{text}</Tag> : '-'
+        },
+        { 
+            title: 'Kode Buku', 
+            dataIndex: 'bukuId', 
+            key: 'bukuId', 
+            width: 100,
+            render: (text) => <Text code>{text}</Text>
+        },
+        { 
+            title: 'Judul Buku', 
+            dataIndex: 'judul', 
+            key: 'judul', 
+            width: 250, 
         },
         {
-            title: 'Perubahan', dataIndex: 'perubahan', key: 'perubahan',
-            align: 'right', width: 100,
+            title: 'Oleh', 
+            dataIndex: 'nama',
+            key: 'nama',
+            width: 110,
+            render: (text) => (
+                <Space size={4}>
+                    <UserOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
+                    <Text className="text-xs">{text || '-'}</Text>
+                </Space>
+            )
+        },  { 
+            title: 'Awal', 
+            dataIndex: 'stokAwal', 
+            key: 'stokAwal', 
+            align: 'right', 
+            width: 80, 
+            render: numberFormatter 
+        },
+        {
+            title: 'Perubahan', 
+            dataIndex: 'perubahan', 
+            key: 'perubahan',
+            align: 'right', 
+            width: 100,
             render: (val) => {
                 const num = Number(val); 
                 const color = num > 0 ? '#52c41a' : (num < 0 ? '#f5222d' : '#8c8c8c');
@@ -147,12 +146,23 @@ const StokHistoryTab = () => {
             },
             sorter: (a, b) => (a.perubahan || 0) - (b.perubahan || 0),
         },
-        { title: 'Stok Awal', dataIndex: 'stokSebelum', key: 'stokSebelum', align: 'right', width: 100, render: numberFormatter },
-        { title: 'Stok Akhir', dataIndex: 'stokSesudah', key: 'stokSesudah', align: 'right', width: 100, render: numberFormatter },
-        { title: 'Keterangan', dataIndex: 'keterangan', key: 'keterangan', width: 200 },
+      
+        { 
+            title: 'Akhir', 
+            dataIndex: 'stokAkhir', 
+            key: 'stokAkhir', 
+            align: 'right', 
+            width: 80, 
+            render: numberFormatter 
+        },
+        { 
+            title: 'Keterangan', 
+            dataIndex: 'keterangan', 
+            key: 'keterangan', 
+            width: 200,
+            render: (text) => <span style={{ color: '#595959' }}>{text}</span>
+        },
     ];
-
-    const isFilterActive = debouncedSearchText || selectedPenerbit;
 
     return (
         <Spin spinning={loadingHistory} tip="Menyinkronkan data...">
@@ -209,15 +219,15 @@ const StokHistoryTab = () => {
                             />
                             
                             <Input.Search
-                                placeholder="Cari Judul, Kode..."
+                                placeholder="Cari Judul, Kode, Ref..."
                                 value={searchText}
                                 onChange={(e) => setSearchText(e.target.value)}
                                 allowClear
-                                style={{ width: 200 }}
+                                style={{ width: 220 }}
                             />
-                             {isFilterActive && (
+                             {(debouncedSearchText) && (
                                 <Button onClick={resetFilters} type="link" danger>
-                                    Reset Filter
+                                    Reset
                                 </Button>
                             )}
                         </Space>
@@ -230,7 +240,7 @@ const StokHistoryTab = () => {
                     loading={loadingHistory} 
                     rowKey="id"
                     size="small"
-                    scroll={{ x: 1300, y: 'calc(100vh - 500px)' }}
+                    scroll={{ x: 1300, y: 'calc(100vh - 450px)' }}
                     pagination={{ 
                         defaultPageSize: 20, 
                         showSizeChanger: true, 
@@ -238,7 +248,6 @@ const StokHistoryTab = () => {
                         showTotal: (total, range) => `${range[0]}-${range[1]} dari ${total} riwayat` 
                     }}
                     rowClassName={() => 'zebra-row'} 
-                    onChange={handleTableChange}
                 />
             </Card>
         </Spin>

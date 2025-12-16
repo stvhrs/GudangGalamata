@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Card, Table, Input, Row, Col, Typography, DatePicker, Statistic, Button, Space, Spin, Popconfirm, message, Modal, Form, Tag } from 'antd';
-import { ReloadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ArrowUpOutlined } from '@ant-design/icons';
+import { ReloadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
@@ -25,14 +25,15 @@ const { RangePicker } = DatePicker;
 
 const serviceDeleteTransaction = async (record) => {
     const db = getDatabase();
-    const bookKey = record.kode_buku; 
+    // Update key: menyesuaikan dengan kolom baru (bukuId)
+    const bookKey = record.bukuId; 
     
     if (!bookKey) throw new Error("Kode Buku tidak ditemukan.");
 
     console.log(`[DELETE] History: ${record.id} | Revert Stok Buku: ${bookKey}`);
 
-    const historyRef = ref(db, `historiStok/${record.id}`);
-    const bookStockRef = ref(db, `buku/${bookKey}/stok`);
+    const historyRef = ref(db, `stock_history/${record.id}`);
+    const bookStockRef = ref(db, `products/${bookKey}/stok`);
 
     // Kembalikan stok (Revert): Stok Sekarang - Jumlah History
     await runTransaction(bookStockRef, (currentStock) => {
@@ -60,9 +61,12 @@ const serviceUpdateTransaction = async (idHistory, kodeBuku, oldQty, newQty, sto
     console.log(`[EDIT] Delta Real: ${selisih} | History StokSesudah: ${newStokSesudah}`);
 
     const updates = {};
-    updates[`historiStok/${idHistory}/perubahan`] = Number(newQty);
-    updates[`historiStok/${idHistory}/stokSesudah`] = Number(newStokSesudah);
-    updates[`historiStok/${idHistory}/keterangan`] = newKeterangan;
+    updates[`stock_history/${idHistory}/perubahan`] = Number(newQty);
+    // Update key: stokSesudah -> stokAkhir (sesuai JSON baru) jika perlu, 
+    // tapi karena firebase biasanya pake field lama, pastikan struktur DB konsisten.
+    // Di sini saya asumsikan update field standard:
+    updates[`stock_history/${idHistory}/stokAkhir`] = Number(newStokSesudah); 
+    updates[`stock_history/${idHistory}/keterangan`] = newKeterangan;
 
     // Update Stok Real Buku
     const bookStockRef = ref(db, `buku/${kodeBuku}/stok`);
@@ -115,12 +119,14 @@ const StokHistoryTabRestock = () => {
             return ket.startsWith('Restock');
         });
 
-        // 2. FILTER SEARCH
+        // 2. FILTER SEARCH (Update key: bukuId)
         if (debouncedSearchText) {
             const lowerSearch = debouncedSearchText.toLowerCase();
             data = data.filter(item =>
                 (item.judul || '').toLowerCase().includes(lowerSearch) ||
-                (item.kode_buku || '').toLowerCase().includes(lowerSearch)
+                (item.bukuId || '').toLowerCase().includes(lowerSearch) ||
+                (item.refId || '').toLowerCase().includes(lowerSearch) ||
+                (item.nama || '').toLowerCase().includes(lowerSearch)
             );
         }
         return data;
@@ -163,16 +169,15 @@ const StokHistoryTabRestock = () => {
 
             const oldQty = Number(editingItem.perubahan);
             const newQty = Number(values.perubahan);
-            const stokSebelum = Number(editingItem.stokSebelum) || 0; 
-            const kodeBuku = editingItem.kode_buku; 
+            // Update key: stokAwal
+            const stokSebelum = Number(editingItem.stokAwal) || 0; 
+            // Update key: bukuId
+            const kodeBuku = editingItem.bukuId; 
 
             // --- LOGIKA IDENTIFIER ---
-            // Pastikan kata "Restock" tetap ada di depan agar tidak hilang dari filter.
             let userText = values.keterangan;
-            
-            // Cek case-insensitive (restock, Restock, RESTOCK)
             if (!userText.toLowerCase().startsWith('restock')) {
-                userText = `Restock ${userText}`; // Tambahkan manual jika user menghapusnya
+                userText = `Restock ${userText}`; 
             }
 
             await serviceUpdateTransaction(
@@ -195,34 +200,97 @@ const StokHistoryTabRestock = () => {
         }
     };
 
-    // --- COLUMNS ---
+    // --- COLUMNS (SESUAI REQUEST) ---
     const columns = [
         {
-            title: 'Waktu', dataIndex: 'timestamp', key: 'timestamp',
-            render: timestampFormatter, width: 150, fixed: 'left',
-            sorter: (a, b) => a.timestamp - b.timestamp
-        },
-        { title: 'Judul Buku', dataIndex: 'judul', key: 'judul', width: 250, fixed: 'left' },
-        { title: 'Kode', dataIndex: 'kode_buku', key: 'kode_buku', width: 120 },
-        { 
-            title: 'Masuk', dataIndex: 'perubahan', key: 'perubahan',
-            align: 'right', width: 100,
-            render: (val) => <Tag color="green">+{numberFormatter(val)}</Tag>
+            title: 'Waktu', 
+            dataIndex: 'tanggal', 
+            key: 'tanggal',
+            render: (val) => timestampFormatter(val),
+            width: 140,
+            fixed: 'left',
+            sorter: (a, b) => (a.tanggal || 0) - (b.tanggal || 0),
+            defaultSortOrder: 'descend',
         },
         { 
-            title: 'Awal', dataIndex: 'stokSebelum', key: 'stokSebelum', 
-            align: 'right', width: 90, render: numberFormatter 
+            title: 'Ref ID', 
+            dataIndex: 'refId', 
+            key: 'refId', 
+            width: 140,
+            render: (text) => text ? <Tag color="geekblue" style={{ marginRight: 0 }}>{text}</Tag> : '-'
         },
         { 
-            title: 'Akhir', dataIndex: 'stokSesudah', key: 'stokSesudah', 
-            align: 'right', width: 90, render: (val) => <Text strong>{numberFormatter(val)}</Text>
+            title: 'Kode Buku', 
+            dataIndex: 'bukuId', 
+            key: 'bukuId', 
+            width: 100,
+            render: (text) => <Text code>{text}</Text>
         },
         { 
-            title: 'Keterangan', dataIndex: 'keterangan', key: 'keterangan', width: 250,
-            // Tidak ada lagi logika warna abu-abu (clean)
+            title: 'Judul Buku', 
+            dataIndex: 'judul', 
+            key: 'judul', 
+            width: 250, 
         },
         {
-            title: 'Aksi', key: 'aksi', width: 100, fixed: 'right', align: 'center',
+            title: 'Oleh', 
+            dataIndex: 'nama',
+            key: 'nama',
+            width: 110,
+            render: (text) => (
+                <Space size={4}>
+                    <UserOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
+                    <Text className="text-xs">{text || '-'}</Text>
+                </Space>
+            )
+        },
+        { 
+            title: 'Awal', 
+            dataIndex: 'stokAwal', 
+            key: 'stokAwal', 
+            align: 'right', 
+            width: 80, 
+            render: numberFormatter 
+        },
+        {
+            title: 'Perubahan', 
+            dataIndex: 'perubahan', 
+            key: 'perubahan',
+            align: 'right', 
+            width: 100,
+            render: (val) => {
+                const num = Number(val); 
+                const color = num > 0 ? '#52c41a' : (num < 0 ? '#f5222d' : '#8c8c8c');
+                const prefix = num > 0 ? '+' : '';
+                return (
+                    <Text strong style={{ color: color }}>
+                        {prefix}{numberFormatter(val)} 
+                    </Text>
+                )
+            },
+            sorter: (a, b) => (a.perubahan || 0) - (b.perubahan || 0),
+        },
+        { 
+            title: 'Akhir', 
+            dataIndex: 'stokAkhir', 
+            key: 'stokAkhir', 
+            align: 'right', 
+            width: 80, 
+            render: numberFormatter 
+        },
+        { 
+            title: 'Keterangan', 
+            dataIndex: 'keterangan', 
+            key: 'keterangan', 
+            width: 200,
+            render: (text) => <span style={{ color: '#595959' }}>{text}</span>
+        },
+        {
+            title: 'Aksi', 
+            key: 'aksi', 
+            width: 100, 
+            fixed: 'right', 
+            align: 'center',
             render: (_, record) => (
                 <Space>
                     <Button 
@@ -301,7 +369,7 @@ const StokHistoryTabRestock = () => {
                     loading={loadingHistory}
                     rowKey="id"
                     size="small"
-                    scroll={{ x: 1000, y: 500 }}
+                    scroll={{ x: 1300, y: 500 }}
                     pagination={{ defaultPageSize: 20 }}
                 />
             </Card>

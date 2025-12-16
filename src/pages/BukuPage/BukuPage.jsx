@@ -98,7 +98,7 @@ const BukuPage = () => {
         const lowerSearch = deferredDebouncedSearchText.toLowerCase();
         return processedData.filter(buku =>
             (buku.judul || '').toLowerCase().includes(lowerSearch) ||
-            (buku.kode_buku || '').toLowerCase().includes(lowerSearch) ||
+            (buku.id || '').toLowerCase().includes(lowerSearch) ||
             (buku.penerbit || '').toLowerCase().includes(lowerSearch) ||
             (buku.mapel || '').toLowerCase().includes(lowerSearch)
         );
@@ -141,7 +141,7 @@ const BukuPage = () => {
         }
         const { totalStok, totalAsset, totalAssetNet } = dataForTable.reduce((acc, item) => {
             const stok = Number(item.stok) || 0;
-            const harga = Number(item.hargaJual) || 0;
+            const harga = Number(item.harga) || 0;
             const diskon = Number(item.diskonJual) || 0;
             let hargaNet = harga * (1 - (diskon > 0 ? diskon / 100 : 0));
 
@@ -209,8 +209,8 @@ const BukuPage = () => {
 
     // Columns
     const columns = useMemo(() => [
-        { title: 'Kode Buku', dataIndex: 'kode_buku', key: 'kode_buku', width: 130, sorter: (a, b) => (Number(a.kode_buku) || 0) - (Number(b.kode_buku) || 0) },
-        { title: 'Judul Buku', dataIndex: 'judul', key: 'judul', width: 300, sorter: (a, b) => (a.judul || '').localeCompare(b.judul || '') },
+        { title: 'Kode Buku', dataIndex: 'id', key: 'id', width: 130, sorter: (a, b) => (Number(a.id) || 0) - (Number(b.id) || 0) },
+        { title: 'Judul Buku', dataIndex: 'nama', key: 'nama', width: 300, sorter: (a, b) => (a.judul || '').localeCompare(b.judul || '') },
         { title: 'Penerbit', dataIndex: 'penerbit', key: 'penerbit', width: 150, filters: penerbitFilters, filteredValue: columnFilters.penerbit || null, onFilter: (v, r) => r.penerbit === v, sorter: (a, b) => (a.penerbit || '').localeCompare(b.penerbit || '') },
         
         { 
@@ -225,7 +225,7 @@ const BukuPage = () => {
         },
 
         { title: 'Stok', dataIndex: 'stok', key: 'stok', align: 'right', width: 100, render: numberFormatter, sorter: (a, b) => (Number(a.stok) || 0) - (Number(b.stok) || 0) },
-        { title: 'Hrg. Z1', dataIndex: 'hargaJual', key: 'hargaJual', align: 'right', width: 150, render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', sorter: (a, b) => (Number(a.hargaJual) || 0) - (Number(b.hargaJual) || 0) },
+        { title: 'Hrg', dataIndex: 'harga', key: 'harga', align: 'right', width: 150, render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', sorter: (a, b) => (Number(a.harga) || 0) - (Number(b.harga) || 0) },
         { title: 'Kelas', dataIndex: 'kelas', key: 'kelas', width: 100, align: 'center', filters: kelasFilters, filteredValue: columnFilters.kelas || null, sorter: (a, b) => String(a.kelas || '').localeCompare(String(b.kelas || ''), undefined, { numeric: true }) },
         { title: 'Tahun', dataIndex: 'tahunTerbit', key: 'tahunTerbit', width: 100, align: 'center', render: (v) => v || '-', filters: tahunTerbitFilters, filteredValue: columnFilters.tahunTerbit || null, sorter: (a, b) => (Number(a.tahunTerbit) || 0) - (Number(b.tahunTerbit) || 0) },
         { title: 'Aksi', key: 'aksi', align: 'center', width: 100, fixed: screens.md ? 'right' : false, render: (_, record) => (<BukuActionButtons record={record} onEdit={handleEdit} onRestock={handleTambahStok} />) },
