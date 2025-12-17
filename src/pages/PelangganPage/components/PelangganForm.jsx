@@ -1,8 +1,8 @@
 // src/pages/pelanggan/components/PelangganForm.jsx
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Button, message, Spin, Space } from 'antd';
+import { Modal, Form, Input, Button, message, Spin, Space, InputNumber } from 'antd';
 import { db } from '../../../api/firebase';
-import { ref, set } from 'firebase/database'; // Kita pakai set() saja cukup
+import { ref, set } from 'firebase/database';
 
 export default function PelangganForm({
     open,
@@ -20,9 +20,13 @@ export default function PelangganForm({
             form.setFieldsValue({
                 nama: initialData.nama || '',
                 telepon: initialData.telepon || '',
+                // Set nilai awal (default 0 jika tidak ada)
+                saldoAwal: initialData.saldoAwal || 0, 
             });
         } else {
             form.resetFields();
+            // Default saldo awal 0 untuk data baru
+            form.setFieldsValue({ saldoAwal: 0 }); 
         }
     }, [initialData, form, isEditMode, open]);
 
@@ -33,13 +37,14 @@ export default function PelangganForm({
         try {
             // 1. Normalisasi Data
             const namaRaw = values.nama || '';
-            const namaClean = namaRaw.trim().toUpperCase(); // Pastikan UPPERCASE
+            const namaClean = namaRaw.trim().toUpperCase();
             const teleponClean = values.telepon?.trim() || '';
+            // Pastikan saldoAwal menjadi angka (float/int)
+            const saldoAwalVal = parseFloat(values.saldoAwal) || 0; 
 
             if (!namaClean) throw new Error("Nama pelanggan tidak boleh kosong.");
 
-            // 2. Cek Duplikat (Validasi nama/telepon yang sama agar tidak double input)
-            // Mengecualikan diri sendiri jika sedang mode edit
+            // 2. Cek Duplikat
             const duplicateExists = pelangganList?.some(p =>
                 (p.nama?.toUpperCase() === namaClean || (teleponClean && p.telepon === teleponClean)) &&
                 (!isEditMode || p.id !== initialData.id)
@@ -54,37 +59,32 @@ export default function PelangganForm({
             let createdAt;
 
             if (isEditMode) {
-                // Jika edit, pakai ID lama & tanggal buat lama
                 customerId = initialData.id;
                 createdAt = initialData.createdAt || Date.now();
             } else {
-                // Jika baru, Buat ID Custom: CST + NAMA + UNIQUE
-                
-                // Hapus spasi/simbol dari nama untuk ID (misal: "CV. ABADI" -> "CVABADI")
                 const nameForId = namaClean.replace(/[^a-zA-Z0-9]/g, ""); 
-                // Generate string unik pendek dari timestamp (base36)
                 const uniquePart = Date.now().toString(36).toUpperCase();
-                
                 customerId = `CST${nameForId}${uniquePart}`;
                 createdAt = Date.now();
             }
 
             // 4. Payload Data
             const dataToSave = {
-                id: customerId, // Simpan ID di dalam object juga (best practice)
+                id: customerId,
                 nama: namaClean,
                 telepon: teleponClean,
+                saldoAwal: saldoAwalVal, // SIMPAN DI SINI
                 createdAt: createdAt,
                 updatedAt: Date.now()
             };
 
-            // 5. Simpan ke Firebase (Path: customers/{id})
+            // 5. Simpan ke Firebase
             await set(ref(db, `customers/${customerId}`), dataToSave);
 
             message.success({ content: isEditMode ? 'Data diperbarui' : 'Customer berhasil ditambahkan', key: 'save_pelanggan' });
             
             form.resetFields();
-            onSuccess(); // Tutup modal & refresh parent jika perlu
+            onSuccess();
 
         } catch (error) {
             console.error("Error saving pelanggan:", error);
@@ -96,7 +96,7 @@ export default function PelangganForm({
 
     return (
         <Modal
-style={{ top: 20 }}
+            style={{ top: 20 }}
             title={isEditMode ? 'Edit Customer' : 'Tambah Customer Baru'}
             open={open}
             onCancel={onCancel}
@@ -113,7 +113,6 @@ style={{ top: 20 }}
                     <Form.Item
                         name="nama"
                         label="Nama Customer"
-                        // Auto Uppercase saat diketik
                         normalize={(value) => (value || '').toUpperCase()} 
                         rules={[
                             { required: true, message: 'Nama wajib diisi' },
@@ -127,10 +126,26 @@ style={{ top: 20 }}
                         name="telepon"
                         label="Nomor Telepon"
                         rules={[
-                            { pattern: /^[0-9+-\s()]*$/, message: 'Format telepon tidak valid (hanya angka & simbol)' }
+                            { pattern: /^[0-9+-\s()]*$/, message: 'Format telepon tidak valid' }
                         ]}
                     >
                         <Input placeholder="Contoh: 08123456789" />
+                    </Form.Item>
+
+                    {/* FIELD SALDO AWAL */}
+                    <Form.Item
+                        name="saldoAwal"
+                        label="Saldo Awal (Migrasi)"
+                        tooltip="Gunakan tanda minus (-) jika Saldo Awal adalah Hutang/Minus. Gunakan positif jika Deposit."
+                    >
+                        <InputNumber
+                            style={{ width: '100%' }}
+                            placeholder="0"
+                            // Formatter: Menambah Rp dan titik ribuan
+                            formatter={(value) => `Rp ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+                            // Parser: Mengembalikan format Rp ke angka murni agar bisa disimpan
+                            parser={(value) => value.replace(/\Rp\s?|(\.*)/g, '')}
+                        />
                     </Form.Item>
 
                     <div style={{ textAlign: 'right', marginTop: 24 }}>

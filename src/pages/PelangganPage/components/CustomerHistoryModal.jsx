@@ -23,6 +23,9 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const [loading, setLoading] = useState(false);
     const [rawData, setRawData] = useState([]);
     
+    // --- 1. STATE BARU: Untuk menyimpan Saldo Awal (Migrasi) ---
+    const [initialMigration, setInitialMigration] = useState(0);
+
     // State Filter & Search
     const [dateRange, setDateRange] = useState([null, null]);
     const [searchText, setSearchText] = useState('');
@@ -46,6 +49,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             fetchAllTransactionStreams(safeId);
         } else {
             setRawData([]);
+            setInitialMigration(0); 
             setSearchText('');
             setDateRange([null, null]);
             setPrintableData([]);
@@ -55,14 +59,14 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const fetchAllTransactionStreams = async (customerId) => {
         setLoading(true);
         try {
-            // 1. Definisikan referensi database
+            // Definisikan referensi database
             const invoicesRef = query(ref(db, 'invoices'), orderByChild('customerId'), equalTo(customerId));
             const paymentsRef = query(ref(db, 'payments'), orderByChild('customerId'), equalTo(customerId));
             const nonFakturRef = query(ref(db, 'non_faktur'), orderByChild('customerId'), equalTo(customerId));
             const returnsRef = query(ref(db, 'returns'), orderByChild('customerId'), equalTo(customerId));
             const customerRef = ref(db, `customers/${customerId}`);
 
-            // 2. Fetch semua secara paralel
+            // Fetch semua secara paralel
             const [invSnap, paySnap, nfSnap, retSnap, custSnap] = await Promise.all([
                 get(invoicesRef), 
                 get(paymentsRef), 
@@ -73,45 +77,34 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
 
             let mergedData = [];
 
-            // --- A. PROSES SALDO AWAL (MIGRASI) ---
+            // --- 2. PROSES MIGRASI (AMBIL APA ADANYA / MINUS) ---
             if (custSnap.exists()) {
                 const custData = custSnap.val();
-                const saldoAwal = parseFloat(custData.saldoAwal) || 0;
-
-                if (saldoAwal !== 0) {
-                    mergedData.push({
-                        key: 'MIGRASI_SALDO_AWAL',
-                        id: 'MIGRASI',
-                        type: 'MIGRASI',
-                        keterangan: 'Migrasi Mas Steve',
-                        amount: Math.abs(saldoAwal),
-                        isDebit: true, 
-                        date: new Date('2018-01-01').getTime() 
-                    });
-                }
+                // PERBAIKAN: Hapus Math.abs, biarkan nilai minus tetap minus
+                const saldoAwalDB = parseFloat(custData.saldoAwal) || 0;
+                setInitialMigration(saldoAwalDB);
+            } else {
+                setInitialMigration(0);
             }
 
-            // --- B. PROSES DATA LAINNYA ---
+            // --- PROSES DATA TRANSAKSI LAINNYA ---
             
-            // 1. INVOICES
+            // A. INVOICES
             if (invSnap.exists()) {
                 const val = invSnap.val();
                 Object.keys(val).forEach(key => {
                     const item = val[key];
                     const bruto = parseFloat(item.totalBruto) || 0;
                     const biayaLain = parseFloat(item.totalBiayaLain) || 0;
-                    const diskon = parseFloat(item.totalDiskon) || 0;
                     
-                    // KOREKSI RUMUS DI SINI:
-                    // Total = Bruto + Biaya Lain - Diskon
-                    const totalInvoice = bruto + biayaLain - diskon;
+                    const totalInvoice = bruto + biayaLain - parseFloat(item.totalDiskon || 0);
 
                     mergedData.push({
                         ...item,
                         key: key,
                         type: 'INVOICE',
                         amount: totalInvoice,
-                        isDebit: true, 
+                        isDebit: true, // Debit = Invoice (Mengurangi Saldo/Menambah Hutang)
                         date: item.tanggal
                     });
                 });
@@ -151,15 +144,17 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     };
 
-    // --- LOGIC CALCULATION ---
+    // --- LOGIC CALCULATION (useMemo) ---
     const processedData = useMemo(() => {
         const allDataAsc = [...rawData].sort((a, b) => a.date - b.date);
 
         let startFilter = dateRange?.[0] ? dateRange[0].startOf('day').valueOf() : 0;
         let endFilter = dateRange?.[1] ? dateRange[1].endOf('day').valueOf() : Infinity;
 
-        let runningBalance = 0;
-        let openingBalance = 0;
+        // --- 3. MENERAPKAN SALDO AWAL (MIGRASI) ---
+        // Mulai dari saldo migrasi (yang sekarang bisa minus)
+        let runningBalance = initialMigration; 
+        let openingBalance = initialMigration; 
         
         let displayList = [];
         let totalDebitRange = 0;
@@ -168,12 +163,16 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         allDataAsc.forEach(item => {
             const amount = item.amount;
             
+            // PERBAIKAN LOGIKA LOOP:
+            // Jika Invoice (Debit), maka Saldo Berkurang (Makin Minus/Hutang Nambah)
+            // Jika Bayar (Kredit), maka Saldo Bertambah (Makin Positif/Lunas)
             if (item.isDebit) {
-                runningBalance += amount;
+                runningBalance -= amount; 
             } else {
-                runningBalance -= amount;
+                runningBalance += amount;
             }
 
+            // Cek Filter Tanggal
             if (item.date < startFilter) {
                 openingBalance = runningBalance;
             } else if (item.date <= endFilter) {
@@ -194,19 +193,22 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             }
         });
 
-        // Tentukan Status Saldo Akhir
+        // Tentukan Status Saldo Akhir (LOGIKA DIBALIK)
+        // Minus = Hutang
+        // Plus = Deposit
         let status = 'LUNAS';
         let statusColor = 'blue';
-        if (runningBalance > 0) {
+        
+        if (runningBalance < 0) {
             status = 'HUTANG';
             statusColor = '#cf1322'; // Merah
-        } else if (runningBalance < 0) {
+        } else if (runningBalance > 0) {
             status = 'DEPOSIT';
             statusColor = '#3f8600'; // Hijau
         }
 
         return {
-            list: displayList.reverse(),
+            list: displayList.reverse(), 
             openingBalance,
             totalDebitRange,
             totalCreditRange,
@@ -215,7 +217,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             statusColor
         };
 
-    }, [rawData, dateRange, searchText]);
+    }, [rawData, dateRange, searchText, initialMigration]); 
 
     useEffect(() => {
         setPrintableData(processedData.list);
@@ -240,7 +242,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 <td>${item.keterangan || ''}</td>
                 <td class="text-right" style="color: green">${!item.isDebit ? '+ ' + formatRupiah(item.amount) : '-'}</td>
                 <td class="text-right" style="color: red">${item.isDebit ? '- ' + formatRupiah(item.amount) : '-'}</td>
-                <td class="text-right">${formatRupiah(item.balance)}</td>
+                <td class="text-right" style="font-weight: bold; color: ${item.balance < 0 ? 'red' : 'green'}">${formatRupiah(item.balance)}</td>
             </tr>
         `).join('');
 
@@ -287,13 +289,13 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             <div class="summary-box">
                 <table style="width: 100%">
                     <tr>
-                        <td>Saldo Awal: <strong>${formatRupiah(processedData.openingBalance)}</strong></td>
+                        <td>Saldo Awal: <strong style="color: ${processedData.openingBalance < 0 ? 'red' : 'green'}">${formatRupiah(processedData.openingBalance)}</strong></td>
                         <td class="text-right">
                             Status Akhir: 
                             <span style="color: ${processedData.statusColor}; font-size: 16px; font-weight: bold; border: 1px solid ${processedData.statusColor}; padding: 2px 8px; border-radius: 4px;">
                                 ${processedData.status}
                             </span>
-                             &nbsp; <strong>${formatRupiah(processedData.finalBalance)}</strong>
+                             &nbsp; <strong style="color: ${processedData.statusColor}">${formatRupiah(processedData.finalBalance)}</strong>
                         </td>
                     </tr>
                 </table>
@@ -425,7 +427,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             width: 140,
             sorter: (a, b) => a.balance - b.balance,
             render: (val) => (
-                <span style={{ fontWeight: 'bold', color: val > 0 ? '#cf1322' : '#3f8600' }}>
+                <span style={{ fontWeight: 'bold', color: val < 0 ? '#cf1322' : '#3f8600' }}>
                     {formatRupiah(val)}
                 </span>
             )
@@ -455,7 +457,12 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                             <Statistic 
                                 title="Saldo Awal" 
                                 value={processedData.openingBalance} 
-                                valueStyle={{ fontSize: '16px', fontWeight: 'bold' }} 
+                                valueStyle={{ 
+                                    fontSize: '16px', 
+                                    fontWeight: 'bold',
+                                    // Merah jika minus (Hutang), Hijau jika plus (Deposit)
+                                    color: processedData.openingBalance < 0 ? '#cf1322' : '#3f8600'
+                                }} 
                                 formatter={(val) => formatRupiah(val)}
                             />
                         </Card>

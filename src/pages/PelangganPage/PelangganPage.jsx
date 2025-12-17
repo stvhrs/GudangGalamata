@@ -112,6 +112,7 @@ export default function PelangganPage() {
     }, []);
 
     // --- COLUMNS ---
+// --- COLUMNS ---
     const columns = useMemo(() => [
         {
             title: 'No.',
@@ -133,6 +134,34 @@ export default function PelangganPage() {
             width: 150,
             render: (tel) => tel || '-',
         },
+        // --- UPDATE KOLOM SALDO AWAL ---
+        {
+            title: 'Saldo Awal',
+            dataIndex: 'saldoAwal',
+            key: 'saldoAwal',
+            width: 150,
+            align: 'right',
+            // LOGIKA SORTING:
+            // Mengubah nilai menjadi float (jika string), default 0 jika null/undefined
+            // Lalu dikurangi (a - b) untuk sort ascending/descending angka
+            sorter: (a, b) => (parseFloat(a.saldoAwal) || 0) - (parseFloat(b.saldoAwal) || 0),
+            render: (val) => {
+                // Opsional: Beri warna merah jika minus (hutang)
+                const isNegative = (val || 0) < 0;
+                const formatted = new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    minimumFractionDigits: 0
+                }).format(val || 0);
+
+                return (
+                    <span style={{ color: isNegative ? '#cf1322' : 'inherit', fontWeight: isNegative ? 'bold' : 'normal' }}>
+                        {formatted}
+                    </span>
+                );
+            }
+        },
+        // -------------------------------
         {
             title: 'Aksi',
             key: 'aksi',
@@ -162,7 +191,6 @@ export default function PelangganPage() {
             ),
         },
     ], [pagination, handleDelete, handleOpenHistory]);
-
     return (
         <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
             <Content style={{ padding: '24px' }}>
