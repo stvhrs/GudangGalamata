@@ -391,7 +391,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             title: 'Kredit (+)',
             key: 'credit',
             align: 'right',
-            width: 130,
+            width: 150,
             sorter: (a, b) => {
                 const valA = !a.isDebit ? a.amount : 0;
                 const valB = !b.isDebit ? b.amount : 0;
@@ -407,7 +407,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             title: 'Debit (-)',
             key: 'debit',
             align: 'right',
-            width: 130,
+            width: 150,
             sorter: (a, b) => {
                 const valA = a.isDebit ? a.amount : 0;
                 const valB = b.isDebit ? b.amount : 0;
@@ -445,7 +445,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 }
                 open={open}
                 onCancel={onCancel}
-                width={1100}
+                width={1400}
                 footer={null}
                 style={{ top: 20 }}
                 bodyStyle={{ padding: '16px 24px' }}
