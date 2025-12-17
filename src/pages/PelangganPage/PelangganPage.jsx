@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useDeferredValue } from 'react';
 import {
-    Layout, Card, Table, Button, Input, Space, message, Popconfirm, Tooltip
+    Layout, Card, Table, Button, Input, Space, message, Popconfirm, Tooltip, Spin
 } from 'antd';
 import { DeleteOutlined, HistoryOutlined, UserAddOutlined } from '@ant-design/icons';
 import { ref, remove } from 'firebase/database';
@@ -19,7 +19,16 @@ export default function PelangganPage() {
 
     // --- SETUP SEARCH & PAGINATION ---
     const [searchText, setSearchText] = useState('');
-    const debouncedSearchText = useDebounce(searchText, 500);
+    
+    // 1. Debounce (Menunggu user berhenti mengetik sebentar)
+    const debouncedSearchText = useDebounce(searchText, 300); // 300ms cukup responsif
+
+    // 2. [OPTIMASI] Deferred Value (Prioritas rendah untuk filtering)
+    const deferredDebouncedSearchText = useDeferredValue(debouncedSearchText);
+
+    // 3. [OPTIMASI] Deteksi Status Filtering (Untuk trigger spinner loading)
+    // Jika debounce beda dengan deferred, berarti React sedang memproses background
+    const isFiltering = debouncedSearchText !== deferredDebouncedSearchText;
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPelanggan, setEditingPelanggan] = useState(null);
@@ -36,18 +45,24 @@ export default function PelangganPage() {
         showTotal: (total, range) => `${range[0]}-${range[1]} dari ${total} pelanggan`
     });
 
-    // --- FILTERING ---
+    // --- FILTERING (LOGIC BERAT) ---
     const filteredPelanggan = useMemo(() => {
+        // [OPTIMASI] Gunakan deferredDebouncedSearchText, bukan debouncedSearchText langsung
+        // Ini agar UI tidak 'freeze' saat filtering ribuan data
         let data = pelangganList || [];
-        if (debouncedSearchText) {
-            const query = debouncedSearchText.toLowerCase();
+        
+        // Sorting default (opsional, agar data rapi)
+        data.sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+
+        if (deferredDebouncedSearchText) {
+            const query = deferredDebouncedSearchText.toLowerCase();
             data = data.filter(p =>
                 (p.nama && p.nama.toLowerCase().includes(query)) ||
                 (p.telepon && p.telepon.includes(query))
             );
         }
         return data;
-    }, [pelangganList, debouncedSearchText]);
+    }, [pelangganList, deferredDebouncedSearchText]); // Dependency diganti ke deferred
 
     // --- HANDLERS ---
     const handleSearchChange = useCallback((e) => {
@@ -86,7 +101,6 @@ export default function PelangganPage() {
     }, []);
 
     const handleOpenHistory = useCallback((pelanggan) => {
-        // Debugging: Cek ID yang dikirim
         console.log("Membuka history untuk:", pelanggan);
         setSelectedHistoryCustomer(pelanggan);
         setIsHistoryModalOpen(true);
@@ -171,17 +185,20 @@ export default function PelangganPage() {
                         />
                     </div>
 
-                    <Table
-                        columns={columns}
-                        dataSource={filteredPelanggan}
-                        rowKey="id"
-                        loading={loadingPelanggan}
-                        pagination={pagination}
-                        onChange={handleTableChange}
-                        size="middle"
-                        bordered
-                        style={{ background: '#fff', borderRadius: 8 }}
-                    />
+                    {/* [OPTIMASI] Bungkus Table dengan Spin + logika isFiltering */}
+                    <Spin spinning={loadingPelanggan || isFiltering} tip="Memproses data...">
+                        <Table
+                            columns={columns}
+                            dataSource={filteredPelanggan}
+                            rowKey="id"
+                            // loading prop di Table dimatikan, diganti Spin di luar agar lebih jelas
+                            pagination={pagination}
+                            onChange={handleTableChange}
+                            size="middle"
+                            bordered
+                            style={{ background: '#fff', borderRadius: 8 }}
+                        />
+                    </Spin>
                 </Card>
 
                 <PelangganForm
