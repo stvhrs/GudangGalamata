@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
     Layout, Card, Table, Button, Input, Space, Typography,
-    Row, Col, message, Tooltip, DatePicker, Tag
+    Row, Col, message, Tooltip, DatePicker, Tag, Spin
 } from 'antd';
 import {
     PlusOutlined, EditOutlined,
@@ -57,13 +57,24 @@ const NonFakturPage = () => {
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
     const [pdfFileName, setPdfFileName] = useState('');
 
-    // --- HOOKS ---
-    const debouncedSearchText = useDebounce(searchText, 300);
+    // --- [OPTIMASI 1] HOOKS & DEBOUNCE ---
+    // Gunakan 800ms agar lebih ringan
+    const debouncedSearchText = useDebounce(searchText, 800);
+    
+    // [OPTIMASI 2] Deferred Value
+    // React memproses filtering di background (low priority)
     const deferredSearch = useDeferredValue(debouncedSearchText);
-    const isSearching = searchText !== debouncedSearchText;
+    
+    // [OPTIMASI 3] Deteksi Background Processing
+    // Jika input user beda dengan hasil deferred, berarti sedang loading filter
+    const isProcessing = debouncedSearchText !== deferredSearch;
+
+    // Gabungkan status loading (Fetch Data + Filter Data)
+    const isLoading = loadingNonFaktur || isProcessing;
 
     // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
+        // Gunakan deferredSearch agar UI utama tidak freeze
         let data = [...(nonFakturList || [])];
 
         if (deferredSearch) {
@@ -100,10 +111,10 @@ const NonFakturPage = () => {
     const handlePrintTransaction = async (record) => {
         setPrintingId(record.id); // Loading button start
         
-        // Gunakan timeout kecil agar UI sempat update status loading
+        // Gunakan timeout kecil agar UI sempat update status loading icon
         setTimeout(() => {
             try {
-                // Tidak perlu fetch allocation karena data tunggal
+                // Tidak perlu fetch allocation karena data tunggal (Non Faktur)
                 const pdfData = generateNotaNonFakturPDF(record);
                 
                 setPdfPreviewUrl(pdfData);
@@ -146,7 +157,7 @@ const NonFakturPage = () => {
         },
         {
             title: "Nama Customer",
-            dataIndex: 'namaCustomer', // Variable sesuai JSON
+            dataIndex: 'namaCustomer', 
             key: 'namaCustomer',
             width: 200,
             render: (text) => <Text strong>{text || 'Umum'}</Text>,
@@ -161,7 +172,7 @@ const NonFakturPage = () => {
         },
         {
             title: "Total Bayar",
-            dataIndex: 'totalBayar', // Variable sesuai JSON
+            dataIndex: 'totalBayar', 
             key: 'totalBayar',
             align: 'right',
             width: 150,
@@ -210,7 +221,8 @@ const NonFakturPage = () => {
                         />
                         <Input
                             placeholder="Cari VF, Customer..."
-                            suffix={isSearching ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
+                            // Visual feedback untuk debounce input
+                            suffix={searchText !== debouncedSearchText ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
                             style={{ width: 200 }}
                             onChange={(e) => setSearchText(e.target.value)}
                             allowClear
@@ -221,19 +233,23 @@ const NonFakturPage = () => {
                     </Col>
                 </Row>
 
-                <Table
-                    columns={columns}
-                    dataSource={filteredData}
-                    loading={loadingNonFaktur}
-                    rowKey="id"
-                    size="middle"
-                    scroll={{ x: 1000 }}
-                    pagination={{
-                        defaultPageSize: 10,
-                        showTotal: (total) => `Total ${total} Data`,
-                        showSizeChanger: true
-                    }}
-                />
+                {/* [OPTIMASI 4] Bungkus Table dengan Spin & isLoading gabungan */}
+                <Spin spinning={isLoading} tip="Memproses data..." size="large" style={{ minHeight: 200 }}>
+                    <Table
+                        columns={columns}
+                        dataSource={filteredData}
+                        // Matikan loading internal table agar tidak bentrok dengan Spin luar
+                        loading={false}
+                        rowKey="id"
+                        size="middle"
+                        scroll={{ x: 1000 }}
+                        pagination={{
+                            defaultPageSize: 10,
+                            showTotal: (total) => `Total ${total} Data`,
+                            showSizeChanger: true
+                        }}
+                    />
+                </Spin>
             </Card>
 
             {isModalOpen && (

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
     Layout, Card, Table, Button, Input, Space, Typography,
-    Row, Col, message, Tooltip, Tag
+    Row, Col, message, Tooltip, Tag, Spin
 } from 'antd';
 import {
     PlusOutlined, EditOutlined,
@@ -11,7 +11,7 @@ import dayjs from 'dayjs';
 import 'dayjs/locale/id';
 
 // --- FIREBASE IMPORTS (Realtime Database) ---
-import { db } from '../../api/firebase'; // Pastikan path ini benar
+import { db } from '../../api/firebase'; 
 import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 
 // UTILS & HOOKS
@@ -50,7 +50,6 @@ const PembayaranPage = () => {
     const [printingId, setPrintingId] = useState(null); // State loading khusus print
     
     // --- DATA FETCHING (HEADER ONLY) ---
-    // List ini hanya memuat data 'payments' (Header), belum termasuk detail item
     const { pembayaranList = [], loadingPembayaran = true } = usePembayaranStream(dateRange);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -59,13 +58,24 @@ const PembayaranPage = () => {
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
     const [pdfFileName, setPdfFileName] = useState('');
 
-    // --- HOOKS ---
-    const debouncedSearchText = useDebounce(searchText, 300);
+    // --- [OPTIMASI 1] HOOKS & DEBOUNCE ---
+    // Ubah debounce ke 800ms agar lebih santai saat mengetik
+    const debouncedSearchText = useDebounce(searchText, 800);
+    
+    // [OPTIMASI 2] Deferred Value
+    // React akan memproses ini di background (prioritas rendah)
     const deferredSearch = useDeferredValue(debouncedSearchText);
-    const isSearching = searchText !== debouncedSearchText;
+    
+    // [OPTIMASI 3] Deteksi Background Processing
+    // Jika input user (debounced) beda dengan hasil proses (deferred), berarti sedang loading
+    const isProcessing = debouncedSearchText !== deferredSearch;
+
+    // Gabungkan status loading
+    const isLoading = loadingPembayaran || isProcessing;
 
     // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
+        // Gunakan deferredSearch di sini agar UI tidak freeze
         let data = [...(pembayaranList || [])];
 
         if (deferredSearch) {
@@ -92,23 +102,16 @@ const PembayaranPage = () => {
         setTimeout(() => setEditingPembayaran(null), 300);
     };
 
-    // --- PRINT HANDLER (FETCH DETAIL DULU) ---
+    // --- PRINT HANDLER ---
     const handlePrintTransaction = async (record) => {
-        setPrintingId(record.id); // Aktifkan loading spinner di tombol
+        setPrintingId(record.id); 
         
         try {
             const allocations = [];
-
-            // 1. Buat referensi ke tabel 'payment_allocations' di Realtime Database
             const allocRef = ref(db, 'payment_allocations');
-            
-            // 2. Query cari data yang punya 'paymentId' sama dengan ID record ini
             const q = query(allocRef, orderByChild('paymentId'), equalTo(record.id));
-            
-            // 3. Eksekusi Fetch (Ambil Data)
             const snapshot = await get(q);
 
-            // 4. Parsing hasil data snapshot ke array
             if (snapshot.exists()) {
                 snapshot.forEach((childSnapshot) => {
                     allocations.push({
@@ -118,10 +121,7 @@ const PembayaranPage = () => {
                 });
             }
 
-            // 5. Generate PDF dengan data Header (record) + Detail Item (allocations)
             const pdfData = generateNotaPembayaranPDF(record, allocations);
-            
-            // 6. Tampilkan Modal Preview
             setPdfPreviewUrl(pdfData);
             setPdfFileName(`Nota_${record.id}.pdf`);
             setIsPreviewModalVisible(true);
@@ -130,7 +130,7 @@ const PembayaranPage = () => {
             console.error("Gagal generate PDF:", error);
             message.error("Gagal mengambil data detail pembayaran.");
         } finally {
-            setPrintingId(null); // Matikan loading spinner
+            setPrintingId(null);
         }
     };
 
@@ -179,14 +179,6 @@ const PembayaranPage = () => {
             render: (text) => <Text type="secondary" style={{ fontSize: 13 }}>{text || '-'}</Text>,
             sorter: (a, b) => (a.keterangan || '').localeCompare(b.keterangan || ''),
         },
-        // {
-        //     title: "Sumber",
-        //     dataIndex: 'sumber',
-        //     key: 'sumber',
-        //     width: 150,
-        //     render: (text) => <Tag color={text === 'INVOICE_PAYMENT' ? 'blue' : 'cyan'}>{text}</Tag>,
-        //     sorter: (a, b) => (a.sumber || '').localeCompare(b.sumber || ''),
-        // },
         {
             title: "Total Bayar",
             dataIndex: 'totalBayar',
@@ -208,10 +200,9 @@ const PembayaranPage = () => {
                         <Button
                             size="small"
                             type="text"
-                            // Loading indicator aktif hanya pada tombol baris yang diklik
                             icon={printingId === r.id ? <LoadingOutlined /> : <PrinterOutlined />}
                             onClick={() => handlePrintTransaction(r)}
-                            disabled={printingId !== null} // Disable tombol lain saat sedang loading
+                            disabled={printingId !== null} 
                         />
                     </Tooltip>
                     <Tooltip title="Edit">
@@ -239,30 +230,35 @@ const PembayaranPage = () => {
                         />
                         <Input
                             placeholder="Cari Customer, ID, Ket..."
-                            suffix={isSearching ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
+                            // Indikator visual search aktif (saat debounce)
+                            suffix={searchText !== debouncedSearchText ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
                             style={{ width: 220 }}
                             onChange={(e) => setSearchText(e.target.value)}
                             allowClear
                         />
-                        <Button  type="primary" icon={<PlusOutlined />} onClick={handleTambah}style={{ background: '#1caa28ff', borderColor: '#1caa28ff' }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={handleTambah} style={{ background: '#1caa28ff', borderColor: '#1caa28ff' }}>
                             Input Pembayaran
                         </Button>
                     </Col>
                 </Row>
 
-                <Table
-                    columns={columns}
-                    dataSource={filteredData}
-                    loading={loadingPembayaran}
-                    rowKey="id"
-                    size="middle"
-                    scroll={{ x: 1200 }}
-                    pagination={{
-                        defaultPageSize: 10,
-                        showTotal: (total) => `Total ${total} Data`,
-                        showSizeChanger: true
-                    }}
-                />
+                {/* [OPTIMASI 4] Bungkus Table dengan Spin & isLoading gabungan */}
+                <Spin spinning={isLoading} tip="Memproses data..." size="large" style={{ minHeight: 200 }}>
+                    <Table
+                        columns={columns}
+                        dataSource={filteredData}
+                        // Loading bawaan tabel dimatikan, diganti Spin di luar agar lebih jelas
+                        loading={false} 
+                        rowKey="id"
+                        size="middle"
+                        scroll={{ x: 1200 }}
+                        pagination={{
+                            defaultPageSize: 10,
+                            showTotal: (total) => `Total ${total} Data`,
+                            showSizeChanger: true
+                        }}
+                    />
+                </Spin>
             </Card>
 
             {isModalOpen && (

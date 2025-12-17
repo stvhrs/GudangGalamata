@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
     Layout, Card, Table, Button, Input, Space, Typography,
-    Row, Col, message, Tooltip, Tag
+    Row, Col, message, Tooltip, Tag, Spin
 } from 'antd';
 import {
     PlusOutlined, EditOutlined,
@@ -16,13 +16,11 @@ import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 
 // UTILS & HOOKS
 import { currencyFormatter } from '../../utils/formatters';
-// Ganti hook ini sesuai hook Anda untuk mengambil list "returns"
 import { useReturStream, globalRetur } from '../../hooks/useFirebaseData'; 
 import useDebounce from '../../hooks/useDebounce';
 import { generateNotaReturPDF } from '../../utils/notaretur';
 
 // COMPONENTS
-// Ganti sesuai form Retur Anda
 import ReturForm from './components/ReturForm'; 
 import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
 import { DatePicker } from 'antd';
@@ -34,7 +32,7 @@ const { RangePicker } = DatePicker;
 
 // --- STYLING ---
 const styles = {
-    pageContainer: { padding: '24px', backgroundColor: '#fff1f0', minHeight: '100vh' }, // Warna background agak merah utk Retur
+    pageContainer: { padding: '24px', backgroundColor: '#fff1f0', minHeight: '100vh' }, 
     card: { borderRadius: 8, border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', background: '#fff' },
     headerTitle: { fontSize: 16, fontWeight: 600, color: '#cc6804ff' },
 };
@@ -42,7 +40,6 @@ const styles = {
 const ReturPage = () => {
     // --- STATE ---
     const [dateRange, setDateRange] = useState(() => {
-        // Gunakan global state jika ada, atau default tahun ini
         if (globalRetur?.lastDateRange) {
             return globalRetur.lastDateRange;
         }
@@ -50,10 +47,9 @@ const ReturPage = () => {
     });
 
     const [searchText, setSearchText] = useState('');
-    const [printingId, setPrintingId] = useState(null); // Loading print
+    const [printingId, setPrintingId] = useState(null); 
     
     // --- DATA FETCHING (HEADER ONLY) ---
-    // Mengambil data dari node 'returns'
     const { returList = [], loadingRetur = true } = useReturStream(dateRange);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -62,13 +58,24 @@ const ReturPage = () => {
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
     const [pdfFileName, setPdfFileName] = useState('');
 
-    // --- HOOKS ---
-    const debouncedSearchText = useDebounce(searchText, 300);
+    // --- [OPTIMASI 1] HOOKS & DEBOUNCE ---
+    // Ubah debounce ke 800ms agar lebih ringan
+    const debouncedSearchText = useDebounce(searchText, 800);
+    
+    // [OPTIMASI 2] Deferred Value
+    // React akan memproses filtering di background (low priority)
     const deferredSearch = useDeferredValue(debouncedSearchText);
-    const isSearching = searchText !== debouncedSearchText;
+    
+    // [OPTIMASI 3] Deteksi Background Processing
+    // Jika input user (debounced) beda dengan hasil proses (deferred), berarti sedang loading
+    const isProcessing = debouncedSearchText !== deferredSearch;
+
+    // Gabungkan status loading (Fetch Data + Filter Data)
+    const isLoading = loadingRetur || isProcessing;
 
     // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
+        // Gunakan deferredSearch agar UI tidak freeze
         let data = [...(returList || [])];
 
         if (deferredSearch) {
@@ -95,23 +102,16 @@ const ReturPage = () => {
         setTimeout(() => setEditingRetur(null), 300);
     };
 
-    // --- PRINT HANDLER (FETCH DETAIL RETUR) ---
+    // --- PRINT HANDLER ---
     const handlePrintTransaction = async (record) => {
-        setPrintingId(record.id); // Loading Start
+        setPrintingId(record.id); 
         
         try {
             const returItems = [];
-
-            // 1. Ref ke 'return_items'
             const itemsRef = ref(db, 'return_items');
-            
-            // 2. Query cari item yang 'returnId' == record.id
             const q = query(itemsRef, orderByChild('returnId'), equalTo(record.id));
-            
-            // 3. Fetch Data
             const snapshot = await get(q);
 
-            // 4. Parse Data
             if (snapshot.exists()) {
                 snapshot.forEach((childSnapshot) => {
                     returItems.push({
@@ -121,10 +121,7 @@ const ReturPage = () => {
                 });
             }
 
-            // 5. Generate PDF (Header + Items)
             const pdfData = generateNotaReturPDF(record, returItems);
-            
-            // 6. Preview
             setPdfPreviewUrl(pdfData);
             setPdfFileName(`Retur_${record.id}.pdf`);
             setIsPreviewModalVisible(true);
@@ -133,7 +130,7 @@ const ReturPage = () => {
             console.error("Gagal generate PDF Retur:", error);
             message.error("Gagal mengambil detail retur.");
         } finally {
-            setPrintingId(null); // Loading Stop
+            setPrintingId(null); 
         }
     };
 
@@ -209,7 +206,6 @@ const ReturPage = () => {
                         <Button
                             size="small"
                             type="text"
-                            // Icon Loading
                             icon={printingId === r.id ? <LoadingOutlined /> : <PrinterOutlined />}
                             onClick={() => handlePrintTransaction(r)}
                             disabled={printingId !== null} 
@@ -240,7 +236,8 @@ const ReturPage = () => {
                         />
                         <Input
                             placeholder="Cari Customer, ID, Invoice..."
-                            suffix={isSearching ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
+                            // Visual feedback untuk debounce
+                            suffix={searchText !== debouncedSearchText ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
                             style={{ width: 220 }}
                             onChange={(e) => setSearchText(e.target.value)}
                             allowClear
@@ -251,19 +248,23 @@ const ReturPage = () => {
                     </Col>
                 </Row>
 
-                <Table
-                    columns={columns}
-                    dataSource={filteredData}
-                    loading={loadingRetur}
-                    rowKey="id"
-                    size="middle"
-                    scroll={{ x: 1200 }}
-                    pagination={{
-                        defaultPageSize: 10,
-                        showTotal: (total) => `Total ${total} Data`,
-                        showSizeChanger: true
-                    }}
-                />
+                {/* [OPTIMASI 4] Bungkus Table dengan Spin & isLoading gabungan */}
+                <Spin spinning={isLoading} tip="Memproses data retur..." size="large" style={{ minHeight: 200 }}>
+                    <Table
+                        columns={columns}
+                        dataSource={filteredData}
+                        // Loading bawaan Table dimatikan
+                        loading={false} 
+                        rowKey="id"
+                        size="middle"
+                        scroll={{ x: 1200 }}
+                        pagination={{
+                            defaultPageSize: 10,
+                            showTotal: (total) => `Total ${total} Data`,
+                            showSizeChanger: true
+                        }}
+                    />
+                </Spin>
             </Card>
 
             {isModalOpen && (
