@@ -395,7 +395,6 @@ const handleStokUpdate = async (values) => {
     return (
         <>
             <Modal
-style={{ top: 20 }}
                 title={`Kartu Stok: ${buku.id} - ${judulDisplay} -  ${buku.peruntukan}`}
                 open={open}
                 onCancel={onCancel}

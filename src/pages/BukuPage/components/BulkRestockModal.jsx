@@ -193,7 +193,6 @@ style={{ top: 20 }}
       footer={null}
       destroyOnClose
       width={1400} 
-      style={{ top: 20 }}
     >
       <Spin spinning={loading} tip="Menyimpan Data...">
         <Form
