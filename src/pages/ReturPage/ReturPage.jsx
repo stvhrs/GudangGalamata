@@ -43,7 +43,10 @@ const ReturPage = () => {
         if (globalRetur?.lastDateRange) {
             return globalRetur.lastDateRange;
         }
-        return [dayjs().startOf('year'), dayjs().endOf('day')];
+return [
+    dayjs().subtract(6, 'month').startOf('day'),
+    dayjs().endOf('day'),
+];
     });
 
     const [searchText, setSearchText] = useState('');

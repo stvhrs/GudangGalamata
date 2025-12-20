@@ -18,7 +18,7 @@ import '@react-pdf-viewer/core/lib/styles/index.css';
 
 // --- FIREBASE IMPORTS ---
 import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
-import { db } from '../../api/firebase'; 
+import { db } from '../../api/firebase';
 
 import useDebounce from '../../hooks/useDebounce';
 import TransaksiJualForm from './components/TransaksiJualForm';
@@ -46,7 +46,7 @@ const normalizeStatus = (s) => {
     const status = s.toUpperCase();
     if (status === 'LUNAS') return 'LUNAS';
     if (status === 'BELUM') return 'BELUM';
-    return s; 
+    return s;
 };
 
 const chipStyle = { padding: '5px 16px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '6px', lineHeight: '1.5', cursor: 'pointer', userSelect: 'none', transition: 'all 0.3s', fontWeight: 500 };
@@ -57,9 +57,17 @@ export default function TransaksiJualPage() {
     const [isPending, startTransition] = useTransition();
 
     // --- STATE CONFIG ---
-    const defaultStart = useMemo(() => dayjs().startOf('year'), []);
-    const defaultEnd = useMemo(() => dayjs(), []);
-    const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
+ const defaultStart = useMemo(
+    () => dayjs().subtract(6, 'month').startOf('day'),
+    []
+);
+const defaultEnd = useMemo(
+    () => dayjs().endOf('day'),
+    []
+);
+
+const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
+
     const [isAllTime, setIsAllTime] = useState(false);
 
     // --- STATE SENSOR NOMINAL ---
@@ -80,10 +88,10 @@ export default function TransaksiJualPage() {
 
     // --- State UI ---
     const [searchText, setSearchText] = useState('');
-    
+
     // [OPTIMASI 1] Debounce Input
     const debouncedSearchText = useDebounce(searchText, 300);
-    
+
     const [selectedStatus, setSelectedStatus] = useState([]);
 
     const showTotalPagination = useCallback((total, range) => `${range[0]}-${range[1]} dari ${total} transaksi`, []);
@@ -115,13 +123,20 @@ export default function TransaksiJualPage() {
     const isProcessing = (debouncedSearchText !== deferredDebouncedSearch) || (selectedStatus !== deferredSelectedStatus);
 
     const isFilterActive = useMemo(() => {
-        return !!debouncedSearchText || selectedStatus.length > 0 || isAllTime || (!dateRange[0].isSame(defaultStart, 'day'));
-    }, [debouncedSearchText, selectedStatus, isAllTime, dateRange, defaultStart]);
+    return (
+        !!debouncedSearchText ||
+        selectedStatus.length > 0 ||
+        isAllTime ||
+        !dateRange[0].isSame(defaultStart, 'day') ||
+        !dateRange[1].isSame(defaultEnd, 'day')
+    );
+}, [debouncedSearchText, selectedStatus, isAllTime, dateRange, defaultStart, defaultEnd]);
+
 
     const filteredTransaksi = useMemo(() => {
         // Gunakan variabel 'deferred...' di sini agar UI tidak freeze
         let data = [...(deferredAllTransaksi || [])];
-        
+
         // Filter Status
         if (deferredSelectedStatus.length > 0) {
             data = data.filter((tx) => deferredSelectedStatus.includes(normalizeStatus(tx.statusPembayaran)));
@@ -147,7 +162,7 @@ export default function TransaksiJualPage() {
                 bruto: acc.bruto + Number(tx.totalBruto || 0),
                 diskon: acc.diskon + Number(tx.totalDiskon || 0),
                 retur: acc.retur + Number(tx.totalRetur || 0),
-                netto: acc.netto + Number(tx.totalNetto || 0), 
+                netto: acc.netto + Number(tx.totalNetto || 0),
                 bayar: acc.bayar + Number(tx.totalBayar || 0)
             }), { bruto: 0, diskon: 0, retur: 0, netto: 0, bayar: 0 }
         );
@@ -179,10 +194,10 @@ export default function TransaksiJualPage() {
         return (
             <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingRight: '8px' }}>
                 <Tooltip title={showTotals ? "Sembunyikan Nominal" : "Tampilkan Nominal"}>
-                    <Button 
-                        type="text" 
+                    <Button
+                        type="text"
                         shape="circle"
-                        icon={showTotals ? <EyeOutlined /> : <EyeInvisibleOutlined />} 
+                        icon={showTotals ? <EyeOutlined /> : <EyeInvisibleOutlined />}
                         onClick={() => setShowTotals(!showTotals)}
                     />
                 </Tooltip>
@@ -197,7 +212,7 @@ export default function TransaksiJualPage() {
                     {renderValue(footerTotals.totalDiskon, { color: '#faad14' })}
                 </div>
                 {separator}
-                 <div style={{ textAlign: 'right' }}>
+                <div style={{ textAlign: 'right' }}>
                     <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Retur</Text>
                     {renderValue(footerTotals.totalRetur, { color: '#cf1322' })}
                 </div>
@@ -281,8 +296,8 @@ export default function TransaksiJualPage() {
     const handleGenerateNota = async (tx) => {
         message.loading({ content: 'Mengambil data item & Membuat Nota...', key: 'pdfGen' });
         try {
-             const items = await fetchInvoiceItems(tx.id);
-             const fullTxData = { ...tx, items: items };
+            const items = await fetchInvoiceItems(tx.id);
+            const fullTxData = { ...tx, items: items };
             const blob = await fetch(generateNotaPDF(fullTxData)).then(r => r.blob());
             openPdfModal(blob, `Nota-${tx.id}.pdf`);
             message.success({ content: 'Nota Siap', key: 'pdfGen' });
@@ -296,7 +311,7 @@ export default function TransaksiJualPage() {
         setIsTxPdfGenerating(true);
         setTimeout(() => {
             try {
-                const doc = new jsPDF('l', 'mm', 'a4'); 
+                const doc = new jsPDF('l', 'mm', 'a4');
                 const nowStr = dayjs().format('YYYYMMDD_HHmm');
                 const fileName = `Laporan_Transaksi_${nowStr}.pdf`;
 
@@ -338,12 +353,12 @@ export default function TransaksiJualPage() {
                 const finalY = doc.lastAutoTable.finalY + 10;
                 doc.setFontSize(10);
                 doc.setFont("helvetica", "bold");
-                
+
                 doc.text(`Total Transaksi: ${filteredTransaksi.length}`, 14, finalY);
                 doc.text(`Total Bruto: ${formatCurrency(footerTotals.totalBruto)}`, 14, finalY + 5);
                 doc.text(`Total Diskon: ${formatCurrency(footerTotals.totalDiskon)}`, 14, finalY + 10);
                 doc.text(`Total Retur: ${formatCurrency(footerTotals.totalRetur)}`, 14, finalY + 15);
-                
+
                 doc.text(`Total Netto (Tagihan): ${formatCurrency(footerTotals.totalTagihan)}`, 150, finalY + 5);
                 doc.text(`Total Bayar: ${formatCurrency(footerTotals.totalTerbayar)}`, 150, finalY + 10);
                 doc.text(`Total Sisa: ${formatCurrency(footerTotals.totalSisa)}`, 150, finalY + 15);
@@ -365,10 +380,10 @@ export default function TransaksiJualPage() {
             { key: "edit", label: "Edit Transaksi", onClick: () => handleOpenEdit(record) },
             { type: "divider" },
             { key: "inv", label: "Generate Invoice", onClick: () => handleGenerateInvoice(record) },
-            { 
-                key: "nota", 
-                label: "Generate Nota", 
-                onClick: () => handleGenerateNota(record) 
+            {
+                key: "nota",
+                label: "Generate Nota",
+                onClick: () => handleGenerateNota(record)
             },
         ];
         return <Dropdown menu={{ items }} trigger={["click"]}><Button icon={<MoreOutlined />} size="small" /></Dropdown>;
@@ -385,12 +400,12 @@ export default function TransaksiJualPage() {
         { title: 'Netto', dataIndex: 'totalNetto', align: 'right', width: 120, render: (val) => <Text strong>{formatCurrency(val)}</Text>, sorter: (a, b) => (a.totalNetto || 0) - (b.totalNetto || 0) },
         { title: 'Bayar', dataIndex: 'totalBayar', align: 'right', width: 120, render: (val) => <span style={{ color: '#3f8600' }}>{formatCurrency(val)}</span>, sorter: (a, b) => (a.totalBayar || 0) - (b.totalBayar || 0) },
         { title: 'Sisa', key: 'sisa', align: 'right', width: 120, sorter: (a, b) => { const sisaA = (a.totalNetto || 0) - (a.totalBayar || 0); const sisaB = (b.totalNetto || 0) - (b.totalBayar || 0); return sisaA - sisaB; }, render: (_, r) => { const sisa = (r.totalNetto || 0) - (r.totalBayar || 0); return <span style={{ color: sisa > 0 ? '#cf1322' : '#3f8600', fontWeight: sisa > 0 ? 'bold' : 'normal' }}>{formatCurrency(sisa)}</span>; } },
-        { title: 'Status', dataIndex: 'statusPembayaran', width: 100, fixed: 'right', filters: [{ text: 'BELUM', value: 'BELUM' }, { text: 'LUNAS', value: 'LUNAS' },{ text: 'PARTIAL', value: 'PARTIAL' },], filteredValue: selectedStatus.length ? selectedStatus : null, render: (s) => <Tag color={normalizeStatus(s) === 'LUNAS' ? 'green' : normalizeStatus(s) === 'BELUM' ? 'red' : 'orange'}>{normalizeStatus(s)}</Tag> },
+        { title: 'Status', dataIndex: 'statusPembayaran', width: 100, fixed: 'right', filters: [{ text: 'BELUM', value: 'BELUM' }, { text: 'LUNAS', value: 'LUNAS' }, ,], filteredValue: selectedStatus.length ? selectedStatus : null, render: (s) => <Tag color={normalizeStatus(s) === 'LUNAS' ? 'green' : normalizeStatus(s) === 'BELUM' ? 'red' : 'orange'}>{normalizeStatus(s)}</Tag> },
         { title: 'Aksi', align: 'center', width: 60, fixed: 'right', render: renderAksi },
     ], [pagination, renderAksi, selectedStatus]);
 
-    const tableScrollX = 1500; 
-    
+    const tableScrollX = 1500;
+
     // [OPTIMASI 4] Gabungkan logic loading
     const isLoading = loadingTransaksi || isPending || isProcessing;
 

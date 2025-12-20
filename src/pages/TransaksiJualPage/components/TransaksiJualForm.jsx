@@ -6,13 +6,13 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
     Modal,
     Form, Input, InputNumber, Select, Button, DatePicker, message, Typography, Tag,
-    Row, Col, Spin, Popconfirm, Divider, Card, Statistic
+    Row, Col, Spin, Popconfirm
 } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { db } from '../../../api/firebase';
 import {
     ref, update, serverTimestamp,
-    query, orderByKey, startAt, endAt, get, push, orderByChild, equalTo
+    query, orderByKey, startAt, endAt, get, orderByChild, equalTo
 } from 'firebase/database';
 import dayjs from 'dayjs';
 
@@ -29,11 +29,6 @@ const rupiahFormatter = (v) =>
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
     }).format(Number(v || 0));
-
-const rupiahParser = (v) => {
-    const digits = String(v || '0').replace(/[^\d]/g, '');
-    return Number(digits || 0);
-};
 
 // Sub-component (Optimized)
 const SimpleSubtotal = ({ index }) => (
@@ -65,6 +60,10 @@ export default function TransaksiJualForm({
     const loadingDependencies = loadingBuku || loadingPelanggan;
 
     const [form] = Form.useForm();
+    
+    // 🔥 PENTING: Mengintip nilai field 'tanggal' agar Auto ID bisa reaktif saat tanggal diganti
+    const selectedDate = Form.useWatch('tanggal', form);
+
     const [isSaving, setIsSaving] = useState(false);
     const [isLoadingEditData, setIsLoadingEditData] = useState(false);
     const [selectedPelanggan, setSelectedPelanggan] = useState(null);
@@ -184,29 +183,68 @@ export default function TransaksiJualForm({
         }
     }, [mode, initialTx, pelangganList, form, open, loadingDependencies]);
 
-    // ===== Generate Nomor Invoice =====
+    // ===============================================
+    // 🔥 AUTO GENERATE INVOICE ID (Backdate Friendly)
+    // ===============================================
     useEffect(() => {
-        if (mode !== 'create' || !open || !isGeneratingInvoice) return;
+        // HANYA jalankan saat mode CREATE dan Modal terbuka
+        if (mode !== 'create' || !open) return;
+
         let isMounted = true;
+
         const generateInvoiceNumber = async () => {
             try {
-                const now = dayjs();
-                const keyPrefix = `INV-${now.format('YY-MM-DD')}-`;
-                const qy = query(ref(db, 'invoices'), orderByKey(), startAt(keyPrefix), endAt(keyPrefix + '\uf8ff'));
+                // Gunakan selectedDate dari form, atau hari ini jika belum ada
+                const dateBasis = selectedDate ? dayjs(selectedDate) : dayjs();
+                
+                // Format ID: INV-YYMMDD-XXX
+                // Contoh: INV-251220-
+                const dateFormat = dateBasis.format('YYMMDD'); 
+                const keyPrefix = `INV-${dateFormat}-`;
+
+                // Query Database
+                const qy = query(
+                    ref(db, 'invoices'), 
+                    orderByKey(), 
+                    startAt(keyPrefix), 
+                    endAt(keyPrefix + '\uf8ff')
+                );
+
                 const snapshot = await get(qy);
                 let nextNum = 1;
+
                 if (snapshot.exists()) {
-                    const keys = Object.keys(snapshot.val()).sort();
-                    const lastNum = parseInt(keys[keys.length - 1].split('-').pop() || '0');
-                    if (!isNaN(lastNum)) nextNum = lastNum + 1;
+                    const data = snapshot.val();
+                    const keys = Object.keys(data).sort(); // Pastikan urut string
+                    const lastKey = keys[keys.length - 1]; // Ambil yang paling baru
+                    
+                    // Logic Split: INV-251220-005 -> Dipecah '-' -> Ambil bagian terakhir '005'
+                    const parts = lastKey.split('-');
+                    const lastSeq = parts[parts.length - 1]; // "005"
+                    const num = parseInt(lastSeq, 10);
+                    
+                    if (!isNaN(num)) nextNum = num + 1;
                 }
-                if (isMounted) form.setFieldsValue({ nomorInvoice: `${keyPrefix}${String(nextNum).padStart(4, '0')}` });
-            } catch (e) { console.error(e); } 
-            finally { if (isMounted) setIsGeneratingInvoice(false); }
+
+                if (isMounted) {
+                    // Format Akhir: INV-251220-001 (Padding 3 digit)
+                    const newId = `${keyPrefix}${String(nextNum).padStart(3, '0')}`;
+                    form.setFieldsValue({ nomorInvoice: newId });
+                }
+
+            } catch (e) { 
+                console.error("Error generate ID:", e); 
+            } finally { 
+                if (isMounted) setIsGeneratingInvoice(false); 
+            }
         };
+
         generateInvoiceNumber();
+
         return () => { isMounted = false; };
-    }, [mode, open, isGeneratingInvoice]);
+        
+        // Dependency Array: Script ini jalan ulang kalau mode, open, atau TANGGAL berubah
+    }, [mode, open, selectedDate, form]); 
 
     // ===== Handlers =====
     const handlePelangganChange = (id) => {
@@ -309,10 +347,9 @@ export default function TransaksiJualForm({
             } else {
                 existingBayar = Number(initialTx.totalBayar || 0);
                 if (existingBayar >= totalNetto) statusPembayaran = 'LUNAS';
-                else if (existingBayar > 0) statusPembayaran = 'BELUM'; // Atau 'PARSIAL' jika ada logika itu
+                else if (existingBayar > 0) statusPembayaran = 'BELUM';
             }
 
-            // [NEW] Composite Status: NAMA_STATUS (e.g., "PAK IKO_BELUM")
             const compositeStatus = `${pelanggan.nama}_${statusPembayaran}`;
 
             // --- Update Header ---
@@ -329,14 +366,11 @@ export default function TransaksiJualForm({
                 totalQty,
                 totalBayar: existingBayar,
                 statusPembayaran: statusPembayaran,
-                compositeStatus: compositeStatus, // <-- Ditambahkan di sini
+                compositeStatus: compositeStatus,
                 totalRetur: mode === 'edit' ? (initialTx.totalRetur || 0) : 0,
                 updatedAt: serverTimestamp()
             };
 
-            // itemsSummary TIDAK LAGI dimasukkan ke header invoice
-            // agar data invoice utama ringan.
-            
             if (mode === 'create') {
                 updates[`invoices/${txKey}`] = { 
                     ...headerData, 
@@ -349,7 +383,7 @@ export default function TransaksiJualForm({
                 };
             }
 
-            // --- Update Items Detail (Tetap di invoice_items) ---
+            // --- Update Items Detail ---
             if (mode === 'edit') {
                 const newIds = processedItems.map(i => i.idBuku);
                 oldItemsForStock.forEach(old => {
@@ -369,8 +403,6 @@ export default function TransaksiJualForm({
             // ===============================================
             // UPDATE STOK (products/) & HISTORY (stock_history/)
             // ===============================================
-            
-            // Map<productId, changeInStock>
             const stockDiff = new Map();
 
             // 1. Jika Edit, kembalikan stok lama
@@ -489,7 +521,7 @@ export default function TransaksiJualForm({
 
     return (
         <Modal
-style={{ top: 20 }}
+            style={{ top: 20 }}
             title={mode === 'create' ? 'Transaksi Baru' : 'Edit Transaksi'}
             open={open} onCancel={onCancel}
             width={1000} confirmLoading={isSaving}
@@ -507,6 +539,7 @@ style={{ top: 20 }}
                                 </Form.Item>
                             </Col>
                             <Col xs={12} sm={8}>
+                                {/* Nama Field "tanggal" ini harus sama dengan yang di useWatch */}
                                 <Form.Item name="tanggal" label="Tanggal" rules={[{ required: true }]}>
                                     <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" />
                                 </Form.Item>
@@ -519,6 +552,7 @@ style={{ top: 20 }}
                                         filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                                         disabled={isGeneratingInvoice && mode === 'create'}
                                         options={pelangganList.map(p => ({ label: p.nama, value: p.id }))}
+                                        onChange={handlePelangganChange}
                                     />
                                 </Form.Item>
                             </Col>
@@ -637,7 +671,6 @@ style={{ top: 20 }}
                                                 <div style={{ fontSize: 16, marginBottom: 8 }}>{rupiahFormatter(bruto)}</div>
                                                 
                                                 <Text type="secondary">Grand Total (Netto)</Text>
-                                                {/* FIX: Menghapus string "Rp" yang double */}
                                                 <div style={{ fontSize: 28, fontWeight: 'bold', color: '#3f8600' }}>
                                                     {rupiahFormatter(netto)}
                                                 </div>

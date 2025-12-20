@@ -6,10 +6,10 @@ import {
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
-// --- IMPORT HOOK PELANGGAN (Sesuaikan path jika perlu) ---
+// --- IMPORT HOOK PELANGGAN (Sesuaikan path ini) ---
 import { usePelangganStream } from '../../../hooks/useFirebaseData';
 
-// IMPORT FIREBASE (Sesuaikan path jika perlu)
+// --- IMPORT FIREBASE (Sesuaikan path ini) ---
 import { db, storage } from '../../../api/firebase'; 
 import {
     ref, update, get, query, orderByChild, orderByKey,
@@ -24,26 +24,18 @@ const { Option } = Select;
 const SOURCE_DEFAULT = 'INVOICE_PAYMENT'; 
 const ARAH_TRANSAKSI = 'IN';
 
-// UPDATED: Formatter mata uang mendukung koma
+// Formatter mata uang (Display Only)
 const currencyFormatter = (value) =>
     new Intl.NumberFormat('id-ID', { 
         style: 'currency', 
         currency: 'IDR', 
         minimumFractionDigits: 0,
-        maximumFractionDigits: 2 // Mengizinkan sampai 2 desimal
+        maximumFractionDigits: 2 
     }).format(value);
 
 const generateAllocationId = (paymentId, invoiceId) => `ALLOC_${paymentId}_${invoiceId}`;
 
-const getBase64 = (file) =>
-    new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = (error) => reject(error);
-    });
-
-// --- LIST ITEM COMPONENT ---
+// --- LIST ITEM COMPONENT (MEMOIZED) ---
 const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, onNominalChange, readOnly }) => {
     return (
         <List.Item 
@@ -70,7 +62,6 @@ const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, on
                             {item.id} • {dayjs(item.tanggal).format('DD MMM YY')}
                         </div>
                         <div style={{ fontSize: 11, marginTop: 2 }}>
-                            {/* TAMPILKAN LOGIKA HITUNGAN BIAR JELAS */}
                             <span style={{color: '#555'}}>
                                 Netto: {currencyFormatter(item.totalNetto)} <br/>
                                 Sudah Bayar: {currencyFormatter(item.sudahBayar)}
@@ -100,7 +91,7 @@ const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, on
                                     max={item.sisaTagihan} 
                                     status={!allocation ? 'error' : ''}
                                     
-                                    // UPDATED: Support Desimal di item list juga
+                                    // Support Desimal & Format Indonesia
                                     decimalSeparator=","
                                     step={0.01}
                                     formatter={value => {
@@ -134,9 +125,13 @@ const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, on
         prev.readOnly === next.readOnly;
 });
 
+// --- MAIN COMPONENT ---
 const PembayaranForm = ({ open, onCancel, initialValues }) => {
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
+
+    // 🔥 1. Watch Tanggal agar ID berubah real-time saat tanggal diganti
+    const selectedDate = Form.useWatch('tanggal', form);
 
     // --- DATA PELANGGAN ---
     const { pelangganList: rawPelangganData, loadingPelanggan } = usePelangganStream();
@@ -162,11 +157,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
     const [selectedCustomerName, setSelectedCustomerName] = useState(null);
     const [fileList, setFileList] = useState([]);
     
-    // eslint-disable-next-line no-unused-vars
-    const [previewOpen, setPreviewOpen] = useState(false);
-    // eslint-disable-next-line no-unused-vars
-    const [previewImage, setPreviewImage] = useState('');
-
     const [invoiceList, setInvoiceList] = useState([]); 
     const [historyList, setHistoryList] = useState([]); 
     
@@ -175,6 +165,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
 
     const [isSearching, setIsSearching] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [isGeneratingId, setIsGeneratingId] = useState(false);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
     const [totalInputAmount, setTotalInputAmount] = useState(0);
@@ -189,7 +180,9 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             resetFormState();
         } else {
             if (initialValues) {
+                // EDIT / VIEW MODE
                 form.setFieldsValue({
+                    id: initialValues.id,
                     tanggal: dayjs(initialValues.tanggal),
                     keterangan: initialValues.keterangan
                 });
@@ -197,6 +190,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 setSelectedCustomerName(initialValues.namaCustomer);
                 fetchPaymentHistory(initialValues.id);
             } else {
+                // CREATE MODE
                 form.resetFields();
                 form.setFieldsValue({ 
                     tanggal: dayjs(), 
@@ -209,7 +203,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
     const resetFormState = () => {
         form.resetFields();
         setFileList([]);
-        setPreviewImage('');
         setSelectedInvoiceIds([]);
         setInvoiceList([]);
         setHistoryList([]);
@@ -242,7 +235,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                     
                     const netto = Number(invData.totalNetto) || 0;
                     const bayarTotal = Number(invData.totalBayar) || 0;
-                    // Sisa saat ini (setelah dibayar)
                     const sisa = netto - bayarTotal;
 
                     return {
@@ -268,20 +260,58 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         }
     };
 
-    const generateCustomPaymentId = async (inputDate) => {
-        const dateStr = dayjs(inputDate).format('YY-MM-DD'); 
-        const prefix = `PY-${dateStr}-`;
-        const paymentsRef = ref(db, 'payments');
-        const q = query(paymentsRef, orderByKey(), startAt(prefix), endAt(prefix + '\uf8ff'), limitToLast(1));
-        const snapshot = await get(q);
-        let nextIndex = 1;
-        if (snapshot.exists()) {
-            const lastId = Object.keys(snapshot.val())[0];
-            const lastIndexNum = parseInt(lastId.split('-').pop(), 10);
-            if (!isNaN(lastIndexNum)) nextIndex = lastIndexNum + 1;
-        }
-        return `${prefix}${String(nextIndex).padStart(4, '0')}`;
-    };
+    // --- AUTO GENERATE ID (PY-YYMMDD-XXX) ---
+    useEffect(() => {
+        // Hanya jalan saat CREATE dan Modal Terbuka
+        if (initialValues || !open) return;
+
+        let isMounted = true;
+        setIsGeneratingId(true);
+
+        const generateId = async () => {
+            try {
+                // Ambil tanggal dari form, atau hari ini
+                const dateBasis = selectedDate ? dayjs(selectedDate) : dayjs();
+                
+                // Format: PY-251220-
+                const dateFormat = dateBasis.format('YYMMDD');
+                const keyPrefix = `PY-${dateFormat}-`;
+
+                const q = query(
+                    ref(db, 'payments'),
+                    orderByKey(),
+                    startAt(keyPrefix),
+                    endAt(keyPrefix + '\uf8ff')
+                );
+
+                const snapshot = await get(q);
+                let nextNum = 1;
+
+                if (snapshot.exists()) {
+                    const keys = Object.keys(snapshot.val()).sort();
+                    const lastKey = keys[keys.length - 1];
+                    const parts = lastKey.split('-');
+                    const lastSeq = parts[parts.length - 1];
+                    const num = parseInt(lastSeq, 10);
+                    
+                    if (!isNaN(num)) nextNum = num + 1;
+                }
+
+                if (isMounted) {
+                    const newId = `${keyPrefix}${String(nextNum).padStart(3, '0')}`;
+                    form.setFieldsValue({ id: newId });
+                }
+            } catch (error) {
+                console.error("Error generate ID:", error);
+            } finally {
+                if (isMounted) setIsGeneratingId(false);
+            }
+        };
+
+        generateId();
+
+        return () => { isMounted = false; };
+    }, [initialValues, open, selectedDate, form]);
 
     // --- SEARCH INVOICE (CREATE MODE) ---
     const handleCustomerSelect = async (namaPelanggan) => {
@@ -309,8 +339,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 snap.forEach((child) => {
                     const val = child.val();
                     
-                    // --- LOGIKA HITUNG SISA HUTANG ---
-                    // Hutang = Total Netto - Total yang sudah dibayar
                     const totalNetto = Number(val.totalNetto) || 0;
                     const sudahBayar = Number(val.totalBayar) || 0;
                     const sisaTagihan = totalNetto - sudahBayar;
@@ -354,10 +382,9 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         for (const invoice of invoiceList) {
             if (remainingMoney <= 0) break;
             const amountNeeded = invoice.sisaTagihan;
-            // Gunakan parseFloat untuk memastikan presisi desimal
+            // Gunakan pembulatan presisi untuk menghindari floating point error
             let amountToPay = remainingMoney >= amountNeeded ? amountNeeded : remainingMoney;
             
-            // Fix javascript floating point issues
             amountToPay = Math.round(amountToPay * 100) / 100;
             
             remainingMoney = remainingMoney >= amountNeeded ? remainingMoney - amountNeeded : 0;
@@ -371,7 +398,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
 
     const handleTotalBayarChange = (val) => {
         let amount = val || 0;
-        // Tidak perlu replace manual karena parser InputNumber sudah menanganinya
         if (amount > maxPayableAmount) amount = maxPayableAmount; 
         setTotalInputAmount(amount);
         distributeAmount(amount);
@@ -444,17 +470,16 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                             
                             updates[`payment_allocations/${key}`] = null;
 
-                            // AMBIL DATA INVOICE
+                            // AMBIL DATA INVOICE TERBARU
                             const invSnap = await get(ref(db, `invoices/${invId}`));
                             if(invSnap.exists()){
                                 const invData = invSnap.val();
                                 const currentTotalBayar = Number(invData.totalBayar) || 0;
                                 
-                                // KURANGI TOTAL BAYAR (Rollback saldo)
+                                // ROLLBACK SALDO
                                 const newTotalBayar = Math.max(0, currentTotalBayar - amountPaid);
                                 
                                 // KEMBALIKAN STATUS KE 'BELUM'
-                                // Karena pembayaran dihapus, asumsinya dia kembali punya hutang
                                 const customerName = invData.namaCustomer || 'UNKNOWN';
                                 const newStatus = 'BELUM';
                                 const newComposite = `${customerName.toUpperCase()}_${newStatus}`;
@@ -495,7 +520,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
 
         try {
             const timestampNow = Date.now();
-            const paymentId = await generateCustomPaymentId(values.tanggal);
+            const paymentId = values.id; // AMBIL ID DARI FORM
             const firstInv = invoiceList.find(i => i.id === selectedInvoiceIds[0]);
 
             let buktiUrl = null;
@@ -541,17 +566,16 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 };
 
                 // --- LOGIKA UPDATE INVOICE ---
-                const totalNetto = Number(invoiceRef.totalNetto) || 0; // Nilai asli invoice
-                const currentSudahBayar = Number(invoiceRef.sudahBayar) || 0; // Yang sudah dibayar sebelumnya
+                const totalNetto = Number(invoiceRef.totalNetto) || 0; 
+                const currentSudahBayar = Number(invoiceRef.sudahBayar) || 0;
                 
-                // 1. Tambahkan pembayaran baru ke yang sudah ada
+                // 1. Tambahkan pembayaran baru
                 const newTotalBayar = currentSudahBayar + amountAllocated;
 
                 // 2. Tentukan Status
                 let newStatus = 'BELUM';
                 
-                // Syarat Lunas: Total yang dibayar >= Total Netto (dengan toleransi pembulatan)
-                // Jika masih kurang 1 perak pun, status tetap BELUM
+                // Syarat Lunas: Toleransi pembulatan 100 perak
                 if (newTotalBayar >= (totalNetto - 100)) { 
                     newStatus = 'LUNAS';
                 }
@@ -559,7 +583,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 const finalCustomerName = invoiceRef.namaCustomer || customerName;
                 const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
 
-                updates[`invoices/${invId}/totalBayar`] = newTotalBayar; // Simpan akumulasi
+                updates[`invoices/${invId}/totalBayar`] = newTotalBayar;
                 updates[`invoices/${invId}/statusPembayaran`] = newStatus;
                 updates[`invoices/${invId}/compositeStatus`] = newComposite;
                 updates[`invoices/${invId}/updatedAt`] = timestampNow;
@@ -601,174 +625,169 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                     )
                 ]}
             >
-                <Form form={form} layout="vertical" onFinish={handleSave}>
-                    
-                    <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
-                        {!initialValues ? (
-                            <Row gutter={16}>
+                <Spin spinning={isGeneratingId}>
+                    <Form form={form} layout="vertical" onFinish={handleSave}>
+                        {/* --- NEW HEADER: ID & TANGGAL --- */}
+                        <div style={{ background: '#f5f5f5', padding: '12px', borderRadius: 8, marginBottom: 16 }}>
+                            <Row gutter={12}>
                                 <Col span={12}>
-                                    <Form.Item label="1. Pilih Customer" style={{marginBottom: 8}} required>
-                                        <Select
-                                            showSearch
-                                            placeholder="Ketik atau Pilih Nama..."
-                                            optionFilterProp="children"
-                                            loading={loadingPelanggan}
-                                            disabled={loadingPelanggan}
-                                            onChange={handleCustomerSelect}
-                                            value={selectedCustomerName}
-                                            filterOption={(input, option) =>
-                                                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
-                                            }
-                                            style={{ width: '100%' }}
-                                            notFoundContent={loadingPelanggan ? <Spin size="small" /> : "Tidak ada data"}
-                                        >
-                                            {pelangganList.map(p => (
-                                                <Option key={p.id} value={p.displayName}>
-                                                    {p.displayName}
-                                                </Option>
-                                            ))}
-                                        </Select>
+                                    <Form.Item name="id" label="No. Pembayaran">
+                                        <Input disabled style={{ fontWeight: 'bold' }} placeholder="Auto..." />
                                     </Form.Item>
-                                    {invoiceList.length > 0 && (
-                                        <Tag color="blue">Total Sisa Tagihan: {currencyFormatter(maxPayableAmount)}</Tag>
-                                    )}
                                 </Col>
                                 <Col span={12}>
-                                    <Form.Item label="2. Total Uang Diterima" style={{marginBottom: 8}} required>
-                                        <InputNumber
-                                            style={{ width: '100%', fontWeight: 'bold', fontSize: 16 }}
-                                            value={totalInputAmount}
-                                            onChange={handleTotalBayarChange}
-                                            placeholder="Input Nominal..."
-                                            disabled={invoiceList.length === 0}
-                                            max={maxPayableAmount}
-                                            
-                                            // --- UPDATE UNTUK SUPPORT KOMA ---
-                                            decimalSeparator="," 
-                                            step={0.01}
-                                            formatter={value => {
-                                                if (!value && value !== 0) return 'Rp 0';
-                                                // 1. Ubah ke string
-                                                const str = String(value);
-                                                // 2. Pisahkan bagian bulat dan desimal
-                                                const parts = str.split('.');
-                                                // 3. Format bagian bulat dengan titik ribuan
-                                                parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-                                                // 4. Gabungkan dengan koma
-                                                return `Rp ${parts.join(',')}`;
-                                            }}
-                                            parser={value => {
-                                                if (!value) return '';
-                                                // 1. Hapus 'Rp', spasi, dan titik ribuan. Biarkan koma.
-                                                let val = value.replace(/[^\d,]/g, '');
-                                                // 2. Ubah koma menjadi titik untuk diproses JS
-                                                return val.replace(',', '.');
-                                            }}
-                                            // ---------------------------------
-                                        />
+                                    <Form.Item name="tanggal" label="Tanggal Pembayaran" rules={[{ required: true }]}>
+                                        <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" disabled={!!initialValues} allowClear={false} />
                                     </Form.Item>
                                 </Col>
                             </Row>
-                        ) : (
-                            <Row gutter={16}>
-                                <Col span={24}>
-                                    <Tag color="blue" style={{fontSize: 14, padding: 5, marginBottom: 10}}>ID: {initialValues.id}</Tag>
-                                    <div style={{ fontWeight: 'bold', fontSize: 18 }}>
-                                        Total Dibayar: {currencyFormatter(initialValues.totalBayar)}
-                                    </div>
-                                    <div style={{ color: '#666' }}>
-                                        Customer: {initialValues.namaCustomer}
-                                    </div>
-                                    <div style={{marginTop: 5, fontStyle:'italic', fontSize: 12, color: '#ff4d4f'}}>
-                                        *Hapus pembayaran ini untuk mengembalikan saldo dan status invoice.
-                                    </div>
-                                </Col>
-                            </Row>
-                        )}
-                    </div>
-
-                    <Divider dashed style={{margin: '12px 0'}} />
-
-                    <div style={{ marginBottom: 16 }}>
-                        <Text strong>
-                            {initialValues ? "3. Rincian Invoice yang Dibayar:" : "3. Rincian Alokasi ke Tagihan:"}
-                        </Text>
-                        
-                        <div style={{ 
-                            maxHeight: '350px', 
-                            overflowY: 'auto', 
-                            border: '1px solid #d9d9d9', 
-                            borderRadius: 8, 
-                            marginTop: 8, 
-                            backgroundColor: '#fff' 
-                        }}>
-                            {!initialValues ? (
-                                isSearching ? (
-                                    <div style={{ padding: 30, textAlign: 'center' }}><Spin tip="Mengambil tagihan..." /></div>
-                                ) : invoiceList.length === 0 ? (
-                                    <Empty 
-                                        image={Empty.PRESENTED_IMAGE_SIMPLE} 
-                                        description={selectedCustomerName ? "Lunas semua / Tidak ada tagihan" : "Pilih pelanggan dulu"} 
-                                        style={{margin: '20px 0'}} 
-                                    />
-                                ) : (
-                                    <List
-                                        dataSource={invoiceList}
-                                        renderItem={(item) => (
-                                            <InvoiceListItem 
-                                                key={item.id}
-                                                item={item} 
-                                                isSelected={selectedInvoiceIds.includes(item.id)}
-                                                allocation={paymentAllocations[item.id]}
-                                                onToggle={handleToggle}
-                                                onNominalChange={handleNominalChange}
-                                                readOnly={false}
-                                            />
-                                        )}
-                                    />
-                                )
-                            ) : (
-                                isLoadingHistory ? (
-                                    <div style={{ padding: 30, textAlign: 'center' }}><Spin tip="Memuat rincian..." /></div>
-                                ) : historyList.length === 0 ? (
-                                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Data alokasi tidak ditemukan" />
-                                ) : (
-                                    <List
-                                        dataSource={historyList}
-                                        renderItem={(item) => (
-                                            <InvoiceListItem 
-                                                key={item.id}
-                                                item={item} 
-                                                isSelected={true} 
-                                                allocation={item.amountAllocated}
-                                                readOnly={true} 
-                                                onToggle={() => {}} 
-                                                onNominalChange={() => {}}
-                                            />
-                                        )}
-                                    />
-                                )
-                            )}
                         </div>
-                    </div>
 
-                    <Form.Item label="Keterangan (Opsional)" name="keterangan">
-                        <Input.TextArea rows={2} placeholder="Catatan tambahan..." />
-                    </Form.Item>
+                        {!initialValues && (
+                            <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8, marginBottom: 16 }}>
+                                <Row gutter={16}>
+                                    <Col span={12}>
+                                        <Form.Item label="1. Pilih Customer" style={{marginBottom: 8}} required>
+                                            <Select
+                                                showSearch
+                                                placeholder="Ketik atau Pilih Nama..."
+                                                optionFilterProp="children"
+                                                loading={loadingPelanggan}
+                                                disabled={loadingPelanggan}
+                                                onChange={handleCustomerSelect}
+                                                value={selectedCustomerName}
+                                                filterOption={(input, option) =>
+                                                    (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                                                }
+                                                style={{ width: '100%' }}
+                                                notFoundContent={loadingPelanggan ? <Spin size="small" /> : "Tidak ada data"}
+                                            >
+                                                {pelangganList.map(p => (
+                                                    <Option key={p.id} value={p.displayName}>
+                                                        {p.displayName}
+                                                    </Option>
+                                                ))}
+                                            </Select>
+                                        </Form.Item>
+                                        {invoiceList.length > 0 && (
+                                            <Tag color="blue">Total Sisa Tagihan: {currencyFormatter(maxPayableAmount)}</Tag>
+                                        )}
+                                    </Col>
+                                    <Col span={12}>
+                                        <Form.Item label="2. Total Uang Diterima" style={{marginBottom: 8}} required>
+                                            <InputNumber
+                                                style={{ width: '100%', fontWeight: 'bold', fontSize: 16 }}
+                                                value={totalInputAmount}
+                                                onChange={handleTotalBayarChange}
+                                                placeholder="Input Nominal..."
+                                                disabled={invoiceList.length === 0}
+                                                max={maxPayableAmount}
+                                                
+                                                // Format Rupiah di Input Utama
+                                                decimalSeparator="," 
+                                                step={0.01}
+                                                formatter={value => {
+                                                    if (!value && value !== 0) return 'Rp 0';
+                                                    const str = String(value);
+                                                    const parts = str.split('.');
+                                                    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+                                                    return `Rp ${parts.join(',')}`;
+                                                }}
+                                                parser={value => {
+                                                    if (!value) return '';
+                                                    let val = value.replace(/[^\d,]/g, '');
+                                                    return val.replace(',', '.');
+                                                }}
+                                            />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                            </div>
+                        )}
 
-                    <Form.Item label="Upload Bukti (Opsional)" >
-                         <Upload
-                            listType="picture"
-                            fileList={fileList}
-                            maxCount={1}
-                            beforeUpload={() => false} 
-                            onChange={({ fileList: newFileList }) => setFileList(newFileList)}
-                         >
-                            <Button icon={<PlusOutlined />}>Pilih Gambar</Button>
-                         </Upload>
-                    </Form.Item>
+                        <Divider dashed style={{margin: '12px 0'}} />
 
-                </Form>
+                        <div style={{ marginBottom: 16 }}>
+                            <Text strong>
+                                {initialValues ? "3. Rincian Invoice yang Dibayar:" : "3. Rincian Alokasi ke Tagihan:"}
+                            </Text>
+                            
+                            <div style={{ 
+                                maxHeight: '350px', 
+                                overflowY: 'auto', 
+                                border: '1px solid #d9d9d9', 
+                                borderRadius: 8, 
+                                marginTop: 8, 
+                                backgroundColor: '#fff' 
+                            }}>
+                                {!initialValues ? (
+                                    isSearching ? (
+                                        <div style={{ padding: 30, textAlign: 'center' }}><Spin tip="Mengambil tagihan..." /></div>
+                                    ) : invoiceList.length === 0 ? (
+                                        <Empty 
+                                            image={Empty.PRESENTED_IMAGE_SIMPLE} 
+                                            description={selectedCustomerName ? "Lunas semua / Tidak ada tagihan" : "Pilih pelanggan dulu"} 
+                                            style={{margin: '20px 0'}} 
+                                        />
+                                    ) : (
+                                        <List
+                                            dataSource={invoiceList}
+                                            renderItem={(item) => (
+                                                <InvoiceListItem 
+                                                    key={item.id}
+                                                    item={item} 
+                                                    isSelected={selectedInvoiceIds.includes(item.id)}
+                                                    allocation={paymentAllocations[item.id]}
+                                                    onToggle={handleToggle}
+                                                    onNominalChange={handleNominalChange}
+                                                    readOnly={false}
+                                                />
+                                            )}
+                                        />
+                                    )
+                                ) : (
+                                    isLoadingHistory ? (
+                                        <div style={{ padding: 30, textAlign: 'center' }}><Spin tip="Memuat rincian..." /></div>
+                                    ) : historyList.length === 0 ? (
+                                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Data alokasi tidak ditemukan" />
+                                    ) : (
+                                        <List
+                                            dataSource={historyList}
+                                            renderItem={(item) => (
+                                                <InvoiceListItem 
+                                                    key={item.id}
+                                                    item={item} 
+                                                    isSelected={true} 
+                                                    allocation={item.amountAllocated}
+                                                    readOnly={true} 
+                                                    onToggle={() => {}} 
+                                                    onNominalChange={() => {}}
+                                                />
+                                            )}
+                                        />
+                                    )
+                                )}
+                            </div>
+                        </div>
+
+                        <Form.Item label="Keterangan (Opsional)" name="keterangan">
+                            <Input.TextArea rows={2} placeholder="Catatan tambahan..." />
+                        </Form.Item>
+
+                        <Form.Item label="Upload Bukti (Opsional)" >
+                             <Upload
+                                listType="picture"
+                                fileList={fileList}
+                                maxCount={1}
+                                beforeUpload={() => false} 
+                                onChange={({ fileList: newFileList }) => setFileList(newFileList)}
+                             >
+                                <Button icon={<PlusOutlined />}>Pilih Gambar</Button>
+                             </Upload>
+                        </Form.Item>
+
+                    </Form>
+                </Spin>
             </Modal>
         </>
     );

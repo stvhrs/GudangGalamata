@@ -20,6 +20,7 @@
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "keepalive-for-react": "^5.0.2",
+    "lucide-react": "^0.562.0",
     "react": "^19.1.1",
     "react-activation": "^0.13.4",
     "react-dom": "^19.1.1",

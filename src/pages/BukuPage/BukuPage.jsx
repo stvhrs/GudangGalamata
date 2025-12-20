@@ -213,17 +213,22 @@ const BukuPage = () => {
         { title: 'Judul Buku', dataIndex: 'nama', key: 'nama', width: 300, sorter: (a, b) => (a.judul || '').localeCompare(b.judul || '') },
         { title: 'Penerbit', dataIndex: 'penerbit', key: 'penerbit', width: 150, filters: penerbitFilters, filteredValue: columnFilters.penerbit || null, onFilter: (v, r) => r.penerbit === v, sorter: (a, b) => (a.penerbit || '').localeCompare(b.penerbit || '') },
         
-        { 
-            title: 'Peruntukan', 
-            dataIndex: 'peruntukan', 
-            key: 'peruntukan', 
-            width: 120, 
-            align: 'center', 
-            filters: peruntukanFilters, 
-            filteredValue: columnFilters.peruntukan || null, 
-            onFilter: (value, record) => record.peruntukan === value, 
-        },
-
+      { 
+    title: 'Peruntukan', 
+    dataIndex: 'peruntukan', 
+    key: 'peruntukan', 
+    width: 120, 
+    align: 'center', 
+    // --- TAMBAHKAN BAGIAN INI ---
+    filters: [
+        { text: 'SISWA', value: 'SISWA' },
+        { text: 'GURU', value: 'GURU' },
+        { text: 'UMUM', value: 'UMUM' },
+    ],
+    // ----------------------------
+    filteredValue: columnFilters.peruntukan || null, 
+    onFilter: (value, record) => record.peruntukan === value, 
+},
         { title: 'Stok', dataIndex: 'stok', key: 'stok', align: 'right', width: 100, render: numberFormatter, sorter: (a, b) => (Number(a.stok) || 0) - (Number(b.stok) || 0) },
         { title: 'Hrg', dataIndex: 'harga', key: 'harga', align: 'right', width: 150, render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', sorter: (a, b) => (Number(a.harga) || 0) - (Number(b.harga) || 0) },
         { title: 'Kelas', dataIndex: 'kelas', key: 'kelas', width: 100, align: 'center', filters: kelasFilters, filteredValue: columnFilters.kelas || null, sorter: (a, b) => String(a.kelas || '').localeCompare(String(b.kelas || ''), undefined, { numeric: true }) },
