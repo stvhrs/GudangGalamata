@@ -243,12 +243,10 @@ const buildDoc = (transaksi, type) => {
     currentY = checkPageOverflow(currentY, 35); 
 
     // --- 5. SUMMARY & TOTAL ---
-    const diskonLain = 0; 
     const biayaTentu = Number(transaksi.totalBiayaLain || 0); 
     const totalTagihanFinal = Number(transaksi.totalNetto || 0); 
     
-    const totalItemDiskon = subtotalBruto - subtotalNet; 
-    const grandTotalDiskon = totalItemDiskon + diskonLain;
+    const grandTotalDiskon = Number(transaksi.totalDiskon || 0);
     
     const sisaTagihan = totalTagihanFinal - (transaksi.totalBayar || 0);
     const totalBayarPayment = Number(transaksi.totalBayar || 0);
@@ -336,7 +334,7 @@ const buildDoc = (transaksi, type) => {
         // Biaya Lain Value -> NORMAL
         doc.setFont(fontName, 'normal');
         doc.text(formatNumber(biayaTentu), totalColValueX, summaryY, { align: 'right' }); 
-        summaryY += 5;
+        summaryY += 2;
 
         // Divider Total
         summaryY += 1; 
@@ -352,7 +350,7 @@ const buildDoc = (transaksi, type) => {
         doc.setFont(fontName, 'normal');
         doc.text(formatNumber(totalTagihanFinal), totalColValueX, summaryY, { align: 'right' }); 
         
-        summaryY += 6;
+        summaryY += 5;
 
         // Info Pembayaran (Untuk Nota Belum Lunas)
         if (!isInvoice) {
