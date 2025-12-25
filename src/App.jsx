@@ -34,6 +34,7 @@ import NotaPublicPage from './pages/NotaPublicPage';
 // Pastikan Anda sudah membuat file-file ini atau ganti dengan impor yang benar
 import PembayaranPage from './pages/PembayaranPage/PembayaranPage';
 import NonFakturPage from './pages/NonFakturPage/NonFakturPage';
+import Migrasi from './Migrasi';
 
 
 // Komponen MainLayout (Add Logout Button)
@@ -67,6 +68,8 @@ const MainLayout = () => {
          if (path.startsWith('/buku')) return '/buku';
          if (path.startsWith('/transaksi-jual')) return '/transaksi-jual';
          if (path.startsWith('/pelanggan')) return '/pelanggan';
+         if (path.startsWith('/migrasi')) return '/migrasi';
+
          // Rute baru
             if (path.startsWith('/pembayaran')) return '/pembayaran';
             if (path.startsWith('/retur')) return '/retur';
@@ -76,7 +79,7 @@ const MainLayout = () => {
          // if (path.startsWith('/json')) return '/json';
          // if (path.startsWith('/mutasi2')) return '/mutasi2';
          // if (path.startsWith('/mutasi3')) return '/mutasi3';
-        return '/mutasi'; // Default
+        return '/transaksi-jual'; // Default
     };
 
     const contentMarginLeft = collapsed ? 80 : 240;
@@ -132,6 +135,8 @@ const MainLayout = () => {
                       <Route path="/pelanggan" element={<PelangganPage />} />
                       <Route path="/pembayaran" element={<PembayaranPage />} />
                       <Route path="/retur" element={<ReturPage />} />
+                      <Route path="/migrasi" element={<Migrasi />} />
+
                       <Route path="/nonFaktur" element={<NonFakturPage />} />
 
 

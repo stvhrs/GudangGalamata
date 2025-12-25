@@ -184,6 +184,8 @@ const useDataProcessor = () => {
     const bookMap = new Map();     
     const invTotalQtyMap = new Map(); 
     const transOwnerMap = new Map(); 
+    // Map untuk tracking tanggal terakhir update stok per produk
+    const productMaxDate = new Map();
     
     if (transaksiPenjualan) {
         transaksiPenjualan.forEach(row => {
@@ -230,7 +232,7 @@ const useDataProcessor = () => {
              peruntukan: peruntukan,
              spek: "",
              spek_kertas: "Buku",
-             stok: 0,
+             stok: 0, // Default 0, will be updated by Stock History
              tipe_buku: "",
              updatedAt: Date.now()
          };
@@ -382,8 +384,8 @@ const useDataProcessor = () => {
         piutangDetail.forEach(row => {
             const pid = normalizeId(row[COLS.PIUTANG_DETAIL.HEADER_ID]);
             const invId = normalizeId(row[COLS.PIUTANG_DETAIL.SL_ID]);
-            const amount = parseNum(row[COLS.PIUTANG_DETAIL.BAYAR]);
             if (pid && invId && dbPayments[pid]) {
+                const amount = parseNum(row[COLS.PIUTANG_DETAIL.BAYAR]);
                 createAllocation(pid, invId, amount, dbPayments[pid].tanggal);
             }
         });
@@ -510,6 +512,15 @@ const useDataProcessor = () => {
              }
              if (isNaN(ts)) ts = Date.now();
 
+             // UPDATE MASTER STOK (Logika: Ambil SaldoAkhir dari data stok TERBARU)
+             if (dbProducts[bookId]) {
+                 const lastTs = productMaxDate.get(bookId) || 0;
+                 if (ts >= lastTs) {
+                     dbProducts[bookId].stok = stokAkhir;
+                     productMaxDate.set(bookId, ts);
+                 }
+             }
+
              let nama = "UNKNOWN";
              let keteranganSuffix = "";
              const upperRef = refId.toUpperCase();
@@ -595,7 +606,7 @@ const useDataProcessor = () => {
   return { handleFile, loading, processedData, dataFiles, isLibReady };
 };
 
-export default function App() {
+export default function Migrasi() {
   const { handleFile, loading, processedData, dataFiles, isLibReady } = useDataProcessor();
   
   const fileTypes = [
@@ -687,6 +698,7 @@ export default function App() {
                                 <Button size="small" onClick={() => downloadJson(processedData.non_faktur, "non_faktur")}>4b. non_faktur</Button>
                                 <Button size="small" onClick={() => downloadJson(processedData.payment_allocations, "payment_allocations")}>5. payment_allocations</Button>
                                 <Button size="small" onClick={() => downloadJson(processedData.returns, "returns")}>6. returns</Button>
+                                {/* NEW BUTTON ADDED */}
                                 <Button size="small" onClick={() => downloadJson(processedData.return_items, "return_items")}>7. return_items</Button>
                                 <Button size="small" onClick={() => downloadJson(processedData.stock_history, "stock_history")}>8. stock_history</Button>
                             </div>
