@@ -538,7 +538,14 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                         dataSource={processedData.list}
                         onChange={handleTableChange}
                         rowKey="key"
-                        pagination={{ pageSize: 10, size: "small" }}
+                        // --- UPDATED PAGINATION ---
+                        pagination={{ 
+                            defaultPageSize: 15,          // Default 15 item
+                            showSizeChanger: true,        // Memunculkan dropdown pilihan per halaman
+                            pageSizeOptions: ['15', '20', '50', '100'], // Pilihan angka
+                            size: "small",
+                            showTotal: (total, range) => `${range[0]}-${range[1]} dari ${total} data`
+                        }}
                         size="small"
                         bordered
                         scroll={{ x: 800 }}
