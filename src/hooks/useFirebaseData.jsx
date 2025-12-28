@@ -289,10 +289,13 @@ export const useBukuStream = () => {
 // ============================================================================
 // 4. PELANGGAN STREAM (GLOBAL CACHE - ANTI RELOAD)
 // ============================================================================
+// --- GLOBAL STATE UNTUK PELANGGAN ---
 let globalPelangganData = [];
 let globalPelangganLoading = true;
 let globalPelangganUnsubscribe = null;
 const pelangganSubscribers = new Set();
+
+// Helper: Convert Snapshot to Array
 const snapshotToArrayWithId = (snapshot) => {
     const val = snapshot.val();
     if (!val) return [];
@@ -304,6 +307,7 @@ const notifyPelangganSubscribers = () => {
 };
 
 const connectPelangganStream = () => {
+    // Jika sudah ada koneksi, tidak perlu buat listener baru
     if (globalPelangganUnsubscribe) {
         notifyPelangganSubscribers();
         return;
@@ -317,8 +321,11 @@ const connectPelangganStream = () => {
 
     globalPelangganUnsubscribe = onValue(pelangganRef, (snapshot) => {
         const data = snapshotToArrayWithId(snapshot);
-        // Sort Ascending by Nama
-        data.sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+        
+        // --- UPDATED SORTING LOGIC ---
+        // Sort Descending by updatedAt (Terbaru di atas)
+        // Jika data lama tidak punya updatedAt, dianggap 0 (paling bawah)
+        data.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
         
         console.log(`%c👥 [PELANGGAN] Data Incoming: ${data.length} items`, "color: #00BCD4");
         
@@ -340,6 +347,9 @@ export const usePelangganStream = () => {
         connectPelangganStream();
         const onDataUpdate = (d, l) => { setData(d); setLoading(l); };
         pelangganSubscribers.add(onDataUpdate);
+        
+        // Cleanup listener component, tapi biarkan global listener tetap hidup 
+        // agar navigasi antar halaman instan tanpa fetching ulang
         return () => pelangganSubscribers.delete(onDataUpdate);
     }, []);
 

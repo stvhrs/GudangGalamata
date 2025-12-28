@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Form, DatePicker, Select, Input, InputNumber, Button, message, Spin, Row, Col } from 'antd';
 import { SaveOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { ref, get, set, update, remove, query, orderByKey, startAt, endAt } from 'firebase/database';
+import { ref, get, update, remove, query, orderByKey, startAt, endAt } from 'firebase/database'; // Hapus 'set', pakai 'update' root
 
 import { db } from '../../../api/firebase'; 
 import { usePelangganStream } from '../../../hooks/useFirebaseData'; 
@@ -51,7 +51,6 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
 
     // --- AUTO GENERATE ID (NF-YYMMDD-XXX) ---
     useEffect(() => {
-        // Hanya jalan saat CREATE dan Modal Terbuka
         if (isEditMode || !open) return;
 
         let isMounted = true;
@@ -59,10 +58,7 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
 
         const generateId = async () => {
             try {
-                // Ambil tanggal dari form, atau hari ini
                 const dateBasis = selectedDate ? dayjs(selectedDate) : dayjs();
-                
-                // Format: NF-251220-
                 const dateFormat = dateBasis.format('YYMMDD');
                 const keyPrefix = `NF-${dateFormat}-`;
 
@@ -80,7 +76,6 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
                     const keys = Object.keys(snapshot.val()).sort();
                     const lastKey = keys[keys.length - 1];
                     
-                    // Logic Split: NF-251220-005 -> ambil 005
                     const parts = lastKey.split('-');
                     const lastSeq = parts[parts.length - 1];
                     const num = parseInt(lastSeq, 10);
@@ -89,7 +84,6 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
                 }
 
                 if (isMounted) {
-                    // Hasil: NF-251220-001
                     const newId = `${keyPrefix}${String(nextNum).padStart(3, '0')}`;
                     form.setFieldsValue({ id: newId });
                 }
@@ -140,34 +134,46 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
             // Cari Nama Customer
             const selectedCustomer = pelangganList.find(p => p.id === customerId);
             const namaCust = selectedCustomer ? selectedCustomer.nama : 'Umum';
+            const timestampNow = Date.now();
 
             const dataPayload = {
-                id, // Gunakan ID dari form (Auto/Existing)
+                id, 
                 arah: "IN", 
                 sumber: "NON_FAKTUR", 
-                tanggal: tanggal.valueOf(), // Timestamp
+                tanggal: tanggal.valueOf(), 
                 customerId,
                 namaCustomer: namaCust,
                 totalBayar,
                 keterangan: keterangan || '-',
-                updatedAt: Date.now()
+                updatedAt: timestampNow
             };
 
+            // Multi-path updates object
+            const updates = {};
+
             if (isEditMode) {
-                // UPDATE
-                await update(ref(db, `non_faktur/${id}`), {
+                // UPDATE Existing
+                updates[`non_faktur/${id}`] = {
                     ...initialValues,
                     ...dataPayload
-                });
-                message.success('Data diperbarui');
+                };
             } else {
-                // CREATE
-                await set(ref(db, `non_faktur/${id}`), {
+                // CREATE New
+                updates[`non_faktur/${id}`] = {
                     ...dataPayload,
-                    createdAt: Date.now(),
-                });
-                message.success(`Tersimpan: ${id}`);
+                    createdAt: timestampNow,
+                };
             }
+
+            // 🔥 UPDATE CUSTOMER TIMESTAMP
+            if (customerId) {
+                updates[`customers/${customerId}/updatedAt`] = timestampNow;
+            }
+
+            // Eksekusi Atomic Update
+            await update(ref(db), updates);
+            
+            message.success(isEditMode ? 'Data diperbarui' : `Tersimpan: ${id}`);
             onCancel();
         } catch (error) {
             console.error("Error Saving:", error);

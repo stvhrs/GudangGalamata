@@ -45,15 +45,21 @@ export default function PelangganPage() {
         showTotal: (total, range) => `${range[0]}-${range[1]} dari ${total} pelanggan`
     });
 
-    // --- FILTERING (LOGIC BERAT) ---
+    // --- FILTERING & SORTING (LOGIC BERAT) ---
     const filteredPelanggan = useMemo(() => {
-        // [OPTIMASI] Gunakan deferredDebouncedSearchText, bukan debouncedSearchText langsung
-        // Ini agar UI tidak 'freeze' saat filtering ribuan data
-        let data = pelangganList || [];
+        // [OPTIMASI] Gunakan spread operator [...] untuk meng-copy array
+        // agar tidak memutasi state asli saat melakukan .sort()
+        let data = [...(pelangganList || [])];
         
-        // Sorting default (opsional, agar data rapi)
-        data.sort((a, b) => (a.nama || '').localeCompare(b.nama || ''));
+        // --- UPDATE: SORT BY UPDATEDAT ---
+        // Descending: Yang paling baru diedit/dibuat ada di paling atas
+        data.sort((a, b) => {
+            const dateA = new Date(a.updatedAt || 0).getTime();
+            const dateB = new Date(b.updatedAt || 0).getTime();
+            return dateB - dateA; 
+        });
 
+        // Filter Logic
         if (deferredDebouncedSearchText) {
             const query = deferredDebouncedSearchText.toLowerCase();
             data = data.filter(p =>
@@ -62,7 +68,7 @@ export default function PelangganPage() {
             );
         }
         return data;
-    }, [pelangganList, deferredDebouncedSearchText]); // Dependency diganti ke deferred
+    }, [pelangganList, deferredDebouncedSearchText]); 
 
     // --- HANDLERS ---
     const handleSearchChange = useCallback((e) => {
@@ -112,7 +118,6 @@ export default function PelangganPage() {
     }, []);
 
     // --- COLUMNS ---
-// --- COLUMNS ---
     const columns = useMemo(() => [
         {
             title: 'No.',
@@ -134,19 +139,14 @@ export default function PelangganPage() {
             width: 150,
             render: (tel) => tel || '-',
         },
-        // --- UPDATE KOLOM SALDO AWAL ---
         {
             title: 'Saldo Awal',
             dataIndex: 'saldoAwal',
             key: 'saldoAwal',
             width: 150,
             align: 'right',
-            // LOGIKA SORTING:
-            // Mengubah nilai menjadi float (jika string), default 0 jika null/undefined
-            // Lalu dikurangi (a - b) untuk sort ascending/descending angka
             sorter: (a, b) => (parseFloat(a.saldoAwal) || 0) - (parseFloat(b.saldoAwal) || 0),
             render: (val) => {
-                // Opsional: Beri warna merah jika minus (hutang)
                 const isNegative = (val || 0) < 0;
                 const formatted = new Intl.NumberFormat('id-ID', {
                     style: 'currency',
@@ -161,7 +161,6 @@ export default function PelangganPage() {
                 );
             }
         },
-        // -------------------------------
         {
             title: 'Aksi',
             key: 'aksi',
@@ -191,6 +190,7 @@ export default function PelangganPage() {
             ),
         },
     ], [pagination, handleDelete, handleOpenHistory]);
+
     return (
         <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
             <Content style={{ padding: '24px' }}>
@@ -213,13 +213,11 @@ export default function PelangganPage() {
                         />
                     </div>
 
-                    {/* [OPTIMASI] Bungkus Table dengan Spin + logika isFiltering */}
                     <Spin spinning={loadingPelanggan || isFiltering} tip="Memproses data...">
                         <Table
                             columns={columns}
                             dataSource={filteredPelanggan}
                             rowKey="id"
-                            // loading prop di Table dimatikan, diganti Spin di luar agar lebih jelas
                             pagination={pagination}
                             onChange={handleTableChange}
                             size="middle"
