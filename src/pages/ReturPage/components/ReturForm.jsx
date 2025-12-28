@@ -380,7 +380,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 const custSnap = await get(custRef);
                 if (custSnap.exists()) {
                     const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
-                    updates[`customers/${selectedCustomerId}/saldoAkhir`] = currentSaldo - grandTotalRetur;
+                    updates[`customers/${selectedCustomerId}/saldoAkhir`] = currentSaldo + grandTotalRetur;
                     updates[`customers/${selectedCustomerId}/updatedAt`] = timestampNow;
                 }
             }
@@ -481,7 +481,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                         const custSnap = await get(custRef);
                         if (custSnap.exists()) {
                             const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
-                            updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + totalReturVal;
+                            updates[`customers/${customerId}/saldoAkhir`] = currentSaldo - totalReturVal;
                             updates[`customers/${customerId}/updatedAt`] = timestampNow;
                         }
                     }
