@@ -57,17 +57,10 @@ export default function TransaksiJualPage() {
     const [isPending, startTransition] = useTransition();
 
     // --- STATE CONFIG ---
- const defaultStart = useMemo(
-    () => dayjs().subtract(6, 'month').startOf('day'),
-    []
-);
-const defaultEnd = useMemo(
-    () => dayjs().endOf('day'),
-    []
-);
+    const defaultStart = useMemo(() => dayjs().subtract(6, 'month').startOf('day'), []);
+    const defaultEnd = useMemo(() => dayjs().endOf('day'), []);
 
-const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
-
+    const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
     const [isAllTime, setIsAllTime] = useState(false);
 
     // --- STATE SENSOR NOMINAL ---
@@ -88,10 +81,7 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
 
     // --- State UI ---
     const [searchText, setSearchText] = useState('');
-
-    // [OPTIMASI 1] Debounce Input
     const debouncedSearchText = useDebounce(searchText, 300);
-
     const [selectedStatus, setSelectedStatus] = useState([]);
 
     const showTotalPagination = useCallback((total, range) => `${range[0]}-${range[1]} dari ${total} transaksi`, []);
@@ -112,29 +102,24 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
     const [txPdfFileName, setTxPdfFileName] = useState('laporan.pdf');
     const [isTxPdfGenerating, setIsTxPdfGenerating] = useState(false);
 
-    // --- [OPTIMASI 2] Filtering Logic dengan Concurrent Features ---
-    // Gunakan useDeferredValue untuk memproses data 'berat' di background
+    // --- CONCURRENT UI ---
     const deferredAllTransaksi = useDeferredValue(allTransaksi);
     const deferredDebouncedSearch = useDeferredValue(debouncedSearchText);
     const deferredSelectedStatus = useDeferredValue(selectedStatus);
-
-    // [OPTIMASI 3] Deteksi apakah React sedang bekerja keras di background
-    // Jika nilai debounced (input user) BEDA dengan deferred (hasil proses), berarti sedang loading
     const isProcessing = (debouncedSearchText !== deferredDebouncedSearch) || (selectedStatus !== deferredSelectedStatus);
 
     const isFilterActive = useMemo(() => {
-    return (
-        !!debouncedSearchText ||
-        selectedStatus.length > 0 ||
-        isAllTime ||
-        !dateRange[0].isSame(defaultStart, 'day') ||
-        !dateRange[1].isSame(defaultEnd, 'day')
-    );
-}, [debouncedSearchText, selectedStatus, isAllTime, dateRange, defaultStart, defaultEnd]);
+        return (
+            !!debouncedSearchText ||
+            selectedStatus.length > 0 ||
+            isAllTime ||
+            !dateRange[0].isSame(defaultStart, 'day') ||
+            !dateRange[1].isSame(defaultEnd, 'day')
+        );
+    }, [debouncedSearchText, selectedStatus, isAllTime, dateRange, defaultStart, defaultEnd]);
 
 
     const filteredTransaksi = useMemo(() => {
-        // Gunakan variabel 'deferred...' di sini agar UI tidak freeze
         let data = [...(deferredAllTransaksi || [])];
 
         // Filter Status
@@ -142,7 +127,7 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
             data = data.filter((tx) => deferredSelectedStatus.includes(normalizeStatus(tx.statusPembayaran)));
         }
 
-        // Filter Search (ID, Nama Customer, Keterangan)
+        // Filter Search
         if (deferredDebouncedSearch) {
             const q = deferredDebouncedSearch.toLowerCase();
             data = data.filter((tx) =>
@@ -162,18 +147,22 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
                 bruto: acc.bruto + Number(tx.totalBruto || 0),
                 diskon: acc.diskon + Number(tx.totalDiskon || 0),
                 retur: acc.retur + Number(tx.totalRetur || 0),
+                biayaLain: acc.biayaLain + Number(tx.totalBiayaLain || 0), 
                 netto: acc.netto + Number(tx.totalNetto || 0),
-                bayar: acc.bayar + Number(tx.totalBayar || 0)
-            }), { bruto: 0, diskon: 0, retur: 0, netto: 0, bayar: 0 }
+                bayar: acc.bayar + Number(tx.totalBayar || 0),
+                // Gunakan property sisaTagihan dari DB agar akurat
+                sisa: acc.sisa + Number(tx.sisaTagihan || 0) 
+            }), { bruto: 0, diskon: 0, retur: 0, biayaLain: 0, netto: 0, bayar: 0, sisa: 0 }
         );
 
         return {
             totalBruto: totals.bruto,
             totalDiskon: totals.diskon,
             totalRetur: totals.retur,
+            totalBiayaLain: totals.biayaLain,
             totalTagihan: totals.netto,
             totalTerbayar: totals.bayar,
-            totalSisa: totals.netto - totals.bayar,
+            totalSisa: totals.sisa,
             totalTransaksi: filteredData.length
         };
     }, [filteredTransaksi]);
@@ -201,26 +190,37 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
                         onClick={() => setShowTotals(!showTotals)}
                     />
                 </Tooltip>
+                
                 {separator}
                 <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Total Bruto</Text>
+                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Bruto</Text>
                     {renderValue(footerTotals.totalBruto)}
                 </div>
+                
                 {separator}
                 <div style={{ textAlign: 'right' }}>
                     <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Diskon</Text>
                     {renderValue(footerTotals.totalDiskon, { color: '#faad14' })}
                 </div>
+
                 {separator}
                 <div style={{ textAlign: 'right' }}>
                     <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Retur</Text>
                     {renderValue(footerTotals.totalRetur, { color: '#cf1322' })}
                 </div>
+
+                {separator}
+                <div style={{ textAlign: 'right' }}>
+                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Biaya Lain</Text>
+                    {renderValue(footerTotals.totalBiayaLain, { color: '#1677ff' })}
+                </div>
+                
                 {separator}
                 <div style={{ textAlign: 'right' }}>
                     <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Total Bayar</Text>
                     {renderValue(footerTotals.totalTerbayar, { color: '#3f8600' })}
                 </div>
+                
                 {separator}
                 <div style={{ textAlign: 'right' }}>
                     <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Sisa Tagihan</Text>
@@ -323,7 +323,7 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
                     (dateRange?.[0] ? `Periode: ${dateRange[0].format('DD MMM YYYY')} s/d ${dateRange[1].format('DD MMM YYYY')}` : "");
                 doc.text(periodeInfo, 14, 22);
 
-                const tableColumn = ["No", "Tanggal", "ID Invoice", "Customer", "Bruto", "Diskon", "Retur", "Netto", "Bayar", "Sisa", "Status"];
+                const tableColumn = ["No", "Tanggal", "ID Invoice", "Customer", "Bruto", "Diskon", "Retur", "Biaya Lain", "Netto", "Bayar", "Sisa", "Status"];
                 const tableRows = filteredTransaksi.map((tx, index) => [
                     index + 1,
                     formatDate(tx.tanggal),
@@ -332,9 +332,10 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
                     formatCurrency(tx.totalBruto),
                     formatCurrency(tx.totalDiskon),
                     formatCurrency(tx.totalRetur),
+                    formatCurrency(tx.totalBiayaLain),
                     formatCurrency(tx.totalNetto),
                     formatCurrency(tx.totalBayar),
-                    formatCurrency(tx.totalNetto - tx.totalBayar),
+                    formatCurrency(tx.sisaTagihan),
                     normalizeStatus(tx.statusPembayaran)
                 ]);
 
@@ -346,7 +347,7 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
                     headStyles: { fillColor: [22, 119, 255] },
                     columnStyles: {
                         4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
-                        7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' }
+                        7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' }, 10: { halign: 'right' }
                     }
                 });
 
@@ -358,10 +359,12 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
                 doc.text(`Total Bruto: ${formatCurrency(footerTotals.totalBruto)}`, 14, finalY + 5);
                 doc.text(`Total Diskon: ${formatCurrency(footerTotals.totalDiskon)}`, 14, finalY + 10);
                 doc.text(`Total Retur: ${formatCurrency(footerTotals.totalRetur)}`, 14, finalY + 15);
+                
+                doc.text(`Biaya Lain: ${formatCurrency(footerTotals.totalBiayaLain)}`, 100, finalY + 5);
 
-                doc.text(`Total Netto (Tagihan): ${formatCurrency(footerTotals.totalTagihan)}`, 150, finalY + 5);
-                doc.text(`Total Bayar: ${formatCurrency(footerTotals.totalTerbayar)}`, 150, finalY + 10);
-                doc.text(`Total Sisa: ${formatCurrency(footerTotals.totalSisa)}`, 150, finalY + 15);
+                doc.text(`Total Netto: ${formatCurrency(footerTotals.totalTagihan)}`, 180, finalY + 5);
+                doc.text(`Total Bayar: ${formatCurrency(footerTotals.totalTerbayar)}`, 180, finalY + 10);
+                doc.text(`Total Sisa: ${formatCurrency(footerTotals.totalSisa)}`, 180, finalY + 15);
 
                 const pdfBlob = doc.output('blob');
                 openPdfModal(pdfBlob, fileName);
@@ -396,15 +399,15 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
         { title: 'Customer', dataIndex: 'namaCustomer', width: 180, sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || '') },
         { title: 'Bruto', dataIndex: 'totalBruto', align: 'right', width: 120, render: formatCurrency, sorter: (a, b) => (a.totalBruto || 0) - (b.totalBruto || 0) },
         { title: 'Dsc', dataIndex: 'totalDiskon', align: 'right', width: 90, render: (val) => <span style={{ color: '#faad14' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span>, sorter: (a, b) => (a.totalDiskon || 0) - (b.totalDiskon || 0) },
-        { title: 'Retur', dataIndex: 'totalRetur', align: 'right', width: 90, render: (val) => <span style={{ color: '#cf1322' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span>, sorter: (a, b) => (a.totalRetur || 0) - (b.totalRetur || 0) },
+        { title: 'Retur', dataIndex: 'totalRetur', align: 'right', width: 90, render: (val) => <span style={{ color: '#cf1322' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span>, sorter: (a, b) => (a.totalRetur || 0) - (b.totalRetur || 0) }, // KOLOM RETUR
         { title: 'Netto', dataIndex: 'totalNetto', align: 'right', width: 120, render: (val) => <Text strong>{formatCurrency(val)}</Text>, sorter: (a, b) => (a.totalNetto || 0) - (b.totalNetto || 0) },
         { title: 'Bayar', dataIndex: 'totalBayar', align: 'right', width: 120, render: (val) => <span style={{ color: '#3f8600' }}>{formatCurrency(val)}</span>, sorter: (a, b) => (a.totalBayar || 0) - (b.totalBayar || 0) },
-        { title: 'Sisa', key: 'sisa', align: 'right', width: 120, sorter: (a, b) => { const sisaA = (a.totalNetto || 0) - (a.totalBayar || 0); const sisaB = (b.totalNetto || 0) - (b.totalBayar || 0); return sisaA - sisaB; }, render: (_, r) => { const sisa = (r.totalNetto || 0) - (r.totalBayar || 0); return <span style={{ color: sisa > 0 ? '#cf1322' : '#3f8600', fontWeight: sisa > 0 ? 'bold' : 'normal' }}>{formatCurrency(sisa)}</span>; } },
+        { title: 'Sisa', dataIndex: 'sisaTagihan', align: 'right', width: 120, sorter: (a, b) => (a.sisaTagihan || 0) - (b.sisaTagihan || 0), render: (val) => <span style={{ color: val > 0 ? '#cf1322' : '#3f8600', fontWeight: val > 0 ? 'bold' : 'normal' }}>{formatCurrency(val)}</span> }, // SISA DARI PROPERTY
         { title: 'Status', dataIndex: 'statusPembayaran', width: 100, fixed: 'right', filters: [{ text: 'BELUM', value: 'BELUM' }, { text: 'LUNAS', value: 'LUNAS' }, ,], filteredValue: selectedStatus.length ? selectedStatus : null, render: (s) => <Tag color={normalizeStatus(s) === 'LUNAS' ? 'green' : normalizeStatus(s) === 'BELUM' ? 'red' : 'orange'}>{normalizeStatus(s)}</Tag> },
         { title: 'Aksi', align: 'center', width: 60, fixed: 'right', render: renderAksi },
     ], [pagination, renderAksi, selectedStatus]);
 
-    const tableScrollX = 1500;
+    const tableScrollX = 1600; // Adjusted for new column
 
     // [OPTIMASI 4] Gabungkan logic loading
     const isLoading = loadingTransaksi || isPending || isProcessing;
@@ -448,11 +451,11 @@ const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
                 </Card>
             )
         },
-        {
-            key: '2',
-            label: <Space><PullRequestOutlined /> Tagihan Customer</Space>,
-            children: <TagihanPelangganTab allTransaksi={allTransaksi} loadingTransaksi={loadingTransaksi} dateRange={dateRange} isAllTime={isAllTime} />
-        }
+        // {
+        //     key: '2',
+        //     label: <Space><PullRequestOutlined /> Tagihan Customer</Space>,
+        //     children: <TagihanPelangganTab allTransaksi={allTransaksi} loadingTransaksi={loadingTransaksi} dateRange={dateRange} isAllTime={isAllTime} />
+        // }
     ];
 
     return (

@@ -9,7 +9,7 @@ const { Panel } = Collapse;
 // --- 1. KONFIGURASI KOLOM (Updated) ---
 const COLS = {
   PRODUK_BUKU: { ID: 0, NAME: 4, PRICE: 17, GROUP_ID: 6 }, 
-  CUSTOMER: { CUSTOMER_ID: 0, NAMA: 1, HP: 4, ADDRESS: 3, SALDO_AWAL: 16 }, 
+  CUSTOMER: { CUSTOMER_ID: 0, NAMA: 1, HP: 4, ADDRESS: 3, VOID_BY: 13, SALDO_AWAL: 16 }, 
   TRANSAKSI_PENJUALAN: { 
     ID: 0, NO_SL: 1, TGL: 2, CUST_ID: 3, 
     TOTAL_GROSS: 6, TOTAL_DISKON: 7, TOTAL_NET: 8, 
@@ -19,10 +19,10 @@ const COLS = {
   DETAIL_PENJUALAN: { DETAIL_ID: 0, TRAS_ID: 1, BARANG_ID: 2, SATUAN: 3, QTY: 4, HARGA: 5, DISCOUNT: 6, PPN: 7, SUBTOTAL: 8 },
   DETAIL_BAYAR: { TRAS_ID: 1, BAYAR: 7 }, 
   RETUR_HEADER: { 
-    // UPDATED: Menambahkan Index Keterangan (4) & KeteranganBiaya (11)
     ID: 0, SL_ID: 1, NO_RJ: 2, TGL: 3, 
     KETERANGAN: 4, KETERANGAN_BIAYA: 11, 
-    TOTAL_RETUR: 12,
+    TOTAL_RETUR: 12, 
+    KEKURANGAN: 15, // Index 15 = Kolom Kekurangan (Sisa Saldo)
     VALIDATED_BY: 19, VOID_BY: 23
   },
   RETUR_DETAIL: { HEADER_ID: 0, DETAIL_ID: 1, BARANG_ID: 2, QTY: 4, SUBTOTAL: 8 },
@@ -39,20 +39,15 @@ const COLS = {
 };
 
 // --- HELPER UTILS ---
-// Strict Normalization for Firebase Keys (Only A-Z, 0-9, _)
 const normalizeId = (v) => {
   if (v === null || v === undefined) return "";
   const str = String(v).trim();
   if (str === "") return "";
-  // 1. Hapus spasi
-  // 2. Uppercase
-  // 3. Ganti SEMUA karakter aneh (termasuk . / # $) dengan underscore (_)
   return str.replace(/\s+/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '_');
 };
 
-// UPDATED: Tidak ada pembulatan (Math.round dihapus)
 const parseNum = (val) => {
-  if (typeof val === 'number') return val; // Biarkan desimal
+  if (typeof val === 'number') return val;
   const str = String(val || '').trim();
   if (!str || str.toUpperCase() === 'NULL') return 0;
   
@@ -69,7 +64,7 @@ const parseNum = (val) => {
   }
   
   const num = parseFloat(clean);
-  return isNaN(num) ? 0 : num; // Return float asli
+  return isNaN(num) ? 0 : num;
 };
 
 const parseBookTitle = (title) => {
@@ -103,10 +98,21 @@ const isExcludedBookId = (id) => {
 
 const checkRowValidity = (row, idxValidated, idxVoid) => {
   if (!row) return { valid: false, reason: "Empty Row" };
-  const validatedBy = row[idxValidated];
-  const voidBy = row[idxVoid];
-  if (voidBy && String(voidBy).trim().toUpperCase() !== 'NULL' && String(voidBy).trim() !== '') return { valid: false, reason: `Void By ${voidBy}` };
-  if (!validatedBy || String(validatedBy).trim().toUpperCase() === 'NULL' || String(validatedBy).trim() === '') return { valid: false, reason: "Not Validated" };
+  
+  if (idxVoid !== undefined && idxVoid !== -1) {
+      const voidBy = row[idxVoid];
+      if (voidBy && String(voidBy).trim().toUpperCase() !== 'NULL' && String(voidBy).trim() !== '') {
+          return { valid: false, reason: `Void By ${voidBy}` };
+      }
+  }
+
+  if (idxValidated !== undefined && idxValidated !== -1) {
+      const validatedBy = row[idxValidated];
+      if (!validatedBy || String(validatedBy).trim().toUpperCase() === 'NULL' || String(validatedBy).trim() === '') {
+          return { valid: false, reason: "Not Validated" };
+      }
+  }
+  
   return { valid: true };
 };
 
@@ -170,7 +176,7 @@ const useDataProcessor = () => {
 
     if (!produkBuku || !customer) return null;
 
-    // --- FLAT DATA CONTAINERS ---
+    // --- CONTAINERS ---
     const dbProducts = {};           
     const dbCustomers = {};          
     const dbInvoices = {};           
@@ -181,16 +187,16 @@ const useDataProcessor = () => {
     const dbReturnItems = {};        
     const dbStockHistory = {};       
     const dbNonFaktur = {}; 
-    
     const voidedRows = [];
     
-    // Lookup Maps
     const bookMap = new Map();     
     const invTotalQtyMap = new Map(); 
     const transOwnerMap = new Map(); 
-    // Map untuk tracking tanggal terakhir update stok per produk
     const productMaxDate = new Map();
     
+    // --- SETS ID ALLOWED (Untuk data yg valid) ---
+    const allowedReturnIds = new Set(); // ID Retur yg lolos filter kekurangan
+
     if (transaksiPenjualan) {
         transaksiPenjualan.forEach(row => {
             const id = normalizeId(row[COLS.TRANSAKSI_PENJUALAN.ID]);
@@ -200,12 +206,35 @@ const useDataProcessor = () => {
             }
         });
     }
+    
+    // PRE-SCAN RETUR: Filter berdasarkan Kekurangan = 0
     if (returHeader) {
         returHeader.forEach(row => {
             const rId = normalizeId(row[COLS.RETUR_HEADER.ID]);
-            const slId = normalizeId(row[COLS.RETUR_HEADER.SL_ID]);
-            if (rId && slId && transOwnerMap.has(slId)) {
-                transOwnerMap.set(rId, transOwnerMap.get(slId));
+            const kekurangan = parseNum(row[COLS.RETUR_HEADER.KEKURANGAN]);
+            
+            // Validasi Umum (Void/Validated)
+            const val = checkRowValidity(row, COLS.RETUR_HEADER.VALIDATED_BY, COLS.RETUR_HEADER.VOID_BY);
+            
+            if (!val.valid) {
+                voidedRows.push({type: 'Retur', id: rId, reason: val.reason});
+                return;
+            }
+
+            // FILTER BARU: Jika Kekurangan == 0, anggap INVALID (Sudah Lunas, Skip)
+            // Jika Minus (<0) atau Plus (>0), anggap VALID (Ada saldo gantung)
+            if (kekurangan === 0) {
+                voidedRows.push({type: 'Retur', id: rId, reason: "Saldo 0 (Lunas/Invalid)"});
+                return;
+            }
+
+            // Jika lolos, masukkan ke allowed set
+            if (rId) {
+                allowedReturnIds.add(rId);
+                const slId = normalizeId(row[COLS.RETUR_HEADER.SL_ID]);
+                if (slId && transOwnerMap.has(slId)) {
+                    transOwnerMap.set(rId, transOwnerMap.get(slId));
+                }
             }
         });
     }
@@ -216,7 +245,6 @@ const useDataProcessor = () => {
       const name = row[COLS.PRODUK_BUKU.NAME];
       if (id) {
          if (isExcludedBookId(id)) return;
-         
          const { penerbit, kelas } = parseBookTitle(name);
          const groupId = parseNum(row[COLS.PRODUK_BUKU.GROUP_ID]);
          let peruntukan = "SISWA";
@@ -236,7 +264,7 @@ const useDataProcessor = () => {
              peruntukan: peruntukan,
              spek: "",
              spek_kertas: "Buku",
-             stok: 0, // Default 0, will be updated by Stock History
+             stok: 0, 
              tipe_buku: "",
              updatedAt: Date.now()
          };
@@ -246,12 +274,20 @@ const useDataProcessor = () => {
     // 2. CUSTOMERS
     customer.forEach(row => {
       const id = normalizeId(row[COLS.CUSTOMER.CUSTOMER_ID]);
+      
+      const val = checkRowValidity(row, -1, COLS.CUSTOMER.VOID_BY);
+      if (!val.valid) {
+          voidedRows.push({ type: 'Customer', id: id, reason: val.reason });
+          return;
+      }
+
       if (id) {
         dbCustomers[id] = {
           id: id,
           nama: row[COLS.CUSTOMER.NAMA],
           telepon: row[COLS.CUSTOMER.HP] ? String(row[COLS.CUSTOMER.HP]).trim() : "",
           saldoAwal: parseNum(row[COLS.CUSTOMER.SALDO_AWAL]), 
+          saldoAkhir: 0, 
           createdAt: Date.now(),
           updatedAt: Date.now()
         };
@@ -308,8 +344,7 @@ const useDataProcessor = () => {
                 const ts = tglStr ? new Date(tglStr).getTime() : Date.now();
                 const gross = parseNum(row[COLS.TRANSAKSI_PENJUALAN.TOTAL_GROSS]);
                 const diskon = parseNum(row[COLS.TRANSAKSI_PENJUALAN.TOTAL_DISKON]);
-                let net = parseNum(row[COLS.TRANSAKSI_PENJUALAN.TOTAL_NET]);
-                if (net === 0 && gross > 0) net = gross - diskon;
+                const net = gross - diskon;
 
                 const custId = normalizeId(row[COLS.TRANSAKSI_PENJUALAN.CUST_ID]);
 
@@ -431,18 +466,20 @@ const useDataProcessor = () => {
         });
     }
 
+    // RETUR HEADER - PROCESSING
     if (returHeader) {
         returHeader.forEach(row => {
-            const val = checkRowValidity(row, COLS.RETUR_HEADER.VALIDATED_BY, COLS.RETUR_HEADER.VOID_BY);
             const rid = normalizeId(row[COLS.RETUR_HEADER.ID]);
-            if (!val.valid) { voidedRows.push({type: 'Retur', id: rid, reason: val.reason}); return; }
+            
+            // Cek apakah ID ini ada di allowed set (lolos filter saldo 0 dan void)
+            if (!allowedReturnIds.has(rid)) return; 
 
             const invId = normalizeId(row[COLS.RETUR_HEADER.SL_ID]);
             const totalRetur = parseNum(row[COLS.RETUR_HEADER.TOTAL_RETUR]);
 
+            // Update info Invoice: Total Retur (Tapi tidak mengubah Netto)
             if (dbInvoices[invId]) {
                 dbInvoices[invId].totalRetur = (dbInvoices[invId].totalRetur || 0) + totalRetur;
-                dbInvoices[invId].totalNetto = dbInvoices[invId].totalNetto - totalRetur;
             }
 
             if (rid) {
@@ -450,12 +487,10 @@ const useDataProcessor = () => {
                 const ts = tglStr ? new Date(tglStr).getTime() : Date.now();
                 const custId = dbInvoices[invId] ? dbInvoices[invId].customerId : "UNKNOWN";
 
-                // UPDATED: Gabung Keterangan Utama dan Keterangan Biaya
                 const ketUtama = row[COLS.RETUR_HEADER.KETERANGAN] || "";
                 const ketBiaya = row[COLS.RETUR_HEADER.KETERANGAN_BIAYA] || "";
                 let combinedKet = `${ketUtama} ${ketBiaya}`.trim();
                 
-                // Fallback jika keduanya kosong
                 if (!combinedKet) {
                     combinedKet = `Retur No: ${row[COLS.RETUR_HEADER.NO_RJ]}`;
                 }
@@ -469,7 +504,7 @@ const useDataProcessor = () => {
                     arah: "OUT",
                     sumber: "RETURN",
                     totalRetur: totalRetur,
-                    keterangan: combinedKet, // Pakai hasil gabungan
+                    keterangan: combinedKet,
                     createdAt: ts,
                     updatedAt: Date.now()
                 };
@@ -477,12 +512,16 @@ const useDataProcessor = () => {
         });
     }
 
+    // RETUR DETAIL (Only if Header Allowed)
     if (returDetail) {
         returDetail.forEach(row => {
             const rHeadId = normalizeId(row[COLS.RETUR_DETAIL.HEADER_ID]);
-            const bookId = normalizeId(row[COLS.RETUR_DETAIL.BARANG_ID]);
             
-            if (rHeadId && bookId && dbReturns[rHeadId]) {
+            // Cek allowed set dulu
+            if (!allowedReturnIds.has(rHeadId)) return;
+
+            if (dbReturns[rHeadId]) {
+                const bookId = normalizeId(row[COLS.RETUR_DETAIL.BARANG_ID]);
                 if (isExcludedBookId(bookId)) return;
 
                 const rItemId = `RITEM_${rHeadId}_${bookId}`;
@@ -526,7 +565,6 @@ const useDataProcessor = () => {
              }
              if (isNaN(ts)) ts = Date.now();
 
-             // UPDATE MASTER STOK (Logika: Ambil SaldoAkhir dari data stok TERBARU)
              if (dbProducts[bookId]) {
                  const lastTs = productMaxDate.get(bookId) || 0;
                  if (ts >= lastTs) {
@@ -587,6 +625,35 @@ const useDataProcessor = () => {
 
         const custNameSafe = (inv.namaCustomer || "UNKNOWN").trim().replace(/[.#$[\]/]/g, '_');
         inv.compositeStatus = `${custNameSafe}_${inv.statusPembayaran}`;
+    });
+
+    Object.values(dbCustomers).forEach(cust => {
+        cust.saldoAkhir = cust.saldoAwal || 0; 
+    });
+
+    Object.values(dbInvoices).forEach(inv => {
+        if (dbCustomers[inv.customerId]) {
+            const debtAmount = inv.totalBruto - inv.totalDiskon;
+            dbCustomers[inv.customerId].saldoAkhir -= debtAmount;
+        }
+    });
+
+    Object.values(dbPayments).forEach(pay => {
+        if (dbCustomers[pay.customerId]) {
+            dbCustomers[pay.customerId].saldoAkhir += pay.totalBayar;
+        }
+    });
+
+    Object.values(dbNonFaktur).forEach(nf => {
+        if (dbCustomers[nf.customerId]) {
+            dbCustomers[nf.customerId].saldoAkhir += nf.totalBayar;
+        }
+    });
+
+    Object.values(dbReturns).forEach(ret => {
+        if (dbCustomers[ret.customerId]) {
+            dbCustomers[ret.customerId].saldoAkhir += ret.totalRetur;
+        }
     });
 
     return {
@@ -747,6 +814,9 @@ export default function App() {
                         </Panel>
                         <Panel header="Example: Invoice (Flat)" key="3">
                             <pre style={{fontSize: 10, background: '#f5f5f5', padding: 10}}>{JSON.stringify(Object.values(processedData.invoices)[0] || {}, null, 2)}</pre>
+                        </Panel>
+                        <Panel header="Example: Customer (Flat)" key="4">
+                            <pre style={{fontSize: 10, background: '#f5f5f5', padding: 10}}>{JSON.stringify(Object.values(processedData.customers)[0] || {}, null, 2)}</pre>
                         </Panel>
                     </Collapse>
                 </TabPane>

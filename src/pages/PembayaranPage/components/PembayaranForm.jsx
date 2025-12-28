@@ -20,6 +20,7 @@ const { Option } = Select;
 const SOURCE_DEFAULT = 'INVOICE_PAYMENT'; 
 const ARAH_TRANSAKSI = 'IN';
 
+// Formatter Desimal (Presisi)
 const currencyFormatter = (value) =>
     new Intl.NumberFormat('id-ID', { 
         style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 2 
@@ -27,48 +28,77 @@ const currencyFormatter = (value) =>
 
 const generateAllocationId = (paymentId, invoiceId) => `ALLOC_${paymentId}_${invoiceId}`;
 
+// --- COMPONENT LIST ITEM (UI DIPERBESAR) ---
 const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, onNominalChange, readOnly }) => {
+    const totalRetur = Number(item.totalRetur) || 0;
+    
     return (
         <List.Item 
             style={{ 
-                padding: '8px 12px', background: isSelected ? '#e6f7ff' : '#fff', 
-                borderBottom: '1px solid #f0f0f0', transition: 'all 0.3s'
+                padding: '12px 16px', // Padding diperbesar
+                background: isSelected ? '#e6f7ff' : '#fff', 
+                borderBottom: '1px solid #f0f0f0', 
+                transition: 'all 0.3s'
             }}
             actions={!readOnly ? [<Checkbox checked={isSelected} onChange={(e) => onToggle(item.id, e.target.checked)} />] : []}
         >
             <div style={{ width: '100%', marginRight: 16 }}>
                 <Row align="middle" gutter={8}>
                     <Col flex="auto">
-                        <div style={{ fontWeight: 'bold', fontSize: 13, color: 'rgba(0, 0, 0, 0.88)' }}>{item.namaCustomer}</div>
-                        <div style={{ fontSize: 11, color: '#666' }}>{item.id} • {dayjs(item.tanggal).format('DD MMM YY')}</div>
-                        <div style={{ fontSize: 11, marginTop: 2 }}>
-                            <span style={{color: '#555'}}>
-                                Netto: {currencyFormatter(item.totalNetto)} <br/>
-                                Sudah Bayar: {currencyFormatter(item.sudahBayar)}
-                            </span>
-                            <div style={{marginTop: 4}}>
-                                {readOnly ? 'Sisa Awal:' : 'Sisa Tagihan:'} <Text type="danger" strong>{currencyFormatter(item.sisaTagihan)}</Text>
+                        <div style={{ fontWeight: 'bold', fontSize: 15, color: 'rgba(0, 0, 0, 0.88)' }}>
+                            {item.namaCustomer}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>
+                            {item.id} • {dayjs(item.tanggal).format('DD MMM YY')}
+                        </div>
+                        
+                        {/* Rincian Angka */}
+                        <div style={{ fontSize: 13, marginTop: 4, background: '#fafafa', padding: 8, borderRadius: 6, border: '1px solid #f0f0f0' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                                <span style={{color: '#555'}}>Netto (Bruto-Disc):</span>
+                                <span style={{fontWeight: 500}}>{currencyFormatter(item.totalNetto)}</span>
+                            </div>
+                            {totalRetur > 0 && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cf1322', marginBottom: 2 }}>
+                                    <span>Dikurangi Retur:</span>
+                                    <span>-{currencyFormatter(totalRetur)}</span>
+                                </div>
+                            )}
+                             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#096dd9', marginBottom: 4 }}>
+                                <span>Sudah Bayar:</span>
+                                <span>-{currencyFormatter(item.sudahBayar)}</span>
+                            </div>
+                            
+                            <div style={{ borderTop: '1px dashed #ccc', margin: '4px 0', padding: 0 }} />
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: 13 }}>
+                                <span>{readOnly ? 'Sisa Awal' : 'Sisa Tagihan'}:</span>
+                                <span style={{ color: item.sisaTagihan > 0.01 ? '#fa541c' : '#389e0d', fontSize: 14 }}>
+                                    {currencyFormatter(item.sisaTagihan)}
+                                </span>
                             </div>
                         </div>
                     </Col>
+                    
                     <Col>
                         {readOnly ? (
                             <div style={{textAlign: 'right'}}>
-                                <div style={{fontSize: 10, color: '#666'}}>Bayar Skrg:</div>
-                                <Text strong style={{color: '#1890ff'}}>{currencyFormatter(allocation)}</Text>
+                                <div style={{fontSize: 11, color: '#666'}}>Bayar di sini:</div>
+                                <Text strong style={{color: '#1890ff', fontSize: 15}}>{currencyFormatter(allocation)}</Text>
                             </div>
                         ) : (
                             isSelected ? (
                                 <InputNumber
                                     value={allocation}
                                     onChange={(v) => onNominalChange(v, item.id)}
-                                    style={{ width: 140, fontSize: 13 }}
+                                    style={{ width: 140, fontSize: 14, fontWeight: 'bold' }}
                                     placeholder="Nominal"
                                     min={0} max={item.sisaTagihan} status={!allocation ? 'error' : ''}
                                     decimalSeparator="," step={0.01}
                                     formatter={value => !value && value !== 0 ? '' : String(value).replace('.',',')}
+                                    parser={value => value ? value.replace(/[^\d,]/g, '').replace(',','.') : ''}
                                 />
-                            ) : <Tag color="red" style={{ fontSize: 10 }}>BELUM</Tag>
+                            ) : <Tag color="red" style={{ fontSize: 11, padding: '2px 8px' }}>BELUM</Tag>
                         )}
                     </Col>
                 </Row>
@@ -79,10 +109,12 @@ const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, on
     return prev.item.id === next.item.id && prev.isSelected === next.isSelected && prev.allocation === next.allocation && prev.readOnly === next.readOnly;
 });
 
+// --- MAIN COMPONENT ---
 const PembayaranForm = ({ open, onCancel, initialValues }) => {
     const [form] = Form.useForm();
     const [modal, contextHolder] = Modal.useModal();
     const selectedDate = Form.useWatch('tanggal', form);
+    
     const { pelangganList: rawPelangganData, loadingPelanggan } = usePelangganStream();
     
     const pelangganList = useMemo(() => {
@@ -150,15 +182,22 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                     const invSnap = await get(ref(db, `invoices/${alloc.invoiceId}`));
                     let invData = {};
                     if (invSnap.exists()) invData = invSnap.val();
-                    const netto = Number(invData.totalNetto) || 0;
+                    
+                    const netto = Number(invData.totalNetto) || 0; 
+                    const retur = Number(invData.totalRetur) || 0; 
                     const bayarTotal = Number(invData.totalBayar) || 0;
+                    
+                    // Rumus: Sisa = Netto - Retur - Bayar
+                    const sisa = netto - retur - bayarTotal;
+
                     return {
                         id: alloc.invoiceId,
                         namaCustomer: invData.namaCustomer || 'Unknown',
                         tanggal: invData.tanggal || 0,
                         totalNetto: netto,
+                        totalRetur: retur,
                         sudahBayar: bayarTotal,
-                        sisaTagihan: netto - bayarTotal, 
+                        sisaTagihan: sisa, 
                         amountAllocated: alloc.amount
                     };
                 });
@@ -185,8 +224,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                     const keys = Object.keys(snapshot.val()).sort();
                     const lastKey = keys[keys.length - 1];
                     const parts = lastKey.split('-');
-                    const lastSeq = parts[parts.length - 1];
-                    const num = parseInt(lastSeq, 10);
+                    const num = parseInt(parts[parts.length - 1], 10);
                     if (!isNaN(num)) nextNum = num + 1;
                 }
                 if (isMounted) form.setFieldsValue({ id: `${keyPrefix}${String(nextNum).padStart(3, '0')}` });
@@ -207,14 +245,28 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             const q = query(ref(db, 'invoices'), orderByChild('compositeStatus'), equalTo(targetStatus));
             const snap = await get(q);
             let results = [];
+            
             if (snap.exists()) {
                 snap.forEach((child) => {
                     const val = child.val();
+                    
                     const totalNetto = Number(val.totalNetto) || 0;
+                    const totalRetur = Number(val.totalRetur) || 0;
                     const sudahBayar = Number(val.totalBayar) || 0;
-                    const sisaTagihan = totalNetto - sudahBayar;
-                    if (sisaTagihan > 100) { 
-                        results.push({ id: child.key, ...val, totalNetto, sudahBayar, sisaTagihan });
+                    
+                    // 🔥 RUMUS: Sisa = Netto - Retur - Bayar
+                    const sisaTagihan = totalNetto - totalRetur - sudahBayar;
+
+                    // Filter > 0.01 untuk keamanan desimal
+                    if (sisaTagihan > 0.01) { 
+                        results.push({ 
+                            id: child.key, 
+                            ...val, 
+                            totalNetto, 
+                            totalRetur,
+                            sudahBayar, 
+                            sisaTagihan 
+                        });
                     }
                 });
             }
@@ -233,12 +285,15 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         let remainingMoney = amountToDistribute;
         let newAllocations = {};
         let newSelectedIds = [];
+        
         for (const invoice of invoiceList) {
             if (remainingMoney <= 0) break;
             const amountNeeded = invoice.sisaTagihan;
             let amountToPay = remainingMoney >= amountNeeded ? amountNeeded : remainingMoney;
-            amountToPay = Math.round(amountToPay * 100) / 100;
+            
+            // Tanpa pembulatan paksa, gunakan desimal apa adanya
             remainingMoney = remainingMoney >= amountNeeded ? remainingMoney - amountNeeded : 0;
+            
             newAllocations[invoice.id] = amountToPay;
             newSelectedIds.push(invoice.id);
         }
@@ -291,10 +346,11 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         }
     };
 
-       const handleDelete = () => {
+    // --- DELETE ---
+    const handleDelete = () => {
         modal.confirm({
             title: 'Hapus Pembayaran?',
-            content: 'Data pembayaran akan dihapus, saldo invoice dikembalikan, dan Saldo Customer akan bertambah (Hutang naik kembali).',
+            content: 'Data pembayaran akan dihapus, saldo invoice dikembalikan, dan Saldo Customer akan berkurang (Revert Plus).',
             okText: 'Hapus Permanen',
             okType: 'danger',
             cancelText: 'Batal',
@@ -302,13 +358,12 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 setIsSaving(true);
                 try {
                     const paymentId = initialValues.id;
-                    const customerId = initialValues.customerId; // Pastikan initialValues punya customerId
+                    const customerId = initialValues.customerId;
                     const amountPaid = Number(initialValues.totalBayar) || 0;
 
                     const updates = {};
                     updates[`payments/${paymentId}`] = null;
                     
-                    // ... (Logika hapus allocation invoice tetap sama) ...
                     const allocRef = query(ref(db, 'payment_allocations'), orderByChild('paymentId'), equalTo(paymentId));
                     const snapshot = await get(allocRef);
                     if (snapshot.exists()) {
@@ -317,16 +372,28 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                             const allocItem = allocations[key];
                             const invId = allocItem.invoiceId;
                             const amount = Number(allocItem.amount) || 0;
+                            
                             updates[`payment_allocations/${key}`] = null;
+                            
+                            // Revert Invoice
                             const invSnap = await get(ref(db, `invoices/${invId}`));
                             if(invSnap.exists()){
                                 const invData = invSnap.val();
-                                const currentTotalBayar = Number(invData.totalBayar) || 0;
-                                const newTotalBayar = Math.max(0, currentTotalBayar - amount);
+                                const currentNetto = Number(invData.totalNetto) || 0;
+                                const currentRetur = Number(invData.totalRetur) || 0;
+                                const currentBayar = Number(invData.totalBayar) || 0;
+                                
+                                const newTotalBayar = Math.max(0, currentBayar - amount);
+                                
+                                // 🔥 UPDATE SISA TAGIHAN PROPERTY SAAT DELETE
+                                const newSisaTagihan = currentNetto - currentRetur - newTotalBayar;
+
                                 const customerName = invData.namaCustomer || 'UNKNOWN';
-                                const newStatus = 'BELUM';
+                                const newStatus = 'BELUM'; 
                                 const newComposite = `${customerName.toUpperCase()}_${newStatus}`;
+                                
                                 updates[`invoices/${invId}/totalBayar`] = newTotalBayar;
+                                updates[`invoices/${invId}/sisaTagihan`] = newSisaTagihan; // Update Property
                                 updates[`invoices/${invId}/statusPembayaran`] = newStatus;
                                 updates[`invoices/${invId}/compositeStatus`] = newComposite;
                                 updates[`invoices/${invId}/updatedAt`] = Date.now();
@@ -335,12 +402,12 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                         await Promise.all(promises);
                     }
 
-                    // 🔥 UPDATE SALDO CUSTOMER (Revert: Pembayaran dihapus -> Hutang bertambah)
+                    // Revert Saldo Customer
                     if (customerId && customerId !== 'UNKNOWN') {
                         const custSnap = await get(ref(db, `customers/${customerId}`));
                         if (custSnap.exists()) {
                             const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
-                            updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + amountPaid;
+                            updates[`customers/${customerId}/saldoAkhir`] = currentSaldo - amountPaid;
                             updates[`customers/${customerId}/updatedAt`] = Date.now();
                         }
                     }
@@ -366,7 +433,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             const paymentId = values.id; 
             const firstInv = invoiceList.find(i => i.id === selectedInvoiceIds[0]);
 
-            // ... (Upload Bukti Logic tetap sama) ...
             let buktiUrl = null;
             if (fileList.length > 0 && fileList[0].originFileObj) {
                 const safeName = `bukti_${paymentId}`;
@@ -382,7 +448,9 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
 
             const paymentData = {
                 id: paymentId,
-                // ... (field lain tetap sama)
+                arah: ARAH_TRANSAKSI,
+                sumber: SOURCE_DEFAULT,
+                tanggal: dayjs(values.tanggal).valueOf(),
                 totalBayar: totalInputAmount,
                 customerId: customerId,
                 namaCustomer: customerName,
@@ -393,19 +461,18 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             };
             updates[`payments/${paymentId}`] = paymentData;
 
-            // 🔥 UPDATE SALDO CUSTOMER (Pembayaran -> Mengurangi Hutang)
+            // Update Saldo Customer (+)
             if (customerId && customerId !== 'UNKNOWN') {
                 const custSnap = await get(ref(db, `customers/${customerId}`));
                 let currentSaldo = 0;
                 if (custSnap.exists()) {
                     currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
                 }
-                // Kurangi Saldo Akhir sebesar totalInputAmount
-                updates[`customers/${customerId}/saldoAkhir`] = currentSaldo - totalInputAmount;
+                updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + totalInputAmount;
                 updates[`customers/${customerId}/updatedAt`] = timestampNow;
             }
 
-            // ... (Logika update Invoice per item tetap sama) ...
+            // Update Invoice & Allocations
             selectedInvoiceIds.forEach(invId => {
                 const invoiceRef = invoiceList.find(i => i.id === invId);
                 const amountAllocated = Number(paymentAllocations[invId]); 
@@ -421,16 +488,23 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 };
 
                 const totalNetto = Number(invoiceRef.totalNetto) || 0; 
+                const totalRetur = Number(invoiceRef.totalRetur) || 0; 
                 const currentSudahBayar = Number(invoiceRef.sudahBayar) || 0;
+                
                 const newTotalBayar = currentSudahBayar + amountAllocated;
 
+                // 🔥 UPDATE SISA TAGIHAN PROPERTY SAAT SAVE
+                const newSisaTagihan = totalNetto - totalRetur - newTotalBayar;
+
                 let newStatus = 'BELUM';
-                if (newTotalBayar >= (totalNetto - 100)) newStatus = 'LUNAS';
+                // Lunas jika sisa <= 0.01 (floating point safety)
+                if (newSisaTagihan <= 0.01) newStatus = 'LUNAS';
 
                 const finalCustomerName = invoiceRef.namaCustomer || customerName;
                 const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
 
                 updates[`invoices/${invId}/totalBayar`] = newTotalBayar;
+                updates[`invoices/${invId}/sisaTagihan`] = newSisaTagihan; // Update Property
                 updates[`invoices/${invId}/statusPembayaran`] = newStatus;
                 updates[`invoices/${invId}/compositeStatus`] = newComposite;
                 updates[`invoices/${invId}/updatedAt`] = timestampNow;
@@ -447,7 +521,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             setIsSaving(false);
         }
     };
-    
 
     return (
         <>
@@ -465,7 +538,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                     !initialValues && <Button key="submit" type="primary" loading={isSaving} icon={<SaveOutlined />} onClick={() => form.submit()}>Simpan Pembayaran</Button>
                 ]}
             >
-                {/* ... (Isi Form UI Pembayaran, sama seperti sebelumnya) ... */}
                  <Spin spinning={isGeneratingId}>
                     <Form form={form} layout="vertical" onFinish={handleSave}>
                         <div style={{ background: '#f5f5f5', padding: '12px', borderRadius: 8, marginBottom: 16 }}>
@@ -488,7 +560,8 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                                     </Col>
                                     <Col span={12}>
                                         <Form.Item label="2. Total Uang Diterima" style={{marginBottom: 8}} required>
-                                            <InputNumber style={{ width: '100%', fontWeight: 'bold', fontSize: 16 }} value={totalInputAmount} onChange={handleTotalBayarChange} placeholder="Input Nominal..." disabled={invoiceList.length === 0} max={maxPayableAmount} decimalSeparator="," step={0.01} formatter={value => !value && value !== 0 ? 'Rp 0' : `Rp ${String(value).replace(/\./g,',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`} parser={value => value ? value.replace(/[^\d,]/g, '').replace(',','.') : ''}/>
+                                            <InputNumber style={{ width: '100%', fontWeight: 'bold', fontSize: 16 }} value={totalInputAmount} onChange={handleTotalBayarChange} placeholder="Input Nominal..." disabled={invoiceList.length === 0} max={maxPayableAmount} 
+                                            decimalSeparator="," step={0.01} formatter={value => !value && value !== 0 ? 'Rp 0' : `Rp ${String(value).replace(/\./g,',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`} parser={value => value ? value.replace(/[^\d,]/g, '').replace(',','.') : ''}/>
                                         </Form.Item>
                                     </Col>
                                 </Row>

@@ -343,6 +343,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
     const handleQtyChange = (val, itemId) => setReturnQtys(prev => ({ ...prev, [itemId]: val }));
 
     // --- SAVE ---
+// --- SAVE ---
    const handleSave = async (values) => {
         if (grandTotalRetur <= 0 && selectedItemIds.length > 0 && values.totalDiskon >= totalBruto) {
              return message.error("Total diskon tidak boleh melebihi total retur.");
@@ -375,40 +376,55 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             updates[`returns/${returId}`] = returData;
 
             // 🔥 UPDATE SALDO CUSTOMER (Retur mengurangi hutang/saldo)
+            // Logic: Saldo Customer (Hutang) dikurangi Total Retur
             if (selectedCustomerId) {
                 const custRef = ref(db, `customers/${selectedCustomerId}`);
                 const custSnap = await get(custRef);
                 if (custSnap.exists()) {
                     const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                    // Mengurangi saldo (hutang) karena ada retur
                     updates[`customers/${selectedCustomerId}/saldoAkhir`] = currentSaldo - grandTotalRetur;
                     updates[`customers/${selectedCustomerId}/updatedAt`] = timestampNow;
                 }
             }
 
-            // ... (Update Invoice Logic tetap sama) ...
+            // 🔥 UPDATE INVOICE (Sisa Tagihan)
             const invSnap = await get(ref(db, `invoices/${selectedInvoiceId}`));
             if (!invSnap.exists()) throw new Error("Invoice tidak ditemukan");
             const curInv = invSnap.val();
+            
             const oldRetur = Number(curInv.totalRetur) || 0;
             const oldNetto = Number(curInv.totalNetto) || 0;
             const currentBayar = Number(curInv.totalBayar) || 0;
+            
             const newTotalRetur = oldRetur + grandTotalRetur;
-            const newTotalNetto = oldNetto - grandTotalRetur;
+            const newTotalNetto = oldNetto - grandTotalRetur; // Netto berkurang
+            
+            // HITUNG SISA TAGIHAN BARU
+            // Sisa Tagihan = Netto Baru - Sudah Bayar
+            const newSisaTagihan = newTotalNetto - currentBayar;
 
             let newStatus = curInv.statusPembayaran || 'BELUM';
-            if (newTotalNetto <= 0 || currentBayar >= newTotalNetto) {
+            // Jika sisa tagihan <= 0, anggap LUNAS
+            if (newSisaTagihan <= 0) {
                 newStatus = 'LUNAS';
+            } else {
+                // Jika sebelumnya LUNAS tapi karena ada revisi jadi tidak, kembalikan ke SEBAGIAN/BELUM
+                // Namun untuk retur biasanya tagihan makin kecil, jadi logic ini aman.
+                 newStatus = currentBayar > 0 ? 'SEBAGIAN' : 'BELUM';
             }
+
             const finalCustomerName = curInv.namaCustomer || selectedCustomerName || 'UNKNOWN';
             const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
 
             updates[`invoices/${selectedInvoiceId}/totalRetur`] = newTotalRetur;
             updates[`invoices/${selectedInvoiceId}/totalNetto`] = newTotalNetto;
+            updates[`invoices/${selectedInvoiceId}/sisaTagihan`] = newSisaTagihan; // Update field sisaTagihan
             updates[`invoices/${selectedInvoiceId}/statusPembayaran`] = newStatus;
             updates[`invoices/${selectedInvoiceId}/compositeStatus`] = newComposite;
             updates[`invoices/${selectedInvoiceId}/updatedAt`] = timestampNow;
 
-            // ... (Update Items Logic & Stock History TETAP SAMA) ...
+            // ... (Update Items Logic & Stock History TETAP SAMA seperti kode awal Anda) ...
             for (const itemId of selectedItemIds) {
                 const source = sourceItems.find(i => i.id === itemId);
                 const qtyRetur = returnQtys[itemId];
@@ -449,18 +465,17 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             message.error({ content: "Gagal: " + e.message, key: 'save' });
         } finally { setIsSaving(false); }
     };
-
-    const handleDelete = () => {
+   const handleDelete = () => {
          modal.confirm({
             title: 'Hapus & Revert Retur?',
-            content: 'Data retur dihapus, saldo invoice dikembalikan (Netto naik), stok produk dikurangi kembali.',
+            content: 'Data retur dihapus. Saldo customer dikembalikan (ditambah), Invoice direvisi, Stok dikurangi.',
             okType: 'danger',
             onOk: async () => {
                 setIsSaving(true);
                 try {
                     const returId = initialValues.id;
                     const invId = initialValues.invoiceId;
-                    const customerId = initialValues.customerId; // Pastikan data customer ada di initialValues
+                    const customerId = initialValues.customerId; 
                     const totalReturVal = Number(initialValues.totalRetur) || 0; 
                     const timestampNow = Date.now();
                     const updates = {};
@@ -472,12 +487,13 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                         const custSnap = await get(custRef);
                         if (custSnap.exists()) {
                             const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                            // Saldo ditambah kembali sebesar nilai retur yg dihapus
                             updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + totalReturVal;
                             updates[`customers/${customerId}/updatedAt`] = timestampNow;
                         }
                     }
 
-                    // ... (Logic Revert Invoice & Revert Stok tetap sama) ...
+                    // 🔥 REVERT INVOICE & SISA TAGIHAN
                     if (invId) {
                         const invSnap = await get(ref(db, `invoices/${invId}`));
                         if (invSnap.exists()) {
@@ -486,23 +502,33 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                             const curNetto = Number(curInv.totalNetto) || 0;
                             const curBayar = Number(curInv.totalBayar) || 0; 
                             
+                            // Kembalikan Netto ke nilai yang lebih besar (sebelum retur)
                             const newTotalRetur = Math.max(0, curRetur - totalReturVal);
                             const newTotalNetto = curNetto + totalReturVal; 
 
+                            // HITUNG SISA TAGIHAN (Sisa naik kembali)
+                            const newSisaTagihan = newTotalNetto - curBayar;
+
                             let newStatus = 'BELUM';
-                            if (curBayar >= (newTotalNetto - 100)) newStatus = 'LUNAS';
+                            if (newSisaTagihan <= 0) {
+                                newStatus = 'LUNAS';
+                            } else {
+                                newStatus = curBayar > 0 ? 'SEBAGIAN' : 'BELUM';
+                            }
 
                             const customerName = curInv.namaCustomer || 'UNKNOWN';
                             const newComposite = `${customerName.toUpperCase()}_${newStatus}`;
 
                             updates[`invoices/${invId}/totalRetur`] = newTotalRetur;
                             updates[`invoices/${invId}/totalNetto`] = newTotalNetto;
+                            updates[`invoices/${invId}/sisaTagihan`] = newSisaTagihan; // Update sisa tagihan
                             updates[`invoices/${invId}/statusPembayaran`] = newStatus;
                             updates[`invoices/${invId}/compositeStatus`] = newComposite;
                             updates[`invoices/${invId}/updatedAt`] = Date.now();
                         }
                     }
 
+                    // ... (Hapus Item Retur & Revert Stok TETAP SAMA) ...
                     const rQuery = query(ref(db, 'return_items'), orderByChild('returnId'), equalTo(returId));
                     const rSnap = await get(rQuery);
                     if (rSnap.exists()) {
