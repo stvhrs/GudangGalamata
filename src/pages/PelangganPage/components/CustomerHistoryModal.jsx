@@ -176,10 +176,17 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             if (item.date < startFilter) {
                 openingBalance = runningBalance;
             } else if (item.date <= endFilter) {
-                const query = searchText.toLowerCase();
+                // --- UPDATE SEARCH LOGIC ---
+                const queryStr = searchText.toLowerCase();
+                
+                // Bersihkan input search dari karakter non-angka (untuk support input "113.061.800" menjadi "113061800")
+                const queryNumeric = searchText.replace(/[^0-9]/g, ''); 
+
                 const matchSearch = 
-                    (item.id && item.id.toLowerCase().includes(query)) ||
-                    (item.keterangan && item.keterangan.toLowerCase().includes(query));
+                    (item.id && item.id.toLowerCase().includes(queryStr)) ||
+                    (item.keterangan && item.keterangan.toLowerCase().includes(queryStr)) ||
+                    // Tambahan: Cek apakah nominal mengandung angka yang diketik
+                    (queryNumeric && item.amount.toString().includes(queryNumeric));
 
                 if (matchSearch) {
                     displayList.push({
@@ -512,7 +519,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
                     <Col flex="auto">
                         <Input 
-                            placeholder="Cari ID Transaksi atau Keterangan..." 
+                            placeholder="Cari ID, Keterangan, atau Nominal (mis: 113.061.800)" 
                             prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} 
                             value={searchText}
                             onChange={(e) => setSearchText(e.target.value)}

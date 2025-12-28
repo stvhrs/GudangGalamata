@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Form, DatePicker, Select, Input, InputNumber, Button, message, Spin, Row, Col } from 'antd';
 import { SaveOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { ref, get, update, remove, query, orderByKey, startAt, endAt } from 'firebase/database'; // Hapus 'set', pakai 'update' root
+import { ref, get, update, remove, query, orderByKey, startAt, endAt } from 'firebase/database';
 
 import { db } from '../../../api/firebase'; 
 import { usePelangganStream } from '../../../hooks/useFirebaseData'; 
@@ -22,8 +22,6 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
     const { pelangganList = [], loadingPelanggan } = usePelangganStream();
     
     const isEditMode = !!initialValues;
-
-    // 🔥 1. Watch Tanggal agar ID berubah real-time saat tanggal diganti
     const selectedDate = Form.useWatch('tanggal', form);
 
     // --- INIT FORM ---
@@ -102,19 +100,37 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
     // --- DELETE HANDLER ---
     const handleDelete = () => {
         const targetId = initialValues?.id;
+        const custId = initialValues?.customerId;
+        const amount = Number(initialValues?.totalBayar) || 0;
+
         if (!targetId) return message.error("ID tidak ditemukan.");
 
         modal.confirm({
             title: 'Hapus Data Non-Faktur?',
             icon: <ExclamationCircleOutlined />,
-            content: `Yakin ingin menghapus data ${targetId}?`,
+            content: `Yakin ingin menghapus data ${targetId}? Saldo customer akan berkurang kembali (revert).`,
             okText: 'Ya, Hapus',
             okType: 'danger',
             cancelText: 'Batal',
             centered: true,
             onOk: async () => {
                 try {
-                    await remove(ref(db, `non_faktur/${targetId}`));
+                    const updates = {};
+                    updates[`non_faktur/${targetId}`] = null;
+
+                    // 🔥 LOGIKA DELETE: KEMBALIKAN SALDO (REVERT)
+                    // Karena Transaksi ini sifatnya MENAMBAH (+), maka saat dihapus harus MENGURANGI (-)
+                    if (custId) {
+                        const custRef = ref(db, `customers/${custId}`);
+                        const custSnap = await get(custRef);
+                        if (custSnap.exists()) {
+                            const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                            updates[`customers/${custId}/saldoAkhir`] = currentSaldo - amount;
+                            updates[`customers/${custId}/updatedAt`] = Date.now();
+                        }
+                    }
+
+                    await update(ref(db), updates);
                     message.success('Data berhasil dihapus');
                     onCancel();
                 } catch (error) {
@@ -135,6 +151,7 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
             const selectedCustomer = pelangganList.find(p => p.id === customerId);
             const namaCust = selectedCustomer ? selectedCustomer.nama : 'Umum';
             const timestampNow = Date.now();
+            const newAmount = Number(totalBayar) || 0;
 
             const dataPayload = {
                 id, 
@@ -143,13 +160,32 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
                 tanggal: tanggal.valueOf(), 
                 customerId,
                 namaCustomer: namaCust,
-                totalBayar,
+                totalBayar: newAmount,
                 keterangan: keterangan || '-',
                 updatedAt: timestampNow
             };
 
-            // Multi-path updates object
             const updates = {};
+
+            // 🔥 LOGIKA SALDO CUSTOMER: NON-FAKTUR (IN) = MENAMBAH SALDO (+)
+            if (customerId) {
+                const custRef = ref(db, `customers/${customerId}`);
+                const custSnap = await get(custRef);
+                let currentSaldo = 0;
+                if (custSnap.exists()) {
+                    currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                }
+
+                if (isEditMode) {
+                    // Edit: Saldo = Saldo Awal - Lama + Baru
+                    const oldAmount = Number(initialValues.totalBayar) || 0;
+                    updates[`customers/${customerId}/saldoAkhir`] = currentSaldo - oldAmount + newAmount;
+                } else {
+                    // Create: Saldo = Saldo Awal + Baru
+                    updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + newAmount;
+                }
+                updates[`customers/${customerId}/updatedAt`] = timestampNow;
+            }
 
             if (isEditMode) {
                 // UPDATE Existing
@@ -163,11 +199,6 @@ const NonFakturForm = ({ open, onCancel, initialValues }) => {
                     ...dataPayload,
                     createdAt: timestampNow,
                 };
-            }
-
-            // 🔥 UPDATE CUSTOMER TIMESTAMP
-            if (customerId) {
-                updates[`customers/${customerId}/updatedAt`] = timestampNow;
             }
 
             // Eksekusi Atomic Update

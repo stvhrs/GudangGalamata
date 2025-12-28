@@ -160,6 +160,27 @@ export default function PelangganPage() {
                     </span>
                 );
             }
+        },  {
+            title: 'Saldo Akhir',
+            dataIndex: 'saldoAkhir',
+            key: 'saldoAkhir',
+            width: 150,
+            align: 'right',
+            sorter: (a, b) => (parseFloat(a.saldoAkhir) || 0) - (parseFloat(b.saldoAkhir) || 0),
+            render: (val) => {
+                const isNegative = (val || 0) < 0;
+                const formatted = new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    minimumFractionDigits: 0
+                }).format(val || 0);
+
+                return (
+                    <span style={{ color: isNegative ? '#cf1322' : '#048302ff', fontWeight: isNegative ? 'bold' : 'bold' }}>
+                        {formatted}
+                    </span>
+                );
+            }
         },
         {
             title: 'Aksi',

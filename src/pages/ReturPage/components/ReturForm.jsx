@@ -343,7 +343,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
     const handleQtyChange = (val, itemId) => setReturnQtys(prev => ({ ...prev, [itemId]: val }));
 
     // --- SAVE ---
-    const handleSave = async (values) => {
+   const handleSave = async (values) => {
         if (grandTotalRetur <= 0 && selectedItemIds.length > 0 && values.totalDiskon >= totalBruto) {
              return message.error("Total diskon tidak boleh melebihi total retur.");
         }
@@ -374,19 +374,24 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             };
             updates[`returns/${returId}`] = returData;
 
-            // 🔥 UPDATE CUSTOMER TIMESTAMP
+            // 🔥 UPDATE SALDO CUSTOMER (Retur mengurangi hutang/saldo)
             if (selectedCustomerId) {
-                updates[`customers/${selectedCustomerId}/updatedAt`] = timestampNow;
+                const custRef = ref(db, `customers/${selectedCustomerId}`);
+                const custSnap = await get(custRef);
+                if (custSnap.exists()) {
+                    const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                    updates[`customers/${selectedCustomerId}/saldoAkhir`] = currentSaldo - grandTotalRetur;
+                    updates[`customers/${selectedCustomerId}/updatedAt`] = timestampNow;
+                }
             }
 
-            // Update Invoice
+            // ... (Update Invoice Logic tetap sama) ...
             const invSnap = await get(ref(db, `invoices/${selectedInvoiceId}`));
             if (!invSnap.exists()) throw new Error("Invoice tidak ditemukan");
             const curInv = invSnap.val();
             const oldRetur = Number(curInv.totalRetur) || 0;
             const oldNetto = Number(curInv.totalNetto) || 0;
             const currentBayar = Number(curInv.totalBayar) || 0;
-            
             const newTotalRetur = oldRetur + grandTotalRetur;
             const newTotalNetto = oldNetto - grandTotalRetur;
 
@@ -394,7 +399,6 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             if (newTotalNetto <= 0 || currentBayar >= newTotalNetto) {
                 newStatus = 'LUNAS';
             }
-
             const finalCustomerName = curInv.namaCustomer || selectedCustomerName || 'UNKNOWN';
             const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
 
@@ -404,7 +408,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             updates[`invoices/${selectedInvoiceId}/compositeStatus`] = newComposite;
             updates[`invoices/${selectedInvoiceId}/updatedAt`] = timestampNow;
 
-            // Items
+            // ... (Update Items Logic & Stock History TETAP SAMA) ...
             for (const itemId of selectedItemIds) {
                 const source = sourceItems.find(i => i.id === itemId);
                 const qtyRetur = returnQtys[itemId];
@@ -412,16 +416,10 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 
                 const rItemId = `RITEM_${returId}_${Math.floor(Math.random() * 100000)}`;
                 updates[`return_items/${rItemId}`] = {
-                    id: rItemId,
-                    returnId: returId,
-                    productId: source.productId || '-',
-                    judul: source.judul || source.productName || '-',
-                    qty: qtyRetur,
-                    harga: harga,
-                    diskonPersen: source.diskonPersen || 0,
-                    subtotal: qtyRetur * harga,
-                    createdAt: timestampNow,
-                    updatedAt: timestampNow
+                    id: rItemId, returnId: returId, productId: source.productId || '-',
+                    judul: source.judul || source.productName || '-', qty: qtyRetur,
+                    harga: harga, diskonPersen: source.diskonPersen || 0, subtotal: qtyRetur * harga,
+                    createdAt: timestampNow, updatedAt: timestampNow
                 };
 
                 if (source.productId) {
@@ -430,23 +428,14 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                     if (prodSnap.exists()) {
                         const stokAwal = Number(prodSnap.val().stok) || 0;
                         const stokAkhir = stokAwal + qtyRetur; 
-
                         updates[`products/${source.productId}/stok`] = stokAkhir;
 
                         const histId = `HIST_${returId}_${source.productId}_${timestampNow}`;
                         updates[`stock_history/${histId}`] = {
-                            id: histId,
-                            bukuId: source.productId,
-                            judul: source.judul || source.productName,
-                            nama: "ADMIN",
-                            refId: returId,
-                            keterangan: `Retur Invoice: ${selectedInvoiceId}`,
-                            perubahan: qtyRetur, 
-                            stokAwal: stokAwal,
-                            stokAkhir: stokAkhir,
-                            tanggal: timestampNow,
-                            createdAt: timestampNow,
-                            updatedAt: timestampNow
+                            id: histId, bukuId: source.productId, judul: source.judul || source.productName,
+                            nama: "ADMIN", refId: returId, keterangan: `Retur Invoice: ${selectedInvoiceId}`,
+                            perubahan: qtyRetur, stokAwal: stokAwal, stokAkhir: stokAkhir,
+                            tanggal: timestampNow, createdAt: timestampNow, updatedAt: timestampNow
                         };
                     }
                 }
@@ -462,7 +451,6 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
     };
 
     const handleDelete = () => {
-        // ... (Kode delete sama seperti sebelumnya, tidak perlu diubah logic update customer-nya saat delete kecuali Anda ingin customer naik ke atas juga saat delete, tapi biasanya tidak)
          modal.confirm({
             title: 'Hapus & Revert Retur?',
             content: 'Data retur dihapus, saldo invoice dikembalikan (Netto naik), stok produk dikurangi kembali.',
@@ -472,11 +460,24 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 try {
                     const returId = initialValues.id;
                     const invId = initialValues.invoiceId;
+                    const customerId = initialValues.customerId; // Pastikan data customer ada di initialValues
                     const totalReturVal = Number(initialValues.totalRetur) || 0; 
                     const timestampNow = Date.now();
                     const updates = {};
                     updates[`returns/${returId}`] = null; 
 
+                    // 🔥 UPDATE SALDO CUSTOMER (Hapus Retur -> Hutang kembali bertambah)
+                    if (customerId) {
+                        const custRef = ref(db, `customers/${customerId}`);
+                        const custSnap = await get(custRef);
+                        if (custSnap.exists()) {
+                            const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                            updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + totalReturVal;
+                            updates[`customers/${customerId}/updatedAt`] = timestampNow;
+                        }
+                    }
+
+                    // ... (Logic Revert Invoice & Revert Stok tetap sama) ...
                     if (invId) {
                         const invSnap = await get(ref(db, `invoices/${invId}`));
                         if (invSnap.exists()) {
@@ -489,9 +490,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                             const newTotalNetto = curNetto + totalReturVal; 
 
                             let newStatus = 'BELUM';
-                            if (curBayar >= (newTotalNetto - 100)) {
-                                newStatus = 'LUNAS';
-                            }
+                            if (curBayar >= (newTotalNetto - 100)) newStatus = 'LUNAS';
 
                             const customerName = curInv.namaCustomer || 'UNKNOWN';
                             const newComposite = `${customerName.toUpperCase()}_${newStatus}`;
@@ -506,7 +505,6 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
 
                     const rQuery = query(ref(db, 'return_items'), orderByChild('returnId'), equalTo(returId));
                     const rSnap = await get(rQuery);
-
                     if (rSnap.exists()) {
                         const itemsToDelete = rSnap.val();
                         for (const key in itemsToDelete) {
@@ -519,21 +517,12 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                                     const qtyBalik = Number(rItem.qty) || 0; 
                                     const stokAkhir = stokAwal - qtyBalik;
                                     updates[`products/${rItem.productId}/stok`] = stokAkhir;
-
                                     const histId = `HIST_DEL_${returId}_${rItem.productId}_${timestampNow}`;
                                     updates[`stock_history/${histId}`] = {
-                                        id: histId,
-                                        bukuId: rItem.productId,
-                                        judul: rItem.judul || 'Unknown Product',
-                                        nama: "ADMIN",
-                                        refId: returId,
-                                        keterangan: `Revert/Hapus Retur ${returId}`,
-                                        perubahan: -qtyBalik, 
-                                        stokAwal: stokAwal,
-                                        stokAkhir: stokAkhir,
-                                        tanggal: timestampNow,
-                                        createdAt: timestampNow,
-                                        updatedAt: timestampNow
+                                        id: histId, bukuId: rItem.productId, judul: rItem.judul || 'Unknown Product',
+                                        nama: "ADMIN", refId: returId, keterangan: `Revert/Hapus Retur ${returId}`,
+                                        perubahan: -qtyBalik, stokAwal: stokAwal, stokAkhir: stokAkhir,
+                                        tanggal: timestampNow, createdAt: timestampNow, updatedAt: timestampNow
                                     };
                                 }
                             }

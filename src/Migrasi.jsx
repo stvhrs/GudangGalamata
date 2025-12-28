@@ -19,7 +19,10 @@ const COLS = {
   DETAIL_PENJUALAN: { DETAIL_ID: 0, TRAS_ID: 1, BARANG_ID: 2, SATUAN: 3, QTY: 4, HARGA: 5, DISCOUNT: 6, PPN: 7, SUBTOTAL: 8 },
   DETAIL_BAYAR: { TRAS_ID: 1, BAYAR: 7 }, 
   RETUR_HEADER: { 
-    ID: 0, SL_ID: 1, NO_RJ: 2, TGL: 3, TOTAL_RETUR: 12,
+    // UPDATED: Menambahkan Index Keterangan (4) & KeteranganBiaya (11)
+    ID: 0, SL_ID: 1, NO_RJ: 2, TGL: 3, 
+    KETERANGAN: 4, KETERANGAN_BIAYA: 11, 
+    TOTAL_RETUR: 12,
     VALIDATED_BY: 19, VOID_BY: 23
   },
   RETUR_DETAIL: { HEADER_ID: 0, DETAIL_ID: 1, BARANG_ID: 2, QTY: 4, SUBTOTAL: 8 },
@@ -47,8 +50,9 @@ const normalizeId = (v) => {
   return str.replace(/\s+/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '_');
 };
 
+// UPDATED: Tidak ada pembulatan (Math.round dihapus)
 const parseNum = (val) => {
-  if (typeof val === 'number') return Math.round(val);
+  if (typeof val === 'number') return val; // Biarkan desimal
   const str = String(val || '').trim();
   if (!str || str.toUpperCase() === 'NULL') return 0;
   
@@ -65,7 +69,7 @@ const parseNum = (val) => {
   }
   
   const num = parseFloat(clean);
-  return isNaN(num) ? 0 : Math.round(num);
+  return isNaN(num) ? 0 : num; // Return float asli
 };
 
 const parseBookTitle = (title) => {
@@ -446,6 +450,16 @@ const useDataProcessor = () => {
                 const ts = tglStr ? new Date(tglStr).getTime() : Date.now();
                 const custId = dbInvoices[invId] ? dbInvoices[invId].customerId : "UNKNOWN";
 
+                // UPDATED: Gabung Keterangan Utama dan Keterangan Biaya
+                const ketUtama = row[COLS.RETUR_HEADER.KETERANGAN] || "";
+                const ketBiaya = row[COLS.RETUR_HEADER.KETERANGAN_BIAYA] || "";
+                let combinedKet = `${ketUtama} ${ketBiaya}`.trim();
+                
+                // Fallback jika keduanya kosong
+                if (!combinedKet) {
+                    combinedKet = `Retur No: ${row[COLS.RETUR_HEADER.NO_RJ]}`;
+                }
+
                 dbReturns[rid] = {
                     id: rid,
                     invoiceId: invId,
@@ -455,7 +469,7 @@ const useDataProcessor = () => {
                     arah: "OUT",
                     sumber: "RETURN",
                     totalRetur: totalRetur,
-                    keterangan: `Retur No: ${row[COLS.RETUR_HEADER.NO_RJ]}`,
+                    keterangan: combinedKet, // Pakai hasil gabungan
                     createdAt: ts,
                     updatedAt: Date.now()
                 };
@@ -606,7 +620,7 @@ const useDataProcessor = () => {
   return { handleFile, loading, processedData, dataFiles, isLibReady };
 };
 
-export default function Migrasi() {
+export default function App() {
   const { handleFile, loading, processedData, dataFiles, isLibReady } = useDataProcessor();
   
   const fileTypes = [

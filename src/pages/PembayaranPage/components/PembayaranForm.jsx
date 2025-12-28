@@ -291,11 +291,10 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         }
     };
 
-    const handleDelete = () => {
-        // ... (Kode delete sama seperti sebelumnya)
+       const handleDelete = () => {
         modal.confirm({
             title: 'Hapus Pembayaran?',
-            content: 'Data pembayaran akan dihapus dan saldo invoice akan dikembalikan.',
+            content: 'Data pembayaran akan dihapus, saldo invoice dikembalikan, dan Saldo Customer akan bertambah (Hutang naik kembali).',
             okText: 'Hapus Permanen',
             okType: 'danger',
             cancelText: 'Batal',
@@ -303,8 +302,13 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 setIsSaving(true);
                 try {
                     const paymentId = initialValues.id;
+                    const customerId = initialValues.customerId; // Pastikan initialValues punya customerId
+                    const amountPaid = Number(initialValues.totalBayar) || 0;
+
                     const updates = {};
                     updates[`payments/${paymentId}`] = null;
+                    
+                    // ... (Logika hapus allocation invoice tetap sama) ...
                     const allocRef = query(ref(db, 'payment_allocations'), orderByChild('paymentId'), equalTo(paymentId));
                     const snapshot = await get(allocRef);
                     if (snapshot.exists()) {
@@ -312,13 +316,13 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                         const promises = Object.keys(allocations).map(async (key) => {
                             const allocItem = allocations[key];
                             const invId = allocItem.invoiceId;
-                            const amountPaid = Number(allocItem.amount) || 0;
+                            const amount = Number(allocItem.amount) || 0;
                             updates[`payment_allocations/${key}`] = null;
                             const invSnap = await get(ref(db, `invoices/${invId}`));
                             if(invSnap.exists()){
                                 const invData = invSnap.val();
                                 const currentTotalBayar = Number(invData.totalBayar) || 0;
-                                const newTotalBayar = Math.max(0, currentTotalBayar - amountPaid);
+                                const newTotalBayar = Math.max(0, currentTotalBayar - amount);
                                 const customerName = invData.namaCustomer || 'UNKNOWN';
                                 const newStatus = 'BELUM';
                                 const newComposite = `${customerName.toUpperCase()}_${newStatus}`;
@@ -330,6 +334,17 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                         });
                         await Promise.all(promises);
                     }
+
+                    // 🔥 UPDATE SALDO CUSTOMER (Revert: Pembayaran dihapus -> Hutang bertambah)
+                    if (customerId && customerId !== 'UNKNOWN') {
+                        const custSnap = await get(ref(db, `customers/${customerId}`));
+                        if (custSnap.exists()) {
+                            const currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                            updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + amountPaid;
+                            updates[`customers/${customerId}/updatedAt`] = Date.now();
+                        }
+                    }
+
                     await update(ref(db), updates);
                     message.success('Pembayaran dihapus.');
                     onCancel();
@@ -351,6 +366,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             const paymentId = values.id; 
             const firstInv = invoiceList.find(i => i.id === selectedInvoiceIds[0]);
 
+            // ... (Upload Bukti Logic tetap sama) ...
             let buktiUrl = null;
             if (fileList.length > 0 && fileList[0].originFileObj) {
                 const safeName = `bukti_${paymentId}`;
@@ -366,9 +382,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
 
             const paymentData = {
                 id: paymentId,
-                arah: ARAH_TRANSAKSI,
-                sumber: SOURCE_DEFAULT,
-                tanggal: dayjs(values.tanggal).valueOf(),
+                // ... (field lain tetap sama)
                 totalBayar: totalInputAmount,
                 customerId: customerId,
                 namaCustomer: customerName,
@@ -379,11 +393,19 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             };
             updates[`payments/${paymentId}`] = paymentData;
 
-            // 🔥 UPDATE CUSTOMER TIMESTAMP
+            // 🔥 UPDATE SALDO CUSTOMER (Pembayaran -> Mengurangi Hutang)
             if (customerId && customerId !== 'UNKNOWN') {
+                const custSnap = await get(ref(db, `customers/${customerId}`));
+                let currentSaldo = 0;
+                if (custSnap.exists()) {
+                    currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
+                }
+                // Kurangi Saldo Akhir sebesar totalInputAmount
+                updates[`customers/${customerId}/saldoAkhir`] = currentSaldo - totalInputAmount;
                 updates[`customers/${customerId}/updatedAt`] = timestampNow;
             }
 
+            // ... (Logika update Invoice per item tetap sama) ...
             selectedInvoiceIds.forEach(invId => {
                 const invoiceRef = invoiceList.find(i => i.id === invId);
                 const amountAllocated = Number(paymentAllocations[invId]); 
@@ -425,6 +447,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             setIsSaving(false);
         }
     };
+    
 
     return (
         <>
