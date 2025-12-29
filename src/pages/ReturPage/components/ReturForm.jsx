@@ -343,7 +343,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
     const handleQtyChange = (val, itemId) => setReturnQtys(prev => ({ ...prev, [itemId]: val }));
 
     // --- SAVE ---
-   const handleSave = async (values) => {
+  const handleSave = async (values) => {
         if (grandTotalRetur <= 0 && selectedItemIds.length > 0 && values.totalDiskon >= totalBruto) {
              return message.error("Total diskon tidak boleh melebihi total retur.");
         }
@@ -398,12 +398,13 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             const newTotalNetto = oldNetto - grandTotalRetur; 
             const newSisaTagihan = newTotalNetto - currentBayar;
 
-            let newStatus = curInv.statusPembayaran || 'BELUM';
+            // --- LOGIC STATUS UPDATED (HANYA LUNAS / BELUM) ---
+            let newStatus = 'BELUM';
             if (newSisaTagihan <= 0) {
                 newStatus = 'LUNAS';
-            } else {
-                 newStatus = currentBayar > 0 ? 'SEBAGIAN' : 'BELUM';
             }
+            // Logic 'SEBAGIAN' dihapus, defaultnya tetap 'BELUM'
+            // --------------------------------------------------
 
             const finalCustomerName = curInv.namaCustomer || selectedCustomerName || 'UNKNOWN';
             const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
