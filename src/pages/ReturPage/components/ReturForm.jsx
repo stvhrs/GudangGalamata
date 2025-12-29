@@ -457,8 +457,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             message.error({ content: "Gagal: " + e.message, key: 'save' });
         } finally { setIsSaving(false); }
     };
-
-    const handleDelete = () => {
+const handleDelete = () => {
          modal.confirm({
             title: 'Hapus & Revert Retur?',
             content: 'Data retur dihapus. Saldo customer dikembalikan (ditambah), Invoice direvisi, Stok dikurangi.',
@@ -469,13 +468,13 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                     const returId = initialValues.id;
                     const invId = initialValues.invoiceId;
                     const customerId = initialValues.customerId; 
-                    const customerName = initialValues.namaCustomer; // 🔥 Ambil nama customer dari initialValues
+                    const customerName = initialValues.namaCustomer; 
                     const totalReturVal = Number(initialValues.totalRetur) || 0; 
                     const timestampNow = Date.now();
                     const updates = {};
                     updates[`returns/${returId}`] = null; 
 
-                    // 🔥 UPDATE SALDO CUSTOMER (Hapus Retur -> Hutang kembali bertambah)
+                    // 🔥 UPDATE SALDO CUSTOMER
                     if (customerId) {
                         const custRef = ref(db, `customers/${customerId}`);
                         const custSnap = await get(custRef);
@@ -499,12 +498,12 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                             const newTotalNetto = curNetto + totalReturVal; 
                             const newSisaTagihan = newTotalNetto - curBayar;
 
+                            // --- LOGIC STATUS UPDATED (HANYA LUNAS / BELUM) ---
                             let newStatus = 'BELUM';
                             if (newSisaTagihan <= 0) {
                                 newStatus = 'LUNAS';
-                            } else {
-                                newStatus = curBayar > 0 ? 'SEBAGIAN' : 'BELUM';
                             }
+                            // --------------------------------------------------
 
                             const finalName = curInv.namaCustomer || 'UNKNOWN';
                             const newComposite = `${finalName.toUpperCase()}_${newStatus}`;
@@ -533,13 +532,14 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                                     const qtyBalik = Number(rItem.qty) || 0; 
                                     const stokAkhir = stokAwal - qtyBalik;
                                     updates[`products/${rItem.productId}/stok`] = stokAkhir;
+                                    
                                     const histId = `HIST_DEL_${returId}_${rItem.productId}_${timestampNow}`;
                                     updates[`stock_history/${histId}`] = {
-                                        id: histId, bukuId: rItem.productId, judul: rItem.judul || 'Unknown Product',
-                                        nama: customerName || "ADMIN", // 🔥 USE CUSTOMER NAME HERE
-                                        refId: returId, keterangan: `Revert/Hapus Retur ${returId}`,
-                                        perubahan: -qtyBalik, stokAwal: stokAwal, stokAkhir: stokAkhir,
-                                        tanggal: timestampNow, createdAt: timestampNow, updatedAt: timestampNow
+                                            id: histId, bukuId: rItem.productId, judul: rItem.judul || 'Unknown Product',
+                                            nama: customerName || "ADMIN", 
+                                            refId: returId, keterangan: `Revert/Hapus Retur ${returId}`,
+                                            perubahan: -qtyBalik, stokAwal: stokAwal, stokAkhir: stokAkhir,
+                                            tanggal: timestampNow, createdAt: timestampNow, updatedAt: timestampNow
                                     };
                                 }
                             }
@@ -556,7 +556,6 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             }
         });
     };
-
     return (
         <>
             {contextHolder}
