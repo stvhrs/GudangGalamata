@@ -18,8 +18,6 @@ const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('i
 
 /**
  * GENERATE NOTA RETUR PDF (A4 PORTRAIT)
- * @param {Object} returData - Data Header (dari path 'returns')
- * @param {Array} returItems - Data Detail (dari path 'return_items')
  */
 const buildDoc = (returData, returItems) => {
     
@@ -32,6 +30,7 @@ const buildDoc = (returData, returItems) => {
 
     const margin = { top: 10, right: 10, bottom: 5, left: 10 };
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
 
     // Font: Helvetica (Standar PDF)
@@ -92,7 +91,7 @@ const buildDoc = (returData, returItems) => {
             const judul = item.judul || '-';
             const qty = Number(item.qty || 0);
             const harga = Number(item.harga || 0);
-            // Hitung subtotal kasar per item (sebelum diskon global)
+            // Hitung subtotal kasar per item
             const subtotal = Number(item.subtotal || (qty * harga));
 
             calculatedTotal += subtotal;
@@ -102,7 +101,7 @@ const buildDoc = (returData, returItems) => {
                 judul,
                 formatNumber(qty),
                 formatNumber(harga),
-                formatNumber(subtotal)                   
+                formatNumber(subtotal)                    
             ];
         });
     } else {
@@ -147,18 +146,28 @@ const buildDoc = (returData, returItems) => {
         margin: { left: margin.left, right: margin.right },
     });
 
-    // --- 4. SUMMARY FOOTER (UPDATED) ---
+    // --- 4. SUMMARY FOOTER ---
     currentY = doc.lastAutoTable.finalY + 6;
     
     // --- KALKULASI TOTAL BRUTO ---
     const valRetur = Number(returData.totalRetur) || 0;   // Netto
     const valDiskon = Number(returData.totalDiskon) || 0; // Diskon
     
-    // Jika ada property totalBruto di DB pakai itu, jika tidak hitung manual
     let valBruto = Number(returData.totalBruto) || 0;
     if (valBruto === 0) {
         valBruto = valRetur + valDiskon;
     }
+
+    // Fungsi Cek Halaman (Untuk Summary & TTD)
+    const checkPageOverflow = (y, increment = 10) => { 
+        if (y + increment > pageHeight - margin.bottom) {
+             doc.addPage();
+             return margin.top + 5; 
+        }
+        return y;
+    };
+
+    currentY = checkPageOverflow(currentY, 30);
 
     const totalColValueX = pageWidth - margin.right; 
     const totalColLabelX = totalColValueX - 50;
@@ -190,10 +199,32 @@ const buildDoc = (returData, returItems) => {
     // Keterangan Footer
     if (returData.keterangan) {
         currentY += 10;
+        currentY = checkPageOverflow(currentY, 10);
         doc.setFont(fontName, 'normal');
         doc.setFontSize(8);
         doc.text(`Keterangan: ${returData.keterangan}`, margin.left, currentY);
     }
+
+    // --- 5. TANDA TANGAN ---
+    let signY = currentY + 15;
+    signY = checkPageOverflow(signY, 40);
+
+    const leftSignX = margin.left + 25; 
+    const rightSignX = pageWidth - margin.right - 25; 
+
+    doc.setFontSize(9);
+    doc.setFont(fontName, 'normal');
+
+    // POSISI BARU
+    doc.text("Hormat Kami,", leftSignX, signY, { align: 'center' });
+    doc.text("Penerima,", rightSignX, signY, { align: 'center' });
+
+    const nameY = signY + 25;
+    doc.setFont(fontName, 'bold');
+
+    // NAMA BARU
+    doc.text("(________________)", leftSignX, nameY, { align: 'center' });
+    doc.text(`( ${returData.namaCustomer || '....................'} )`, rightSignX, nameY, { align: 'center' });
 
     return doc;
 };

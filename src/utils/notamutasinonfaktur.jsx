@@ -16,7 +16,6 @@ const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('i
 
 /**
  * GENERATE PDF A4 PORTRAIT (NON-FAKTUR)
- * @param {Object} data - Data Record tunggal dari tabel non_faktur
  */
 const buildDoc = (data) => {
     
@@ -29,6 +28,7 @@ const buildDoc = (data) => {
 
     const margin = { top: 10, right: 10, bottom: 5, left: 10 };
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
 
     // Font: Helvetica
@@ -123,6 +123,17 @@ const buildDoc = (data) => {
     // --- 4. SUMMARY FOOTER ---
     currentY = doc.lastAutoTable.finalY + 5;
     
+    // Fungsi Cek Halaman
+    const checkPageOverflow = (y, increment = 10) => { 
+        if (y + increment > pageHeight - margin.bottom) {
+             doc.addPage();
+             return margin.top + 5; 
+        }
+        return y;
+    };
+
+    currentY = checkPageOverflow(currentY, 20);
+
     const totalColValueX = pageWidth - margin.right; 
     const totalColLabelX = totalColValueX - 50;
 
@@ -130,6 +141,27 @@ const buildDoc = (data) => {
     doc.setFont(fontName, 'bold');
     doc.text('Total:', totalColLabelX, currentY);
     doc.text(formatNumber(amount), totalColValueX, currentY, { align: 'right' });
+
+    // --- 5. TANDA TANGAN ---
+    let signY = currentY + 15;
+    signY = checkPageOverflow(signY, 40);
+
+    const leftSignX = margin.left + 25; 
+    const rightSignX = pageWidth - margin.right - 25; 
+
+    doc.setFontSize(9);
+    doc.setFont(fontName, 'normal');
+
+    // POSISI BARU
+    doc.text("Hormat Kami,", leftSignX, signY, { align: 'center' });
+    doc.text("Penerima,", rightSignX, signY, { align: 'center' });
+
+    const nameY = signY + 25;
+    doc.setFont(fontName, 'bold');
+
+    // NAMA BARU
+    doc.text("(________________)", leftSignX, nameY, { align: 'center' });
+    doc.text(`( ${data.namaCustomer || '....................'} )`, rightSignX, nameY, { align: 'center' });
 
     return doc;
 };

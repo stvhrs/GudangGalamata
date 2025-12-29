@@ -16,8 +16,6 @@ const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('i
 
 /**
  * GENERATE PDF A4 PORTRAIT
- * @param {Object} payment - Data Header (payments)
- * @param {Array} allocations - Data Isi Tabel (payment_allocations)
  */
 const buildDoc = (payment, allocations) => {
     
@@ -30,9 +28,10 @@ const buildDoc = (payment, allocations) => {
 
     const margin = { top: 10, right: 10, bottom: 5, left: 10 };
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
 
-    // Font: Helvetica (Standar PDF untuk pengganti Arial/Arial Narrow)
+    // Font: Helvetica
     const fontName = 'helvetica';
 
     // --- 1. HEADER ---
@@ -72,11 +71,6 @@ const buildDoc = (payment, allocations) => {
     doc.setFont(fontName, 'bold'); doc.text('Tanggal:', infoX, rightY);
     doc.setFont(fontName, 'normal'); doc.text(formatDate(payment.tanggal), infoX + 25, rightY);
     
-    // if (payment.sumber) {
-    //     doc.setFont(fontName, 'bold'); doc.text('Metode:', infoX, rightY + 5);
-    //     doc.setFont(fontName, 'normal'); doc.text(payment.sumber, infoX + 25, rightY + 5);
-    // }
-
     currentY += 5; 
 
     // --- 3. TABEL ITEM (payment_allocations) ---
@@ -89,14 +83,14 @@ const buildDoc = (payment, allocations) => {
             const amount = Number(item.amount || 0);
             calculatedTotal += amount;
             
-            // Keterangan diambil dari header payment karena di allocation tidak ada field keterangan
+            // Keterangan diambil dari header payment
             const noteToShow = payment.keterangan || '-';
 
             return [
                 i + 1,
-                item.invoiceId || '-',  // Sesuai field: invoiceId
-                noteToShow,                             
-                formatNumber(amount)    // Sesuai field: amount                   
+                item.invoiceId || '-', 
+                noteToShow,                     
+                formatNumber(amount)    
             ];
         });
     } else {
@@ -143,6 +137,17 @@ const buildDoc = (payment, allocations) => {
     // --- 4. SUMMARY FOOTER ---
     currentY = doc.lastAutoTable.finalY + 5;
     
+    // Fungsi Cek Halaman
+    const checkPageOverflow = (y, increment = 10) => { 
+        if (y + increment > pageHeight - margin.bottom) {
+             doc.addPage();
+             return margin.top + 5; 
+        }
+        return y;
+    };
+
+    currentY = checkPageOverflow(currentY, 20);
+
     // Prioritaskan totalBayar dari header, kalau 0/null pakai hasil hitung tabel
     const finalTotal = Number(payment.totalBayar) || calculatedTotal;
 
@@ -153,6 +158,27 @@ const buildDoc = (payment, allocations) => {
     doc.setFont(fontName, 'bold');
     doc.text('Total Pembayaran:', totalColLabelX, currentY);
     doc.text(formatNumber(finalTotal), totalColValueX, currentY, { align: 'right' });
+
+    // --- 5. TANDA TANGAN ---
+    let signY = currentY + 15;
+    signY = checkPageOverflow(signY, 40);
+
+    const leftSignX = margin.left + 25; 
+    const rightSignX = pageWidth - margin.right - 25; 
+
+    doc.setFontSize(9);
+    doc.setFont(fontName, 'normal');
+
+    // POSISI BARU
+    doc.text("Hormat Kami,", leftSignX, signY, { align: 'center' });
+    doc.text("Penerima,", rightSignX, signY, { align: 'center' });
+
+    const nameY = signY + 25;
+    doc.setFont(fontName, 'bold');
+
+    // NAMA BARU
+    doc.text("(________________)", leftSignX, nameY, { align: 'center' });
+    doc.text(`( ${payment.namaCustomer || '....................'} )`, rightSignX, nameY, { align: 'center' });
 
     return doc;
 };
