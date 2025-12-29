@@ -316,7 +316,7 @@ const handleStokUpdate = async (values) => {
         { 
             title: 'Oleh', 
             dataIndex: 'nama', 
-            width: 90,
+            width: 160,
             render: (text) => (
                 <Space size={4}>
                     <UserOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
@@ -398,9 +398,10 @@ const handleStokUpdate = async (values) => {
                 title={`Kartu Stok: ${buku.id} - ${judulDisplay} -  ${buku.peruntukan}`}
                 open={open}
                 onCancel={onCancel}
+style={{ top: 20 }}
                 footer={null}
                 destroyOnClose
-                width={1300}
+                width={1200}
             >
                 <Spin spinning={loading}>
                     <Row gutter={24}>

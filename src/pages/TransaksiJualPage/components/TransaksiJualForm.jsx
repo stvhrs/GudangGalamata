@@ -297,6 +297,8 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 stockDiff.set(i.idBuku, currentVal - Number(i.jumlah));
             });
             const timestampNow = Date.now();
+         // ... kode sebelumnya ...
+
             let histCounter = 0;
             for (const [productId, change] of stockDiff.entries()) {
                 if (change === 0) continue;
@@ -306,16 +308,32 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                     const stokAkhir = stokAwal + change;
                     updates[`products/${productId}/stok`] = stokAkhir;
                     updates[`products/${productId}/updatedAt`] = serverTimestamp();
+
                     const histId = `HIST_${txKey}_${productId}_${timestampNow + histCounter}`;
                     histCounter++;
+
                     updates[`stock_history/${histId}`] = {
-                        id: histId, bukuId: productId, judul: buku.nama, nama: "ADMIN",
+                        id: histId, 
+                        bukuId: productId, 
+                        judul: buku.nama, 
+                        
+                        // --- PERUBAHAN DI SINI ---
+                        nama: pelanggan.nama, // Menggunakan nama customer, bukan "ADMIN"
+                        // -------------------------
+
                         keterangan: mode === 'create' ? `Penjualan Ref: ${txKey}` : `Edit Ref: ${txKey}`,
-                        perubahan: change, stokAwal: stokAwal, stokAkhir: stokAkhir, refId: txKey,
-                        tanggal: timestampNow, createdAt: timestampNow, updatedAt: timestampNow
+                        perubahan: change, 
+                        stokAwal: stokAwal, 
+                        stokAkhir: stokAkhir, 
+                        refId: txKey,
+                        tanggal: timestampNow, 
+                        createdAt: timestampNow, 
+                        updatedAt: timestampNow
                     };
                 }
             }
+
+            // ... sisa kode ...
 
             await update(ref(db), updates);
             message.success({ content: 'Tersimpan!', key: 'tx' });
