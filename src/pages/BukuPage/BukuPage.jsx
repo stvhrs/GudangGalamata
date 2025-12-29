@@ -36,20 +36,14 @@ const BukuPage = () => {
     // --- 1. STATE TAB CONTROL (KEEP ALIVE) ---
     const [activeTab, setActiveTab] = useState('1');
     const [hasTab2Loaded, setHasTab2Loaded] = useState(false);
-    const [hasTab3Loaded, setHasTab3Loaded] = useState(false); // Tambahan untuk Tab 3
+    const [hasTab3Loaded, setHasTab3Loaded] = useState(false);
 
-    // Logic Keep Alive untuk Tab 2
     useEffect(() => {
-        if (activeTab === '2' && !hasTab2Loaded) {
-            setHasTab2Loaded(true);
-        }
+        if (activeTab === '2' && !hasTab2Loaded) setHasTab2Loaded(true);
     }, [activeTab, hasTab2Loaded]);
 
-    // Logic Keep Alive untuk Tab 3
     useEffect(() => {
-        if (activeTab === '3' && !hasTab3Loaded) {
-            setHasTab3Loaded(true);
-        }
+        if (activeTab === '3' && !hasTab3Loaded) setHasTab3Loaded(true);
     }, [activeTab, hasTab3Loaded]);
 
     // --- 2. FETCH DATA STANDARD ---
@@ -65,6 +59,12 @@ const BukuPage = () => {
     const debouncedSearchText = useDebounce(searchText, 300);
     const [columnFilters, setColumnFilters] = useState({});
 
+    // --- 3. STATE SORTING (BARU) ---
+    const [sortState, setSortState] = useState({
+        columnKey: null,
+        order: null // 'ascend' atau 'descend'
+    });
+
     // Pagination
     const showTotalPagination = useCallback((total, range) => {
         const totalJenis = bukuList?.length || 0;
@@ -79,7 +79,7 @@ const BukuPage = () => {
         showTotal: showTotalPagination,
     }));
 
-    // PDF
+    // PDF State
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
     const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
@@ -89,10 +89,10 @@ const BukuPage = () => {
     const deferredDebouncedSearchText = useDeferredValue(debouncedSearchText);
     const isFiltering = debouncedSearchText !== deferredDebouncedSearchText;
 
+    // A. Filter Pencarian Text
     const searchedBuku = useMemo(() => {
         let processedData = [...(bukuList || [])]; 
-        processedData.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
+        
         if (!deferredDebouncedSearchText) return processedData;
 
         const lowerSearch = deferredDebouncedSearchText.toLowerCase();
@@ -104,35 +104,72 @@ const BukuPage = () => {
         );
     }, [bukuList, deferredDebouncedSearchText]);
 
+    // B. Filter Kolom & Logic Sorting Terpusat (UTAMA)
     const dataForTable = useMemo(() => {
         let processedData = [...searchedBuku];
+
+        // 1. Apply Column Filters
         const activeFilterKeys = Object.keys(columnFilters).filter(
             key => columnFilters[key] && columnFilters[key].length > 0
         );
-        if (activeFilterKeys.length === 0) return processedData;
 
-        for (const key of activeFilterKeys) {
-            const filterValues = columnFilters[key];
-            processedData = processedData.filter(item => {
-                const itemValue = String(item[key] || '-');
-                return filterValues.includes(itemValue);
-            });
+        if (activeFilterKeys.length > 0) {
+            for (const key of activeFilterKeys) {
+                const filterValues = columnFilters[key];
+                processedData = processedData.filter(item => {
+                    // Penanganan khusus jika key berbeda di data vs column
+                    let itemValue = item[key];
+                    if (key === 'tahun') itemValue = item.tahunTerbit; 
+                    
+                    return filterValues.includes(String(itemValue || '-'));
+                });
+            }
         }
-        return processedData;
-    }, [searchedBuku, columnFilters]);
 
-    // Filters
+        // 2. Apply Sorting (Berdasarkan sortState)
+        if (sortState.order && sortState.columnKey) {
+            const key = sortState.columnKey;
+            processedData.sort((a, b) => {
+                // Logic Sort per Kolom
+                if (key === 'id') {
+                    return (Number(a.id) || 0) - (Number(b.id) || 0);
+                } else if (key === 'nama') {
+                    return (a.judul || '').localeCompare(b.judul || '');
+                } else if (key === 'penerbit') {
+                    return (a.penerbit || '').localeCompare(b.penerbit || '');
+                } else if (key === 'stok') {
+                    return (Number(a.stok) || 0) - (Number(b.stok) || 0);
+                } else if (key === 'harga') {
+                    return (Number(a.harga) || 0) - (Number(b.harga) || 0);
+                } else if (key === 'kelas') {
+                     return String(a.kelas || '').localeCompare(String(b.kelas || ''), undefined, { numeric: true });
+                } else if (key === 'tahun') {
+                    return (Number(a.tahunTerbit) || 0) - (Number(b.tahunTerbit) || 0);
+                }
+                return 0;
+            });
+
+            if (sortState.order === 'descend') {
+                processedData.reverse();
+            }
+        } else {
+            // Default Sort: UpdatedAt (Terbaru di atas)
+            processedData.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        }
+
+        return processedData;
+    }, [searchedBuku, columnFilters, sortState]); // Dependency sortState masuk sini
+
+    // Filters Options
     const mapelFilters = useMemo(() => generateFilters(bukuList, 'mapel'), [bukuList]);
     const kelasFilters = useMemo(() => generateFilters(bukuList, 'kelas'), [bukuList]);
     const tahunTerbitFilters = useMemo(() => generateFilters(bukuList, 'tahunTerbit'), [bukuList]);
     
-    // Filters peruntukan disaring hanya 'Guru' dan 'Siswa'
     const peruntukanFilters = useMemo(() => {
         const filters = generateFilters(bukuList, 'peruntukan');
         return filters.filter(f => f.value === 'Guru' || f.value === 'Siswa');
     }, [bukuList]);
     const penerbitFilters = useMemo(() => generateFilters(bukuList, 'penerbit'), [bukuList]);
-    const tipeBukuFilters = useMemo(() => generateFilters(bukuList, 'tipe_buku'), [bukuList]);
 
     // Summary
     const summaryData = useMemo(() => {
@@ -156,13 +193,19 @@ const BukuPage = () => {
 
     useEffect(() => {
         setPagination(prev => ({ ...prev, current: 1 }));
-        setColumnFilters({});
+        // setColumnFilters({}); // Opsional: Reset filter saat search berubah, atau biarkan
     }, [debouncedSearchText]);
 
     // Handlers
-    const handleTableChange = useCallback((paginationConfig, filters) => {
+    const handleTableChange = useCallback((paginationConfig, filters, sorter) => {
         setPagination(paginationConfig);
         setColumnFilters(filters);
+        
+        // Simpan state sorting
+        setSortState({
+            columnKey: sorter.columnKey,
+            order: sorter.order
+        });
     }, []);
 
     const handleTambah = useCallback(() => { setEditingBuku(null); setIsModalOpen(true); }, []);
@@ -177,7 +220,7 @@ const BukuPage = () => {
     }, [bukuList]);
     const handleCloseBulkRestockModal = useCallback(() => { setIsBulkRestockModalOpen(false); }, []);
 
-    // PDF Handler
+    // PDF Handler (Menggunakan dataForTable yang SUDAH TERSORTIR)
     const handleGenerateAndShowPdf = useCallback(async () => {
         const dataToExport = dataForTable;
         if (!dataToExport?.length) { message.warn('Tidak ada data untuk PDF.'); return; }
@@ -186,7 +229,10 @@ const BukuPage = () => {
         setTimeout(async () => {
             try {
                 if (pdfPreviewUrl) { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }
+                
+                // dataToExport ini sudah urut sesuai tabel
                 const pdfBlob = generateBukuPdfBlob(dataToExport);
+                
                 if (!pdfBlob || !(pdfBlob instanceof Blob) || pdfBlob.size === 0) { throw new Error("Gagal membuat PDF."); }
                 const url = URL.createObjectURL(pdfBlob);
                 setPdfFileName(`Daftar_Stok_Buku_${dayjs().format('YYYYMMDD_HHmm')}.pdf`);
@@ -207,34 +253,102 @@ const BukuPage = () => {
         if (pdfPreviewUrl) { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }
     }, [pdfPreviewUrl]);
 
-    // Columns
+    // Columns - MENGGUNAKAN CONTROLLED SORTING (sorter: true)
     const columns = useMemo(() => [
-        { title: 'Kode Buku', dataIndex: 'id', key: 'id', width: 130, sorter: (a, b) => (Number(a.id) || 0) - (Number(b.id) || 0) },
-        { title: 'Judul Buku', dataIndex: 'nama', key: 'nama', width: 300, sorter: (a, b) => (a.judul || '').localeCompare(b.judul || '') },
-        { title: 'Penerbit', dataIndex: 'penerbit', key: 'penerbit', width: 150, filters: penerbitFilters, filteredValue: columnFilters.penerbit || null, onFilter: (v, r) => r.penerbit === v, sorter: (a, b) => (a.penerbit || '').localeCompare(b.penerbit || '') },
-        
-      { 
-    title: 'Peruntukan', 
-    dataIndex: 'peruntukan', 
-    key: 'peruntukan', 
-    width: 120, 
-    align: 'center', 
-    // --- TAMBAHKAN BAGIAN INI ---
-    filters: [
-        { text: 'SISWA', value: 'SISWA' },
-        { text: 'GURU', value: 'GURU' },
-        { text: 'UMUM', value: 'UMUM' },
-    ],
-    // ----------------------------
-    filteredValue: columnFilters.peruntukan || null, 
-    onFilter: (value, record) => record.peruntukan === value, 
-},
-        { title: 'Stok', dataIndex: 'stok', key: 'stok', align: 'right', width: 100, render: numberFormatter, sorter: (a, b) => (Number(a.stok) || 0) - (Number(b.stok) || 0) },
-        { title: 'Hrg', dataIndex: 'harga', key: 'harga', align: 'right', width: 150, render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', sorter: (a, b) => (Number(a.harga) || 0) - (Number(b.harga) || 0) },
-        { title: 'Kelas', dataIndex: 'kelas', key: 'kelas', width: 100, align: 'center', filters: kelasFilters, filteredValue: columnFilters.kelas || null, sorter: (a, b) => String(a.kelas || '').localeCompare(String(b.kelas || ''), undefined, { numeric: true }) },
-        { title: 'Tahun', dataIndex: 'tahun', key: 'tahun', width: 100, align: 'center', render: (v) => v || '-', filters: tahunTerbitFilters, filteredValue: columnFilters.tahunTerbit || null, sorter: (a, b) => (Number(a.tahunTerbit) || 0) - (Number(b.tahunTerbit) || 0) },
-        { title: 'Aksi', key: 'aksi', align: 'center', width: 100, fixed: screens.md ? 'right' : false, render: (_, record) => (<BukuActionButtons record={record} onEdit={handleEdit} onRestock={handleTambahStok} />) },
-    ], [kelasFilters, tahunTerbitFilters, penerbitFilters, peruntukanFilters, columnFilters, screens.md, handleEdit, handleTambahStok]);
+        { 
+            title: 'Kode Buku', 
+            dataIndex: 'id', 
+            key: 'id', 
+            width: 130, 
+            sorter: true, 
+            sortOrder: sortState.columnKey === 'id' && sortState.order 
+        },
+        { 
+            title: 'Judul Buku', 
+            dataIndex: 'nama', 
+            key: 'nama', 
+            width: 300, 
+            sorter: true,
+            sortOrder: sortState.columnKey === 'nama' && sortState.order 
+        },
+        { 
+            title: 'Penerbit', 
+            dataIndex: 'penerbit', 
+            key: 'penerbit', 
+            width: 150, 
+            filters: penerbitFilters, 
+            filteredValue: columnFilters.penerbit || null, 
+            // onFilter dihapus/dibiarkan, tapi logic filter ada di useMemo
+            // Jika AntD local filter mau dipakai, onFilter tetap ada. 
+            // Tapi kita pakai server-side style logic di useMemo, jadi ini untuk UI saja.
+            sorter: true,
+            sortOrder: sortState.columnKey === 'penerbit' && sortState.order 
+        },
+        { 
+            title: 'Peruntukan', 
+            dataIndex: 'peruntukan', 
+            key: 'peruntukan', 
+            width: 120, 
+            align: 'center', 
+            filters: [
+                { text: 'SISWA', value: 'SISWA' },
+                { text: 'GURU', value: 'GURU' },
+                { text: 'UMUM', value: 'UMUM' },
+            ],
+            filteredValue: columnFilters.peruntukan || null, 
+        },
+        { 
+            title: 'Stok', 
+            dataIndex: 'stok', 
+            key: 'stok', 
+            align: 'right', 
+            width: 100, 
+            render: numberFormatter, 
+            sorter: true,
+            sortOrder: sortState.columnKey === 'stok' && sortState.order 
+        },
+        { 
+            title: 'Hrg', 
+            dataIndex: 'harga', 
+            key: 'harga', 
+            align: 'right', 
+            width: 150, 
+            render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', 
+            sorter: true,
+            sortOrder: sortState.columnKey === 'harga' && sortState.order 
+        },
+        { 
+            title: 'Kelas', 
+            dataIndex: 'kelas', 
+            key: 'kelas', 
+            width: 100, 
+            align: 'center', 
+            filters: kelasFilters, 
+            filteredValue: columnFilters.kelas || null, 
+            sorter: true,
+            sortOrder: sortState.columnKey === 'kelas' && sortState.order 
+        },
+        { 
+            title: 'Tahun', 
+            dataIndex: 'tahun', 
+            key: 'tahun', 
+            width: 100, 
+            align: 'center', 
+            render: (v) => v || '-', 
+            filters: tahunTerbitFilters, 
+            filteredValue: columnFilters.tahun || null, 
+            sorter: true,
+            sortOrder: sortState.columnKey === 'tahun' && sortState.order 
+        },
+        { 
+            title: 'Aksi', 
+            key: 'aksi', 
+            align: 'center', 
+            width: 100, 
+            fixed: screens.md ? 'right' : false, 
+            render: (_, record) => (<BukuActionButtons record={record} onEdit={handleEdit} onRestock={handleTambahStok} />) 
+        },
+    ], [kelasFilters, tahunTerbitFilters, penerbitFilters, columnFilters, screens.md, handleEdit, handleTambahStok, sortState]);
 
     const tableScrollX = useMemo(() => columns.reduce((acc, col) => acc + (col.width || 150), 0), [columns]);
 
@@ -341,7 +455,7 @@ const BukuPage = () => {
                 {(activeTab === '2' || hasTab2Loaded) && (<StokHistoryTabRestock />)}
             </div>
 
-            {/* TAB 3: RIWAYAT STOCK BUKU (DIPERBAIKI LOGIKANYA) */}
+            {/* TAB 3: RIWAYAT STOCK BUKU */}
             <div style={{ display: activeTab === '3' ? 'block' : 'none' }}>
                 {(activeTab === '3' || hasTab3Loaded) && (<StokHistoryTabTransaksi />)}
             </div>

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useDeferredValue } from 'react';
 import {
     Layout, Card, Table, Button, Input, Space, message, Popconfirm, Tooltip, Spin
 } from 'antd';
-import { DeleteOutlined, HistoryOutlined, UserAddOutlined } from '@ant-design/icons';
+import { DeleteOutlined, HistoryOutlined, UserAddOutlined, FilePdfOutlined } from '@ant-design/icons';
 import { ref, remove } from 'firebase/database';
 import { db } from '../../api/firebase';
 
@@ -10,6 +10,9 @@ import { usePelangganStream } from '../../hooks/useFirebaseData';
 import useDebounce from '../../hooks/useDebounce';
 import PelangganForm from './components/PelangganForm';
 import CustomerHistoryModal from './components/CustomerHistoryModal';
+import PdfPreviewModal from './components/PdfPreviewModal'; 
+
+import { generatePelangganPdfBlob } from '../../utils/pdfCustomer';
 
 const { Content } = Layout;
 const { Search } = Input;
@@ -17,25 +20,25 @@ const { Search } = Input;
 export default function PelangganPage() {
     const { pelangganList, loadingPelanggan } = usePelangganStream();
 
-    // --- SETUP SEARCH & PAGINATION ---
+    // --- STATE ---
+    const [previewVisible, setPreviewVisible] = useState(false);
+    const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+
     const [searchText, setSearchText] = useState('');
-    
-    // 1. Debounce (Menunggu user berhenti mengetik sebentar)
-    const debouncedSearchText = useDebounce(searchText, 300); // 300ms cukup responsif
-
-    // 2. [OPTIMASI] Deferred Value (Prioritas rendah untuk filtering)
+    const debouncedSearchText = useDebounce(searchText, 300);
     const deferredDebouncedSearchText = useDeferredValue(debouncedSearchText);
-
-    // 3. [OPTIMASI] Deteksi Status Filtering (Untuk trigger spinner loading)
-    // Jika debounce beda dengan deferred, berarti React sedang memproses background
     const isFiltering = debouncedSearchText !== deferredDebouncedSearchText;
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPelanggan, setEditingPelanggan] = useState(null);
-    
-    // State Modal History
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const [selectedHistoryCustomer, setSelectedHistoryCustomer] = useState(null);
+
+    // 1. TAMBAH STATE SORTING
+    const [sortState, setSortState] = useState({
+        columnKey: null,
+        order: null // 'ascend' atau 'descend'
+    });
 
     const [pagination, setPagination] = useState({
         current: 1,
@@ -45,21 +48,12 @@ export default function PelangganPage() {
         showTotal: (total, range) => `${range[0]}-${range[1]} dari ${total} pelanggan`
     });
 
-    // --- FILTERING & SORTING (LOGIC BERAT) ---
+    // --- 2. LOGIC FILTERING & SORTING DI PUSAT (useMemo) ---
+    // Ini memastikan data untuk Tabel DAN PDF bersumber dari logika yang sama
     const filteredPelanggan = useMemo(() => {
-        // [OPTIMASI] Gunakan spread operator [...] untuk meng-copy array
-        // agar tidak memutasi state asli saat melakukan .sort()
         let data = [...(pelangganList || [])];
-        
-        // --- UPDATE: SORT BY UPDATEDAT ---
-        // Descending: Yang paling baru diedit/dibuat ada di paling atas
-        data.sort((a, b) => {
-            const dateA = new Date(a.updatedAt || 0).getTime();
-            const dateB = new Date(b.updatedAt || 0).getTime();
-            return dateB - dateA; 
-        });
 
-        // Filter Logic
+        // A. Filter Search
         if (deferredDebouncedSearchText) {
             const query = deferredDebouncedSearchText.toLowerCase();
             data = data.filter(p =>
@@ -67,18 +61,85 @@ export default function PelangganPage() {
                 (p.telepon && p.telepon.includes(query))
             );
         }
+
+        // B. Logic Sorting
+        if (sortState.order && sortState.columnKey) {
+            data.sort((a, b) => {
+                const key = sortState.columnKey;
+                
+                // Logic per kolom
+                if (key === 'nama') {
+                    return (a.nama || '').localeCompare(b.nama || '');
+                } else if (key === 'saldoAwal') {
+                    return (parseFloat(a.saldoAwal) || 0) - (parseFloat(b.saldoAwal) || 0);
+                } else if (key === 'saldoAkhir') {
+                    return (parseFloat(a.saldoAkhir) || 0) - (parseFloat(b.saldoAkhir) || 0);
+                }
+                return 0;
+            });
+
+            // Jika descend, balik urutannya
+            if (sortState.order === 'descend') {
+                data.reverse();
+            }
+        } else {
+            // Default Sort: UpdatedAt (Terbaru di atas) jika user tidak klik header
+            data.sort((a, b) => {
+                const dateA = new Date(a.updatedAt || 0).getTime();
+                const dateB = new Date(b.updatedAt || 0).getTime();
+                return dateB - dateA; 
+            });
+        }
+
         return data;
-    }, [pelangganList, deferredDebouncedSearchText]); 
+    }, [pelangganList, deferredDebouncedSearchText, sortState]); // Dependency sortState masuk sini
 
     // --- HANDLERS ---
+    
+    // 3. UPDATE HANDLER TABLE CHANGE
+    const handleTableChange = useCallback((newPagination, filters, sorter) => {
+        setPagination(newPagination);
+        
+        // Simpan state sorting dari interaksi user
+        setSortState({
+            columnKey: sorter.columnKey, // key kolom yang diklik
+            order: sorter.order          // 'ascend', 'descend', atau undefined
+        });
+    }, []);
+
+    const handlePreviewPdf = useCallback(() => {
+        if (!filteredPelanggan || filteredPelanggan.length === 0) {
+            message.warning("Tidak ada data untuk ditampilkan");
+            return;
+        }
+        try {
+            message.loading({ content: 'Menyiapkan Preview...', key: 'pdf_gen' });
+            // filteredPelanggan di sini SUDAH TERURUT karena logic di useMemo
+            const blob = generatePelangganPdfBlob(filteredPelanggan);
+            const url = URL.createObjectURL(blob);
+            setPdfBlobUrl(url);
+            setPreviewVisible(true);
+            message.success({ content: 'Preview Siap', key: 'pdf_gen' });
+        } catch (error) {
+            console.error("PDF Error:", error);
+            message.error({ content: 'Gagal membuat PDF', key: 'pdf_gen' });
+        }
+    }, [filteredPelanggan]);
+
+    const handleClosePreview = () => {
+        setPreviewVisible(false);
+        if (pdfBlobUrl) {
+            setTimeout(() => {
+                URL.revokeObjectURL(pdfBlobUrl);
+                setPdfBlobUrl(null);
+            }, 500);
+        }
+    };
+
     const handleSearchChange = useCallback((e) => {
         setSearchText(e.target.value);
         if (pagination.current !== 1) setPagination(prev => ({ ...prev, current: 1 }));
     }, [pagination.current]);
-
-    const handleTableChange = useCallback((paginationConfig) => {
-        setPagination(paginationConfig);
-    }, []);
 
     const handleOpenCreate = useCallback(() => {
         setEditingPelanggan(null);
@@ -107,7 +168,6 @@ export default function PelangganPage() {
     }, []);
 
     const handleOpenHistory = useCallback((pelanggan) => {
-        console.log("Membuka history untuk:", pelanggan);
         setSelectedHistoryCustomer(pelanggan);
         setIsHistoryModalOpen(true);
     }, []);
@@ -117,7 +177,9 @@ export default function PelangganPage() {
         setTimeout(() => setSelectedHistoryCustomer(null), 300);
     }, []);
 
-    // --- COLUMNS ---
+    // --- 4. COLUMNS UPDATE ---
+    // Hapus fungsi 'sorter: (a,b) => ...' 
+    // Ganti jadi 'sorter: true' dan gunakan 'sortOrder' yang dikontrol state
     const columns = useMemo(() => [
         {
             title: 'No.',
@@ -130,7 +192,9 @@ export default function PelangganPage() {
             title: 'Nama Customer',
             dataIndex: 'nama',
             key: 'nama',
-            sorter: (a, b) => (a.nama || '').localeCompare(b.nama || ''),
+            // Controlled Sorting
+            sorter: true, 
+            sortOrder: sortState.columnKey === 'nama' && sortState.order,
         },
         {
             title: 'Telepon',
@@ -145,36 +209,35 @@ export default function PelangganPage() {
             key: 'saldoAwal',
             width: 150,
             align: 'right',
-            sorter: (a, b) => (parseFloat(a.saldoAwal) || 0) - (parseFloat(b.saldoAwal) || 0),
+            // Controlled Sorting
+            sorter: true,
+            sortOrder: sortState.columnKey === 'saldoAwal' && sortState.order,
             render: (val) => {
                 const isNegative = (val || 0) < 0;
                 const formatted = new Intl.NumberFormat('id-ID', {
-                    style: 'currency',
-                    currency: 'IDR',
-                    minimumFractionDigits: 0
+                    style: 'currency', currency: 'IDR', minimumFractionDigits: 0
                 }).format(val || 0);
-
                 return (
                     <span style={{ color: isNegative ? '#cf1322' : 'inherit', fontWeight: isNegative ? 'bold' : 'normal' }}>
                         {formatted}
                     </span>
                 );
             }
-        },  {
+        },  
+        {
             title: 'Saldo Akhir',
             dataIndex: 'saldoAkhir',
             key: 'saldoAkhir',
             width: 150,
             align: 'right',
-            sorter: (a, b) => (parseFloat(a.saldoAkhir) || 0) - (parseFloat(b.saldoAkhir) || 0),
+            // Controlled Sorting
+            sorter: true,
+            sortOrder: sortState.columnKey === 'saldoAkhir' && sortState.order,
             render: (val) => {
                 const isNegative = (val || 0) < 0;
                 const formatted = new Intl.NumberFormat('id-ID', {
-                    style: 'currency',
-                    currency: 'IDR',
-                    minimumFractionDigits: 0
+                    style: 'currency', currency: 'IDR', minimumFractionDigits: 0
                 }).format(val || 0);
-
                 return (
                     <span style={{ color: isNegative ? '#cf1322' : '#048302ff', fontWeight: isNegative ? 'bold' : 'bold' }}>
                         {formatted}
@@ -210,7 +273,7 @@ export default function PelangganPage() {
                 </Space>
             ),
         },
-    ], [pagination, handleDelete, handleOpenHistory]);
+    ], [pagination, handleDelete, handleOpenHistory, sortState]); // Masukkan sortState ke dependency columns
 
     return (
         <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
@@ -219,9 +282,18 @@ export default function PelangganPage() {
                     title="Data Customer" 
                     bordered={false}
                     extra={
-                        <Button type="primary" icon={<UserAddOutlined />} onClick={handleOpenCreate}>
-                            Tambah Customer
-                        </Button>
+                        <Space>
+                            <Button 
+                                icon={<FilePdfOutlined />} 
+                                onClick={handlePreviewPdf}
+                                disabled={!filteredPelanggan.length}
+                            >
+                                Preview PDF
+                            </Button>
+                            <Button type="primary" icon={<UserAddOutlined />} onClick={handleOpenCreate}>
+                                Tambah Customer
+                            </Button>
+                        </Space>
                     }
                     style={{ borderRadius: 8 }}
                 >
@@ -259,6 +331,13 @@ export default function PelangganPage() {
                     open={isHistoryModalOpen}
                     onCancel={handleCloseHistory}
                     customer={selectedHistoryCustomer}
+                />
+
+                <PdfPreviewModal
+                    visible={previewVisible}
+                    onClose={handleClosePreview}
+                    pdfBlobUrl={pdfBlobUrl}
+                    fileName={`Data_Pelanggan_${new Date().toISOString().slice(0,10)}.pdf`}
                 />
             </Content>
         </Layout>

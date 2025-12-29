@@ -1,13 +1,7 @@
 // src/utils/pdfGenerator.js
 import { numberFormatter, currencyFormatter, percentFormatter } from './formatters';
-
-// --- MODIFIKASI IMPORT ---
 import jsPDF from 'jspdf';
-// Hapus: import 'jspdf-autotable'; 
-import autoTable from 'jspdf-autotable'; // Import fungsi autoTable secara langsung
-// --- AKHIR MODIFIKASI ---
-
-// Pastikan Mock jsPDF sudah dihapus atau dikomentari semua jika library asli diinstal
+import autoTable from 'jspdf-autotable'; 
 
 export const generateBukuPdfBlob = (dataToExport, headerInfo = {}) => {
     const {
@@ -16,116 +10,125 @@ export const generateBukuPdfBlob = (dataToExport, headerInfo = {}) => {
         phone = "0882-0069-05391" 
     } = headerInfo;
 
-    const doc = new jsPDF('vertical');
+    // Menggunakan A4 secara eksplisit
+    const doc = new jsPDF('p', 'mm', 'a4'); 
     const pageHeight = doc.internal.pageSize.getHeight();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    let finalY = 0;
+    const pageWidth = doc.internal.pageSize.getWidth(); // A4 Width ~ 210mm
 
-    // --- HEADER PDF (Tidak berubah) ---
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text(cvName, pageWidth / 2, 15, { align: 'center' });
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(address, pageWidth / 2, 21, { align: 'center' });
-    doc.text(`Telp: ${phone}`, pageWidth / 2, 26, { align: 'center' }); 
-    doc.setLineWidth(0.3);
-    doc.line(14, 29, pageWidth - 14, 29); 
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Daftar Stok Buku', pageWidth / 2, 36, { align: 'center' });
-    // --- AKHIR HEADER ---
+    // --- HEADER PDF (KOP SURAT) ---
+    // Agar lurus 1 line, font harus dikecilkan menyesuaikan panjang teks
     
-    // --- KOLOM & DATA TABEL (Tidak berubah) ---
-    const tableColumn = [ /* ... kolom ... */ 
-        "No.", "Judul Buku", "Penerbit", "       Stok", "                    Hrg. Z1", 
-        "Diskon", "Mapel", "Kelas", "Tipe Buku", "Spek", "Peruntukan"
-    ];
-    const tableRows = dataToExport.map((buku, index) => [ /* ... data ... */ 
-        index + 1, 
-        buku.judul || '-',
-        buku.penerbit || '-',
-        numberFormatter(buku.stok),
-        currencyFormatter(buku.hargaJual), 
-        percentFormatter(buku.diskonJual), 
-        buku.mapel || '-',
-        buku.kelas || '-',
-        buku.tipe_buku || '-',
-        buku.spek || '-',
-        buku.peruntukan || '-'
-    ]);
-    // --- AKHIR KOLOM & DATA ---
+    // 1. Nama CV
+    doc.setFontSize(12); // Turun dari 14
+    doc.setFont('helvetica', 'bold');
+    doc.text(cvName, pageWidth / 2, 12, { align: 'center' });
 
-    // --- PENGATURAN TABEL autoTable (MODIFIED) ---
-    // Panggil autoTable sebagai fungsi, bukan metode dari doc
-    autoTable(doc, { // <-- PERUBAHAN DI SINI
+    // 2. Alamat (Kritikal: Dikecilkan agar muat 1 baris)
+    doc.setFontSize(7); // Turun drastis dari 9 ke 7 agar tidak wrap
+    doc.setFont('helvetica', 'normal');
+    // maxWidth memastikan kalaupun kepanjangan, dia akan disusutkan otomatis oleh jsPDF (opsional), 
+    // tapi font 7 biasanya cukup untuk alamat standar di A4.
+    doc.text(address, pageWidth / 2, 16, { align: 'center', maxWidth: pageWidth - 20 });
+
+    // 3. Telepon
+    doc.text(`Telp: ${phone}`, pageWidth / 2, 20, { align: 'center' }); 
+    
+    // Garis Pemisah
+    doc.setLineWidth(0.3);
+    doc.line(10, 23, pageWidth - 10, 23); // Margin kiri kanan 10mm
+    
+    // Judul Dokumen
+    doc.setFontSize(10); // Turun dari 11
+    doc.setFont('helvetica', 'bold');
+    doc.text('Daftar Stok Buku', pageWidth / 2, 29, { align: 'center' });
+    
+    // --- KOLOM ---
+    const tableColumn = [
+        "No", "Kode", "Judul Buku", "Penerbit", "Kls", // "Kelas" disingkat "Kls" hemat tempat
+        "Stok", "Harga", "Disc", "Peruntukan", "Thn"  // "Diskon"->"Disc", "Tahun"->"Thn"
+    ];
+
+    // --- DATA ---
+    const tableRows = dataToExport.map((buku, index) => [
+        index + 1, 
+        buku.id || '-',                      
+        buku.nama || buku.judul || '-',       
+        buku.penerbit || '-',
+        buku.kelas || '-',
+        numberFormatter(buku.stok),
+        currencyFormatter(buku.harga),        
+        percentFormatter(buku.diskon),        
+        buku.peruntukan || '-',
+        buku.tahun || '-'
+    ]);
+
+    // --- PENGATURAN TABEL ---
+    autoTable(doc, {
         head: [tableColumn],
         body: tableRows,
-        startY: 42, 
-        theme: 'grid', 
+        startY: 33, 
+        theme: 'grid',
+        // Mengurangi margin kiri/kanan agar tabel lebih lebar
+        margin: { top: 33, right: 8, left: 8 }, 
+        
+        // GLOBAL STYLES (Body)
+        styles: {
+            fontSize: 5,         // SANGAT KECIL (Sebelumnya 6)
+            font: 'helvetica',
+            overflow: 'linebreak', 
+            cellPadding: 1,      // Padding dikurangi (Sebelumnya 1.5)
+            valign: 'middle',        
+            lineColor: [200, 200, 200],
+            lineWidth: 0.1,
+        },
+
+        // HEADER TABLE STYLES
         headStyles: { 
             fillColor: [230, 230, 230], 
-            textColor: 30, 
+            textColor: 20, 
             fontStyle: 'bold', 
-            halign: 'left', // <-- BARIS INI SUDAH DIHAPUS
-            fontSize: 5, 
-            cellPadding: 1 
+            halign: 'center', 
+            valign: 'middle',
+            fontSize: 6,         // Header font 6 (Sebelumnya 7)
+            cellPadding: 1.5     // Sedikit lebih longgar dari body
         },
-        bodyStyles: { 
-            fontSize: 5, 
-            cellPadding: 1 
-        },
-        alternateRowStyles: {
-            fillColor: [245, 245, 245] 
-        },
-        columnStyles: { 
-            0: { cellWidth: 7,  halign: 'left' },   // No.
-            1: { cellWidth: "auto", halign: 'left'},                // Judul Buku
-            2: { cellWidth: 12 , halign: 'left'},                     // Penerbit
-            3: { cellWidth: 9, halign: 'right' },  // Stok
-            4: { cellWidth: 18, halign: 'right'},  // Hrg. Z1
-            5: { cellWidth: 10,   halign: 'center'},   // Diskon
-            6: { cellWidth: "auto" , halign: 'left'},                 // Mapel
-            7: { cellWidth: 9,  halign: 'left' },  // Kelas
-            8: { cellWidth:"auto"  , halign: 'left'},                 // Tipe Buku
-            9: { cellWidth: 11, halign: 'left' }, // Spek
-            10: { cellWidth: 14 , halign: 'left'}                     // Peruntukan
-        },
-        willDrawCell: function (data) {
-            if (data.column.dataKey === 1 ) { 
-                if (data.cell.raw && typeof data.cell.raw === 'string' && data.cell.raw.length > 45) { 
-                    data.cell.text = data.cell.raw.substring(0, 42) + '...';
-                }
-            }
-        },
-        didDrawPage: function (data) {
-            // Untuk mendapatkan posisi Y terakhir, kita perlu akses dari argumen autoTable
-            // atau menggunakan properti internal jika tersedia di versi ini
-             try {
-                // @ts-ignore (Mengabaikan error type checking jika ada)
-                finalY = data.cursor.y; 
-             } catch(e){
-                console.warn("Tidak bisa mendapatkan cursor.y dari didDrawPage");
-                // Fallback jika cursor tidak tersedia
-                // @ts-ignore 
-                finalY = doc.lastAutoTable?.finalY || 50; // Coba pakai lastAutoTable jika masih ada
-             }
-        }
-    });
-    // --- AKHIR PENGATURAN TABEL ---
 
-    // --- FOOTER PDF (Tidak berubah) ---
+        // BODY STYLES
+        bodyStyles: { 
+            textColor: 50,
+        },
+
+        alternateRowStyles: {
+            fillColor: [250, 250, 250] 
+        },
+
+        // LEBAR KOLOM (Optimasi Ketat)
+        // Total width A4 (210) - Margin (16) = 194mm area kerja
+        columnStyles: { 
+            0: { cellWidth: 6,  halign: 'center' }, // No
+            1: { cellWidth: 10, halign: 'left' },   // Kode
+            2: { cellWidth: 'auto', halign: 'left' }, // Judul (Mengambil sisa ruang)
+            3: { cellWidth: 14, halign: 'left' },   // Penerbit
+            4: { cellWidth: 6,  halign: 'center' }, // Kelas
+            5: { cellWidth: 8,  halign: 'right' },  // Stok
+            6: { cellWidth: 15, halign: 'right' },  // Harga
+            7: { cellWidth: 8,  halign: 'center' }, // Disc
+            8: { cellWidth: 12, halign: 'left' },   // Peruntukan
+            9: { cellWidth: 8,  halign: 'center' }  // Tahun
+        },
+    });
+
+    // --- FOOTER ---
     const pageCount = doc.internal.getNumberOfPages ? doc.internal.getNumberOfPages() : 1; 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
+    doc.setFontSize(6); // Footer juga dikecilkan
     for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i); 
         const printDate = `Dicetak: ${new Date().toLocaleString('id-ID')}`;
-        const pageNumText = `Halaman ${i} dari ${pageCount}`;
-        doc.text(printDate, 14, pageHeight - 10);
-        doc.text(pageNumText, pageWidth - 14 - doc.getTextWidth(pageNumText), pageHeight - 10);
+        const pageNumText = `Hal ${i} dari ${pageCount}`;
+        doc.text(printDate, 10, pageHeight - 8);
+        doc.text(pageNumText, pageWidth - 10 - doc.getTextWidth(pageNumText), pageHeight - 8);
     }
-    // --- AKHIR FOOTER ---
 
     return doc.output('blob'); 
 };
