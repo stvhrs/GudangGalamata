@@ -241,7 +241,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         setIsSearching(true);
         const exactNameUpper = namaPelanggan.toUpperCase(); 
         try {
-            const targetStatus = `${exactNameUpper}_BELUM`;
+          const targetStatus = `${exactNameUpper.replace(/\//g, '_')}_BELUM`;
             const q = query(ref(db, 'invoices'), orderByChild('compositeStatus'), equalTo(targetStatus));
             const snap = await get(q);
             let results = [];
