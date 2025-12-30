@@ -279,33 +279,54 @@ export default function TransaksiJualPage() {
         }
     };
 
-    const handleGenerateInvoice = async (tx) => {
-        message.loading({ content: 'Mengambil data item & Membuat Invoice...', key: 'pdfGen' });
-        try {
-            const items = await fetchInvoiceItems(tx.id);
-            const fullTxData = { ...tx, items: items };
-            const blob = await fetch(generateInvoicePDF(fullTxData)).then(r => r.blob());
-            openPdfModal(blob, `${tx.id}.pdf`);
-            message.success({ content: 'Invoice Siap', key: 'pdfGen' });
-        } catch (e) {
-            console.error(e);
-            message.error({ content: 'Gagal membuat Invoice', key: 'pdfGen' });
-        }
-    };
+   const handleGenerateInvoice = async (tx) => {
+    message.loading({ content: 'Mengambil data item & Membuat Invoice...', key: 'pdfGen' });
+    try {
+        const items = await fetchInvoiceItems(tx.id);
+        const fullTxData = { ...tx, items: items };
+        
+        // --- PERBAIKAN DI SINI ---
+        
+        // 1. Await dulu fungsinya agar mendapatkan URL String (bukan Promise)
+        const pdfUrl = await generateInvoicePDF(fullTxData);
 
-    const handleGenerateNota = async (tx) => {
-        message.loading({ content: 'Mengambil data item & Membuat Nota...', key: 'pdfGen' });
-        try {
-            const items = await fetchInvoiceItems(tx.id);
-            const fullTxData = { ...tx, items: items };
-            const blob = await fetch(generateNotaPDF(fullTxData)).then(r => r.blob());
-            openPdfModal(blob, `Nota-${tx.id}.pdf`);
-            message.success({ content: 'Nota Siap', key: 'pdfGen' });
-        } catch (e) {
-            console.error(e);
-            message.error({ content: 'Gagal membuat Nota', key: 'pdfGen' });
-        }
-    };
+        // 2. Fetch URL tersebut untuk dijadikan Blob
+        const blob = await fetch(pdfUrl).then(r => r.blob());
+        
+        // -------------------------
+
+        openPdfModal(blob, `${tx.id}.pdf`);
+        message.success({ content: 'Invoice Siap', key: 'pdfGen' });
+    } catch (e) {
+        console.error(e);
+        message.error({ content: 'Gagal membuat Invoice', key: 'pdfGen' });
+    }
+};
+  const handleGenerateNota = async (tx) => {
+    message.loading({ content: 'Mengambil data item & Membuat Nota...', key: 'pdfGen' });
+    try {
+        const items = await fetchInvoiceItems(tx.id);
+        const fullTxData = { ...tx, items: items };
+
+        // --- PERBAIKAN DI SINI ---
+        
+        // 1. Generate dulu URL-nya (Wajib pakai await karena functionnya async)
+        const pdfUrl = await generateNotaPDF(fullTxData);
+
+        // 2. Fetch URL tersebut untuk dijadikan Blob Object
+        // (Hanya jika openPdfModal kamu memang mewajibkan inputnya tipe Blob, bukan URL)
+        const blob = await fetch(pdfUrl).then(r => r.blob());
+        
+        // -------------------------
+
+        openPdfModal(blob, `Nota-${tx.id}.pdf`);
+        message.success({ content: 'Nota Siap', key: 'pdfGen' });
+
+    } catch (e) {
+        console.error(e);
+        message.error({ content: 'Gagal membuat Nota', key: 'pdfGen' });
+    }
+};
 
     const handleGenerateReportPdf = () => {
         setIsTxPdfGenerating(true);

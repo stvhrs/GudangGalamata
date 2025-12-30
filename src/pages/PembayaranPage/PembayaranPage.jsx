@@ -106,36 +106,39 @@ return [
     };
 
     // --- PRINT HANDLER ---
-    const handlePrintTransaction = async (record) => {
-        setPrintingId(record.id); 
-        
-        try {
-            const allocations = [];
-            const allocRef = ref(db, 'payment_allocations');
-            const q = query(allocRef, orderByChild('paymentId'), equalTo(record.id));
-            const snapshot = await get(q);
+   const handlePrintTransaction = async (record) => {
+    setPrintingId(record.id); 
+    
+    try {
+        const allocations = [];
+        const allocRef = ref(db, 'payment_allocations');
+        const q = query(allocRef, orderByChild('paymentId'), equalTo(record.id));
+        const snapshot = await get(q);
 
-            if (snapshot.exists()) {
-                snapshot.forEach((childSnapshot) => {
-                    allocations.push({
-                        id: childSnapshot.key,
-                        ...childSnapshot.val()
-                    });
+        if (snapshot.exists()) {
+            snapshot.forEach((childSnapshot) => {
+                allocations.push({
+                    id: childSnapshot.key,
+                    ...childSnapshot.val()
                 });
-            }
-
-            const pdfData = generateNotaPembayaranPDF(record, allocations);
-            setPdfPreviewUrl(pdfData);
-            setPdfFileName(`Nota_${record.id}.pdf`);
-            setIsPreviewModalVisible(true);
-
-        } catch (error) {
-            console.error("Gagal generate PDF:", error);
-            message.error("Gagal mengambil data detail pembayaran.");
-        } finally {
-            setPrintingId(null);
+            });
         }
-    };
+
+        // Panggil dengan AWAIT
+        const pdfUrl = await generateNotaPembayaranPDF(record, allocations);
+        
+        setPdfPreviewUrl(pdfUrl);
+        setPdfFileName(`Nota_${record.id}.pdf`);
+        setIsPreviewModalVisible(true);
+        message.success("Nota Pembayaran Siap");
+
+    } catch (error) {
+        console.error("Gagal generate PDF:", error);
+        message.error("Gagal mengambil data detail pembayaran.");
+    } finally {
+        setPrintingId(null);
+    }
+};
 
     const handleClosePreviewModal = () => {
         setIsPreviewModalVisible(false);

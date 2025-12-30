@@ -1,10 +1,12 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// --- CONFIG ---
+// --- KONSTANTA FONT ---
+const FONT_NORMAL_URL = '/fonts/arialnarrow.ttf';
+const FONT_BOLD_URL = '/fonts/arialnarrow_bold.ttf';
+
 const companyInfo = {
     nama: "CV. GANGSAR MULIA UTAMA",
-    // Alamat dihapus sesuai request
     hp: "0882-0069-05391"
 };
 
@@ -16,25 +18,46 @@ const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('i
     hour: '2-digit', minute:'2-digit' 
 });
 
+const loadFont = async (path) => {
+    try {
+        const response = await fetch(path);
+        if (!response.ok) throw new Error("File not found");
+        const blob = await response.blob();
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.readAsDataURL(blob);
+        });
+    } catch (e) {
+        console.warn("Font fallback to Helvetica", e);
+        return null;
+    }
+};
+
 /**
- * GENERATE NOTA RETUR PDF (A4 PORTRAIT)
+ * GENERATE NOTA RETUR PDF (ASYNC)
  */
-const buildDoc = (returData, returItems) => {
+const buildDoc = async (returData, returItems) => {
     
-    // 1. SETUP KERTAS (A4 PORTRAIT)
-    const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4' 
-    });
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    // --- LOAD FONT ---
+    const fontNormal = await loadFont(FONT_NORMAL_URL);
+    const fontBold = await loadFont(FONT_BOLD_URL);
+    let fontName = 'helvetica';
+
+    if (fontNormal && fontBold) {
+        doc.addFileToVFS('ArialNarrow.ttf', fontNormal);
+        doc.addFont('ArialNarrow.ttf', 'ArialNarrow', 'normal');
+        doc.addFileToVFS('ArialNarrow-Bold.ttf', fontBold);
+        doc.addFont('ArialNarrow-Bold.ttf', 'ArialNarrow', 'bold');
+        fontName = 'ArialNarrow';
+    }
 
     const margin = { top: 10, right: 10, bottom: 5, left: 10 };
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
-
-    // Font: Helvetica (Standar PDF)
-    const fontName = 'helvetica';
 
     // --- 1. HEADER ---
     doc.setFontSize(18); 
@@ -46,7 +69,6 @@ const buildDoc = (returData, returItems) => {
     
     currentY += 2; 
 
-    // Garis Header
     doc.setLineWidth(0.2); 
     doc.setDrawColor(0, 0, 0);
     doc.line(margin.left, currentY, pageWidth - margin.right, currentY);
@@ -56,12 +78,10 @@ const buildDoc = (returData, returItems) => {
     const idDokumen = returData.id || '-';
     const refInvoice = returData.invoiceId || '-';
     const namaPelanggan = returData.namaCustomer || 'Umum';
-    
     const infoX = pageWidth / 2 + 10;
     
     doc.setFontSize(9.5); 
     
-    // -- KIRI --
     doc.setFont(fontName, 'bold'); doc.text('No. Retur:', margin.left, currentY);
     doc.setFont(fontName, 'normal'); doc.text(idDokumen, margin.left + 30, currentY);
     currentY += 5;
@@ -70,7 +90,6 @@ const buildDoc = (returData, returItems) => {
     doc.setFont(fontName, 'normal'); doc.text(namaPelanggan, margin.left + 30, currentY);
     currentY += 5;
 
-    // -- KANAN --
     const rightY = currentY - 10;
     doc.setFont(fontName, 'bold'); doc.text('Tanggal:', infoX, rightY);
     doc.setFont(fontName, 'normal'); doc.text(formatDate(returData.tanggal), infoX + 25, rightY);
@@ -81,7 +100,7 @@ const buildDoc = (returData, returItems) => {
 
     currentY += 5; 
 
-    // --- 3. TABEL ITEM (return_items) ---
+    // --- 3. TABEL ITEM ---
     const head = [['No', 'Judul Buku', 'Qty', 'Harga', 'Subtotal']];
     let body = [];
     let calculatedTotal = 0;
@@ -91,50 +110,28 @@ const buildDoc = (returData, returItems) => {
             const judul = item.judul || '-';
             const qty = Number(item.qty || 0);
             const harga = Number(item.harga || 0);
-            // Hitung subtotal kasar per item
             const subtotal = Number(item.subtotal || (qty * harga));
-
             calculatedTotal += subtotal;
-            
-            return [
-                i + 1,
-                judul,
-                formatNumber(qty),
-                formatNumber(harga),
-                formatNumber(subtotal)                    
-            ];
+            return [ i + 1, judul, formatNumber(qty), formatNumber(harga), formatNumber(subtotal) ];
         });
     } else {
         const total = Number(returData.totalRetur || 0);
         calculatedTotal = total;
-        body = [['1', 'Retur Manual (Tanpa Detail)', '-', '-', formatNumber(total)]];
+        body = [['1', 'Retur Manual', '-', '-', formatNumber(total)]];
     }
 
-    // --- RENDER TABEL ---
     autoTable(doc, {
         startY: currentY,
         head: head,
         body: body,
         theme: 'grid',
         headStyles: {
-            fillColor: [255, 255, 255], 
-            textColor: [0, 0, 0],       
-            lineColor: [0, 0, 0],       
-            lineWidth: 0.2,
-            halign: 'center',
-            fontSize: 9,
-            font: fontName,
-            fontStyle: 'bold',
-            cellPadding: 1.5,
+            fillColor: [255, 255, 255], textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.1,
+            halign: 'center', fontSize: 9, font: fontName, fontStyle: 'bold', cellPadding: 1.5,
         },
         styles: {
-            font: fontName,
-            lineColor: [0, 0, 0],
-            lineWidth: 0.2,
-            fontSize: 9,
-            cellPadding: 1.5,
-            valign: 'middle',
-            textColor: [0, 0, 0]
+            font: fontName, lineColor: [0, 0, 0], lineWidth: 0.1, fontSize: 9, cellPadding: 1.5,
+            valign: 'middle', textColor: [0, 0, 0]
         },
         columnStyles: { 
             0: { halign: 'center', cellWidth: 10 }, 
@@ -146,89 +143,69 @@ const buildDoc = (returData, returItems) => {
         margin: { left: margin.left, right: margin.right },
     });
 
-    // --- 4. SUMMARY FOOTER ---
+    // --- 4. SUMMARY ---
     currentY = doc.lastAutoTable.finalY + 6;
-    
-    // --- KALKULASI TOTAL BRUTO ---
-    const valRetur = Number(returData.totalRetur) || 0;   // Netto
-    const valDiskon = Number(returData.totalDiskon) || 0; // Diskon
-    
-    let valBruto = Number(returData.totalBruto) || 0;
-    if (valBruto === 0) {
-        valBruto = valRetur + valDiskon;
-    }
+    const valRetur = Number(returData.totalRetur) || 0;
+    const valDiskon = Number(returData.totalDiskon) || 0;
+    let valBruto = Number(returData.totalBruto) || (valRetur + valDiskon);
 
-    // Fungsi Cek Halaman (Untuk Summary & TTD)
     const checkPageOverflow = (y, increment = 10) => { 
         if (y + increment > pageHeight - margin.bottom) {
-             doc.addPage();
-             return margin.top + 5; 
-        }
-        return y;
+             doc.addPage(); return margin.top + 5; 
+        } return y;
     };
-
     currentY = checkPageOverflow(currentY, 30);
 
     const totalColValueX = pageWidth - margin.right; 
     const totalColLabelX = totalColValueX - 50;
-
     doc.setFontSize(9);
 
-    // 1. Total Harga (Bruto)
     doc.setFont(fontName, 'bold'); doc.text('Total Harga:', totalColLabelX, currentY);
     doc.setFont(fontName, 'normal'); doc.text(formatNumber(valBruto), totalColValueX, currentY, { align: 'right' });
     currentY += 5;
 
-    // 2. Potongan / Diskon (Jika Ada)
     if (valDiskon > 0) {
         doc.setFont(fontName, 'bold'); doc.text('Potongan:', totalColLabelX, currentY);
         doc.setFont(fontName, 'normal'); doc.text(`(${formatNumber(valDiskon)})`, totalColValueX, currentY, { align: 'right' });
         currentY += 5;
     }
 
-    // Garis Pemisah Summary
     doc.setLineWidth(0.1);
     doc.line(totalColLabelX, currentY - 1, totalColValueX, currentY - 1);
     currentY += 3;
 
-    // 3. Total Retur (Netto)
     doc.setFontSize(10);
     doc.setFont(fontName, 'bold'); doc.text('Total Retur:', totalColLabelX, currentY);
-    doc.setFont(fontName, 'bold'); doc.text(formatNumber(valRetur), totalColValueX, currentY, { align: 'right' });
+    doc.text(formatNumber(valRetur), totalColValueX, currentY, { align: 'right' });
 
-    // Keterangan Footer
     if (returData.keterangan) {
         currentY += 10;
         currentY = checkPageOverflow(currentY, 10);
-        doc.setFont(fontName, 'normal');
-        doc.setFontSize(8);
+        doc.setFont(fontName, 'normal'); doc.setFontSize(8);
         doc.text(`Keterangan: ${returData.keterangan}`, margin.left, currentY);
     }
 
-    // --- 5. TANDA TANGAN ---
+    // --- 5. TTD ---
     let signY = currentY + 15;
     signY = checkPageOverflow(signY, 40);
-
     const leftSignX = margin.left + 25; 
     const rightSignX = pageWidth - margin.right - 25; 
 
     doc.setFontSize(9);
     doc.setFont(fontName, 'normal');
-
-    // POSISI BARU
     doc.text("Hormat Kami,", leftSignX, signY, { align: 'center' });
     doc.text("Penerima,", rightSignX, signY, { align: 'center' });
 
     const nameY = signY + 25;
     doc.setFont(fontName, 'bold');
-
-    // NAMA BARU
     doc.text("(________________)", leftSignX, nameY, { align: 'center' });
     doc.text(`( ${returData.namaCustomer || '....................'} )`, rightSignX, nameY, { align: 'center' });
 
     return doc;
 };
 
-// Export Function
-export const generateNotaReturPDF = (returData, returItems) => 
-    buildDoc(returData, returItems).output('datauristring');
+// EXPORT ASYNC (Returns Blob URL)
+export const generateNotaReturPDF = async (returData, returItems) => {
+    const doc = await buildDoc(returData, returItems);
+    return doc.output('bloburl');
+};

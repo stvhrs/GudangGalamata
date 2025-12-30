@@ -106,37 +106,39 @@ return [
     };
 
     // --- PRINT HANDLER ---
-    const handlePrintTransaction = async (record) => {
-        setPrintingId(record.id); 
-        
-        try {
-            const returItems = [];
-            const itemsRef = ref(db, 'return_items');
-            const q = query(itemsRef, orderByChild('returnId'), equalTo(record.id));
-            const snapshot = await get(q);
+  const handlePrintTransaction = async (record) => {
+    setPrintingId(record.id); 
+    
+    try {
+        const returItems = [];
+        const itemsRef = ref(db, 'return_items');
+        const q = query(itemsRef, orderByChild('returnId'), equalTo(record.id));
+        const snapshot = await get(q);
 
-            if (snapshot.exists()) {
-                snapshot.forEach((childSnapshot) => {
-                    returItems.push({
-                        id: childSnapshot.key,
-                        ...childSnapshot.val()
-                    });
+        if (snapshot.exists()) {
+            snapshot.forEach((childSnapshot) => {
+                returItems.push({
+                    id: childSnapshot.key,
+                    ...childSnapshot.val()
                 });
-            }
-
-            const pdfData = generateNotaReturPDF(record, returItems);
-            setPdfPreviewUrl(pdfData);
-            setPdfFileName(`Retur_${record.id}.pdf`);
-            setIsPreviewModalVisible(true);
-
-        } catch (error) {
-            console.error("Gagal generate PDF Retur:", error);
-            message.error("Gagal mengambil detail retur.");
-        } finally {
-            setPrintingId(null); 
+            });
         }
-    };
 
+        // Panggil dengan AWAIT
+        const pdfUrl = await generateNotaReturPDF(record, returItems);
+        
+        setPdfPreviewUrl(pdfUrl);
+        setPdfFileName(`Retur_${record.id}.pdf`);
+        setIsPreviewModalVisible(true);
+        message.success("Nota Retur Siap");
+
+    } catch (error) {
+        console.error("Gagal generate PDF Retur:", error);
+        message.error("Gagal mengambil detail retur.");
+    } finally {
+        setPrintingId(null); 
+    }
+};
     const handleClosePreviewModal = () => {
         setIsPreviewModalVisible(false);
         if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);

@@ -111,26 +111,24 @@ return [
     };
 
     // --- PRINT HANDLER ---
-    const handlePrintTransaction = async (record) => {
-        setPrintingId(record.id); // Loading button start
+   const handlePrintTransaction = async (record) => {
+    setPrintingId(record.id); 
+    
+    try {
+        // Panggil dengan AWAIT karena sekarang return Promise -> Blob URL
+        const pdfUrl = await generateNotaNonFakturPDF(record);
         
-        // Gunakan timeout kecil agar UI sempat update status loading icon
-        setTimeout(() => {
-            try {
-                // Tidak perlu fetch allocation karena data tunggal (Non Faktur)
-                const pdfData = generateNotaNonFakturPDF(record);
-                
-                setPdfPreviewUrl(pdfData);
-                setPdfFileName(`Nota_VF_${record.id}.pdf`);
-                setIsPreviewModalVisible(true);
-            } catch (error) {
-                console.error("Gagal generate PDF:", error);
-                message.error("Gagal membuat PDF");
-            } finally {
-                setPrintingId(null); // Loading button stop
-            }
-        }, 300);
-    };
+        setPdfPreviewUrl(pdfUrl);
+        setPdfFileName(`Nota_VF_${record.id}.pdf`);
+        setIsPreviewModalVisible(true);
+        message.success("PDF Berhasil dibuat");
+    } catch (error) {
+        console.error("Gagal generate PDF:", error);
+        message.error("Gagal membuat PDF");
+    } finally {
+        setPrintingId(null); 
+    }
+};
 
     const handleClosePreviewModal = () => {
         setIsPreviewModalVisible(false);

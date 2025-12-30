@@ -9,6 +9,8 @@ import {
     RollbackOutlined,
     FileTextOutlined,
     LogoutOutlined,
+    MenuFoldOutlined,   // Icon untuk menutup (collapse)
+    MenuUnfoldOutlined, // Icon untuk membuka (expand)
 } from '@ant-design/icons';
 
 const { Sider } = Layout;
@@ -72,9 +74,10 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
             collapsible
             collapsed={collapsed}
             onCollapse={onCollapse}
+            trigger={null} // 1. HILANGKAN TRIGGER BAWAAN DI BAWAH
             width={240}
             style={{
-                overflow: 'hidden', // Ubah ke hidden biar rapi
+                overflow: 'hidden',
                 height: '100vh',
                 position: 'fixed',
                 left: 0,
@@ -83,49 +86,64 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
                 zIndex: 10,
             }}
         >
-            {/* 1. Header Logo */}
+            {/* 2. Header Area (Logo + Toggle Button) */}
             <div
                 style={{
-                    height: '48px',
-                    margin: '16px',
+                    height: '64px', // Sedikit dipertinggi agar pas dengan tombol
+                    padding: '0 16px',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: collapsed ? 'center' : 'flex-start',
+                    // Jika collapsed, pusatkan icon. Jika tidak, sebar (logo kiri, tombol kanan)
+                    justifyContent: collapsed ? 'center' : 'space-between', 
+                    background: '#002140', // Sedikit beda warna biar terlihat header
                 }}
             >
-                {!collapsed ? (
+                {/* Judul / Logo */}
+                {!collapsed && (
                     <Text
                         style={{
                             color: 'white',
                             fontSize: '18px',
                             fontWeight: 600,
+                            whiteSpace: 'nowrap',
                         }}
                     >
                         CV Galatama
                     </Text>
-                ) : (
-                    <Text style={{ color: 'white', fontWeight: 'bold' }}>CVG</Text>
                 )}
+
+                {/* Tombol Toggle Custom */}
+                <Button
+                    type="text"
+                    icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                    onClick={() => onCollapse(!collapsed)}
+                    style={{
+                        fontSize: '16px',
+                        width: 40,
+                        height: 40,
+                        color: 'white',
+                        // Jika collapsed, margin auto biar centered otomatis oleh flex parent
+                        marginLeft: collapsed ? 0 : 8, 
+                    }}
+                />
             </div>
 
-            {/* 2. Scrollable Menu Area */}
-            {/* Kita bungkus Menu dalam div tersendiri biar bisa di-scroll terpisah dari footer */}
+            {/* 3. Scrollable Menu Area */}
             <div style={{ 
-                height: 'calc(100vh - 64px - 130px)', // Kurangi tinggi header & footer & trigger
+                height: 'calc(100vh - 64px - 100px)', // Sesuaikan tinggi (Header 64 + Footer ~100)
                 overflowY: 'auto',
-                scrollbarWidth: 'none', // Hide scrollbar Firefox
-                msOverflowStyle: 'none',  // Hide scrollbar IE/Edge
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
             }}>
                 <NavigationMenu activeKey={activeKey} onLinkClick={() => {}} />
             </div>
 
-            {/* 3. Footer (User Info & Logout) */}
+            {/* 4. Footer (User Info & Logout) */}
             <div
                 style={{
                     position: 'absolute',
-                    // vvv PERUBAHAN UTAMA DI SINI vvv
-                    bottom: 48, // Naikkan 48px supaya tidak ketutup tombol collapse (<)
-                    // ^^^ PERUBAHAN UTAMA DI SINI ^^^
+                    // 3. SET BOTTOM KE 0 KARENA TIDAK ADA TRIGGER BAWAAN
+                    bottom: 0, 
                     
                     width: '100%',
                     padding: collapsed ? '10px 4px' : '16px',
@@ -134,7 +152,7 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    zIndex: 11, // Pastikan di atas layer lain jika perlu
+                    zIndex: 11,
                 }}
             >
                 {/* Email User */}
@@ -156,7 +174,7 @@ const SideMenu = ({ collapsed, onCollapse, activeKey, onLogout, userEmail }) => 
                     </Text>
                 )}
 
-                {/* Tombol Logout (Outline Subtle) */}
+                {/* Tombol Logout */}
                 <Button
                     type="default"
                     ghost 

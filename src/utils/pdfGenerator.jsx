@@ -1,7 +1,11 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// --- KONSTANTA ---
+// --- KONSTANTA URL FONT (MENGACU KE FOLDER PUBLIC) ---
+const FONT_NORMAL_URL = '/fonts/arialnarrow.ttf';
+const FONT_BOLD_URL = '/fonts/arialnarrow_bold.ttf';
+
+// --- KONSTANTA PERUSAHAAN ---
 const companyInfo = {
     nama: "CV. GANGSAR MULIA UTAMA",
     // Alamat dihapus sesuai request
@@ -22,19 +26,32 @@ const formatDate = (timestamp) =>
         year: 'numeric',
     });
 
+// Fungsi Helper: Load Font dari URL dan convert ke Base64 (Async)
+const loadFont = async (path) => {
+    try {
+        const response = await fetch(path);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const blob = await response.blob();
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                // Ambil string base64 murni (hapus prefix data:...)
+                const base64 = reader.result.split(',')[1];
+                resolve(base64);
+            };
+            reader.readAsDataURL(blob);
+        });
+    } catch (e) {
+        console.warn(`Gagal memuat font dari ${path}. Menggunakan Helvetica sebagai fallback.`, e);
+        return null;
+    }
+};
+
 /**
- * Fungsi Build Doc - Portrait A4
- * Support: 'invoice', 'nota', 'payment'
+ * Fungsi Build Doc (CORE LOGIC)
+ * Sifat: ASYNC (Karena harus download font dulu)
  */
-/**
- * Fungsi Build Doc - Portrait A4
- * Support: 'invoice', 'nota', 'payment'
- */
-/**
- * Fungsi Build Doc - Portrait A4
- * Support: 'invoice', 'nota', 'payment'
- */
-const buildDoc = (transaksi, type) => {
+const buildDoc = async (transaksi, type) => {
     
     // 1. SETUP KERTAS (PORTRAIT A4)
     const doc = new jsPDF({
@@ -42,6 +59,22 @@ const buildDoc = (transaksi, type) => {
         unit: 'mm',
         format: 'a4' 
     });
+
+    // --- SETUP FONT ---
+    const fontNormalBase64 = await loadFont(FONT_NORMAL_URL);
+    const fontBoldBase64 = await loadFont(FONT_BOLD_URL);
+    let fontName = 'helvetica'; // Default fallback
+
+    // Jika font berhasil di-load, daftarkan ke jsPDF
+    if (fontNormalBase64 && fontBoldBase64) {
+        doc.addFileToVFS('ArialNarrow.ttf', fontNormalBase64);
+        doc.addFont('ArialNarrow.ttf', 'ArialNarrow', 'normal');
+
+        doc.addFileToVFS('ArialNarrow-Bold.ttf', fontBoldBase64);
+        doc.addFont('ArialNarrow-Bold.ttf', 'ArialNarrow', 'bold');
+        
+        fontName = 'ArialNarrow'; // Gunakan font custom
+    }
 
     const margin = { top: 15, right: 15, bottom: 15, left: 15 };
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -56,19 +89,16 @@ const buildDoc = (transaksi, type) => {
     if (isInvoice) title = 'INVOICE';
     if (isPayment) title = 'BUKTI PEMBAYARAN';
 
-    // Link (Sesuaikan endpoint jika payment)
+    // Link
     const linkSlug = isPayment ? 'payment' : (isInvoice ? 'invoice' : 'nota');
     const link = `${baseURL}${linkSlug}/${transaksi.id}`;
 
-    // Font setting (Helvetica sebagai pengganti Arial)
-    const fontName = 'helvetica';
-    
     // DEFAULT START BOLD (Untuk Label)
     doc.setFont(fontName, 'bold');
 
     // --- 2. HEADER DOKUMEN ---
     doc.setFontSize(16);
-    doc.text(companyInfo.nama, margin.left, currentY,);
+    doc.text(companyInfo.nama, margin.left, currentY);
     
     doc.setFontSize(12);
     doc.text(title, pageWidth - margin.right, currentY, { align: 'right' });
@@ -205,13 +235,13 @@ const buildDoc = (transaksi, type) => {
             lineColor: [0, 0, 0],       
             lineWidth: 0.1,             
             halign: 'center',
-            font: fontName,
+            font: fontName, // Pakai font ArialNarrow
             fontStyle: 'bold', 
             fontSize: 9,
             cellPadding: 2,
         },
         styles: {
-            font: fontName,
+            font: fontName, // Pakai font ArialNarrow
             fontStyle: 'normal', 
             lineColor: [0, 0, 0],
             lineWidth: 0.1,
@@ -333,11 +363,9 @@ const buildDoc = (transaksi, type) => {
         }
     }
 
-    // --- 6. TANDA TANGAN (UPDATE POSISI) ---
-    // Pastikan posisi Y terakhir aman (ambil max antara link atau total)
+    // --- 6. TANDA TANGAN ---
     let signY = Math.max(summaryY, linkY + 10) + 10;
     
-    // Cek muat halaman (butuh space vertikal sekitar 40mm)
     signY = checkPageOverflow(signY, 40);
 
     const leftSignX = margin.left + 25; 
@@ -346,7 +374,6 @@ const buildDoc = (transaksi, type) => {
     doc.setFontSize(9);
     doc.setFont(fontName, 'normal');
 
-    // POSISI DITUKAR:
     // Kiri: Hormat Kami
     doc.text("Hormat Kami,", leftSignX, signY, { align: 'center' });
     // Kanan: Penerima
@@ -356,29 +383,32 @@ const buildDoc = (transaksi, type) => {
     const nameY = signY + 25;
     doc.setFont(fontName, 'bold');
 
-    // Kiri: Garis bawah (dulu Ning Nani)
+    // Kiri: Garis bawah
     doc.text("(________________)", leftSignX, nameY, { align: 'center' });
 
-    // Kanan: Nama Customer (dari Data)
+    // Kanan: Nama Customer
     doc.text(`( ${transaksi.namaCustomer || '....................'} )`, rightSignX, nameY, { align: 'center' });
-
-    // Baris "Admin: ...." DIHAPUS sesuai request
 
     return doc;
 };
 
-// --- EKSPOR FUNGSI ---
-export const generateInvoicePDF = (transaksi) =>
-    buildDoc(transaksi, 'invoice').output('datauristring');
+// --- EKSPOR FUNGSI (Perlu Async/Await saat dipanggil) ---
 
-export const generateNotaPDF = (transaksi) =>
-    buildDoc(transaksi, 'nota').output('datauristring');
+export const generateInvoicePDF = async (transaksi) => {
+    const doc = await buildDoc(transaksi, 'invoice');
+    return doc.output('datauristring');
+};
 
-// --- FUNGSI BARU UNTUK PAYMENT ---
-export const generatePaymentPDF = (payment, allocations) => {
+export const generateNotaPDF = async (transaksi) => {
+    const doc = await buildDoc(transaksi, 'nota');
+    return doc.output('datauristring');
+};
+
+export const generatePaymentPDF = async (payment, allocations) => {
     const paymentData = {
         ...payment,
         items: allocations 
     };
-    return buildDoc(paymentData, 'payment').output('datauristring');
+    const doc = await buildDoc(paymentData, 'payment');
+    return doc.output('datauristring');
 };

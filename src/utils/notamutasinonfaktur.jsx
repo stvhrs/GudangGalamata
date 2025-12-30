@@ -1,91 +1,87 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// --- KONSTANTA FONT ---
+const FONT_NORMAL_URL = '/fonts/arialnarrow.ttf';
+const FONT_BOLD_URL = '/fonts/arialnarrow_bold.ttf';
+
 const companyInfo = {
     nama: "CV. GANGSAR MULIA UTAMA",
     hp: "0882-0069-05391"
 };
 
-// --- HELPER ---
 const formatNumber = (value) => new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0 }).format(value || 0);
-
 const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('id-ID', { 
-    day: '2-digit', month: 'long', year: 'numeric', 
-    hour: '2-digit', minute:'2-digit' 
+    day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute:'2-digit' 
 });
 
+const loadFont = async (path) => {
+    try {
+        const res = await fetch(path);
+        if (!res.ok) throw new Error("Font missing");
+        const blob = await res.blob();
+        return new Promise((r) => {
+            const reader = new FileReader();
+            reader.onload = () => r(reader.result.split(',')[1]);
+            reader.readAsDataURL(blob);
+        });
+    } catch { return null; }
+};
+
 /**
- * GENERATE PDF A4 PORTRAIT (NON-FAKTUR)
+ * GENERATE NOTA NON-FAKTUR PDF (ASYNC)
  */
-const buildDoc = (data) => {
-    
-    // 1. SETUP KERTAS (A4 PORTRAIT)
-    const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4' 
-    });
+const buildDoc = async (data) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    // Load Font
+    const fontNormal = await loadFont(FONT_NORMAL_URL);
+    const fontBold = await loadFont(FONT_BOLD_URL);
+    let fontName = 'helvetica';
+    if (fontNormal && fontBold) {
+        doc.addFileToVFS('ArialNarrow.ttf', fontNormal);
+        doc.addFont('ArialNarrow.ttf', 'ArialNarrow', 'normal');
+        doc.addFileToVFS('ArialNarrow-Bold.ttf', fontBold);
+        doc.addFont('ArialNarrow-Bold.ttf', 'ArialNarrow', 'bold');
+        fontName = 'ArialNarrow';
+    }
 
     const margin = { top: 10, right: 10, bottom: 5, left: 10 };
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
 
-    // Font: Helvetica
-    const fontName = 'helvetica';
-
-    // --- 1. HEADER ---
-    doc.setFontSize(18); 
-    doc.setFont(fontName, 'bold');
+    // Header
+    doc.setFontSize(18); doc.setFont(fontName, 'bold');
     doc.text(companyInfo.nama, margin.left, currentY);
-    
     doc.setFontSize(11); 
     doc.text("NOTA NON-FAKTUR", pageWidth - margin.right, currentY, { align: 'right' });
-    
     currentY += 2; 
-
-    // Garis Header
-    doc.setLineWidth(0.2); 
-    doc.setDrawColor(0, 0, 0);
-    doc.line(margin.left, currentY, pageWidth - margin.right, currentY);
+    doc.setLineWidth(0.2); doc.line(margin.left, currentY, pageWidth - margin.right, currentY);
     currentY += 8; 
 
-    // --- 2. INFO TRANSAKSI ---
+    // Info
     const idDokumen = data.id || '-';
-    // Sesuai JSON: namaCustomer
-    const namaPelanggan = data.namaCustomer || 'Umum'; 
+    const namaPelanggan = data.namaCustomer || 'Umum';
     const infoX = pageWidth / 2 + 10;
     
     doc.setFontSize(9.5); 
-    
-    // Kiri
     doc.setFont(fontName, 'bold'); doc.text('No. Transaksi:', margin.left, currentY);
     doc.setFont(fontName, 'normal'); doc.text(idDokumen, margin.left + 30, currentY);
     currentY += 5;
-    
-    // Kiri baris 2
     doc.setFont(fontName, 'bold'); doc.text('Customer:', margin.left, currentY);
     doc.setFont(fontName, 'normal'); doc.text(namaPelanggan, margin.left + 30, currentY);
     currentY += 5;
 
-    // Kanan
     const rightY = currentY - 10;
     doc.setFont(fontName, 'bold'); doc.text('Tanggal:', infoX, rightY);
     doc.setFont(fontName, 'normal'); doc.text(formatDate(data.tanggal), infoX + 25, rightY);
-    
     currentY += 5; 
 
-    // --- 3. TABEL ITEM (Single Row) ---
-    // Karena ini non-faktur, biasanya hanya 1 item global
+    // Table
     const head = [['No', 'Keterangan', 'Jumlah']];
-    
-    // Sesuai JSON: totalBayar
     const amount = Number(data.totalBayar || 0);
-    const keterangan = data.keterangan || '-';
-
-    const body = [
-        ['1', keterangan, formatNumber(amount)]
-    ];
+    const body = [['1', data.keterangan || '-', formatNumber(amount)]];
 
     autoTable(doc, {
         startY: currentY,
@@ -93,47 +89,26 @@ const buildDoc = (data) => {
         body: body,
         theme: 'grid',
         headStyles: {
-            fillColor: [255, 255, 255], 
-            textColor: [0, 0, 0],       
-            lineColor: [0, 0, 0],       
-            lineWidth: 0.2,
-            halign: 'center',
-            fontSize: 9,
-            font: fontName,
-            fontStyle: 'bold',
-            cellPadding: 1.5,
+            fillColor: [255, 255, 255], textColor: [0, 0, 0], lineColor: [0, 0, 0], lineWidth: 0.1,
+            halign: 'center', fontSize: 9, font: fontName, fontStyle: 'bold', cellPadding: 1.5,
         },
         styles: {
-            font: fontName,
-            lineColor: [0, 0, 0],
-            lineWidth: 0.2,
-            fontSize: 9,
-            cellPadding: 1.5,
-            valign: 'middle',
-            textColor: [0, 0, 0]
+            font: fontName, lineColor: [0, 0, 0], lineWidth: 0.1, fontSize: 9, cellPadding: 1.5,
+            valign: 'middle', textColor: [0, 0, 0]
         },
         columnStyles: { 
             0: { halign: 'center', cellWidth: 12 }, 
-            1: { }, // Auto width for Keterangan
             2: { halign: 'right', cellWidth: 40 } 
         },
         margin: { left: margin.left, right: margin.right },
     });
 
-    // --- 4. SUMMARY FOOTER ---
+    // Summary
     currentY = doc.lastAutoTable.finalY + 5;
-    
-    // Fungsi Cek Halaman
     const checkPageOverflow = (y, increment = 10) => { 
-        if (y + increment > pageHeight - margin.bottom) {
-             doc.addPage();
-             return margin.top + 5; 
-        }
-        return y;
+        if (y + increment > pageHeight - margin.bottom) { doc.addPage(); return margin.top + 5; } return y;
     };
-
     currentY = checkPageOverflow(currentY, 20);
-
     const totalColValueX = pageWidth - margin.right; 
     const totalColLabelX = totalColValueX - 50;
 
@@ -142,29 +117,26 @@ const buildDoc = (data) => {
     doc.text('Total:', totalColLabelX, currentY);
     doc.text(formatNumber(amount), totalColValueX, currentY, { align: 'right' });
 
-    // --- 5. TANDA TANGAN ---
+    // TTD
     let signY = currentY + 15;
     signY = checkPageOverflow(signY, 40);
-
     const leftSignX = margin.left + 25; 
     const rightSignX = pageWidth - margin.right - 25; 
 
     doc.setFontSize(9);
     doc.setFont(fontName, 'normal');
-
-    // POSISI BARU
     doc.text("Hormat Kami,", leftSignX, signY, { align: 'center' });
     doc.text("Penerima,", rightSignX, signY, { align: 'center' });
-
     const nameY = signY + 25;
     doc.setFont(fontName, 'bold');
-
-    // NAMA BARU
     doc.text("(________________)", leftSignX, nameY, { align: 'center' });
     doc.text(`( ${data.namaCustomer || '....................'} )`, rightSignX, nameY, { align: 'center' });
 
     return doc;
 };
 
-export const generateNotaNonFakturPDF = (data) => 
-    buildDoc(data).output('datauristring');
+// EXPORT ASYNC
+export const generateNotaNonFakturPDF = async (data) => {
+    const doc = await buildDoc(data);
+    return doc.output('bloburl');
+};

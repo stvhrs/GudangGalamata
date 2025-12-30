@@ -113,7 +113,7 @@ export const generateBukuPdfBlob = (dataToExport, headerInfo = {}) => {
             5: { cellWidth: 8,  halign: 'right' },  // Stok
             6: { cellWidth: 15, halign: 'right' },  // Harga
             7: { cellWidth: 8,  halign: 'center' }, // Disc
-            8: { cellWidth: 12, halign: 'left' },   // Peruntukan
+            8: { cellWidth: 16  , halign: 'left' },   // Peruntukan
             9: { cellWidth: 8,  halign: 'center' }  // Tahun
         },
     });

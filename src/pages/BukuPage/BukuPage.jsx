@@ -284,19 +284,7 @@ const BukuPage = () => {
             sorter: true,
             sortOrder: sortState.columnKey === 'penerbit' && sortState.order 
         },
-        { 
-            title: 'Peruntukan', 
-            dataIndex: 'peruntukan', 
-            key: 'peruntukan', 
-            width: 120, 
-            align: 'center', 
-            filters: [
-                { text: 'SISWA', value: 'SISWA' },
-                { text: 'GURU', value: 'GURU' },
-                { text: 'UMUM', value: 'UMUM' },
-            ],
-            filteredValue: columnFilters.peruntukan || null, 
-        },
+       
         { 
             title: 'Stok', 
             dataIndex: 'stok', 
@@ -316,18 +304,40 @@ const BukuPage = () => {
             render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', 
             sorter: true,
             sortOrder: sortState.columnKey === 'harga' && sortState.order 
-        },
-        { 
-            title: 'Kelas', 
-            dataIndex: 'kelas', 
-            key: 'kelas', 
-            width: 100, 
+        }, { 
+            title: 'Dsc', 
+            dataIndex: 'diskon', 
+            key: 'diskon', 
             align: 'center', 
-            filters: kelasFilters, 
-            filteredValue: columnFilters.kelas || null, 
+            width: 150, 
+            render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', 
             sorter: true,
-            sortOrder: sortState.columnKey === 'kelas' && sortState.order 
+            sortOrder: sortState.columnKey === 'harga' && sortState.order 
         },
+         { 
+            title: 'Peruntukan', 
+            dataIndex: 'peruntukan', 
+            key: 'peruntukan', 
+            width: 120, 
+            align: 'center', 
+            filters: [
+                { text: 'SISWA', value: 'SISWA' },
+                { text: 'GURU', value: 'GURU' },
+                { text: 'UMUM', value: 'UMUM' },
+            ],
+            filteredValue: columnFilters.peruntukan || null, 
+        },
+        // { 
+        //     title: 'Kelas', 
+        //     dataIndex: 'kelas', 
+        //     key: 'kelas', 
+        //     width: 100, 
+        //     align: 'center', 
+        //     filters: kelasFilters, 
+        //     filteredValue: columnFilters.kelas || null, 
+        //     sorter: true,
+        //     sortOrder: sortState.columnKey === 'kelas' && sortState.order 
+        // },
         { 
             title: 'Tahun', 
             dataIndex: 'tahun', 
