@@ -55,9 +55,9 @@ const buildDoc = async (transaksi, type) => {
     
     // 1. SETUP KERTAS (PORTRAIT A4)
     const doc = new jsPDF({
-        orientation: 'portrait',
+        orientation: 'landscape',
         unit: 'mm',
-        format: 'a4' 
+        format: 'a5' 
     });
 
     // --- SETUP FONT ---
@@ -76,8 +76,8 @@ const buildDoc = async (transaksi, type) => {
         fontName = 'ArialNarrow'; // Gunakan font custom
     }
 
-    const margin = { top: 15, right: 15, bottom: 15, left: 15 };
-    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = { top: 10, right: 7.5, bottom:  10 , left: 7.5 };
+        const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
 

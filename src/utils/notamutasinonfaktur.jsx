@@ -32,7 +32,7 @@ const loadFont = async (path) => {
  * GENERATE NOTA NON-FAKTUR PDF (ASYNC)
  */
 const buildDoc = async (data) => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
 
     // Load Font
     const fontNormal = await loadFont(FONT_NORMAL_URL);
@@ -46,7 +46,7 @@ const buildDoc = async (data) => {
         fontName = 'ArialNarrow';
     }
 
-    const margin = { top: 10, right: 10, bottom: 5, left: 10 };
+    const margin = { top: 10, right: 7.5, bottom:  10 , left: 7.5 };
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     let currentY = margin.top;
