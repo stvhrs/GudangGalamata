@@ -297,8 +297,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 stockDiff.set(i.idBuku, currentVal - Number(i.jumlah));
             });
             const timestampNow = Date.now();
-         // ... kode sebelumnya ...
-
+            
             let histCounter = 0;
             for (const [productId, change] of stockDiff.entries()) {
                 if (change === 0) continue;
@@ -332,8 +331,6 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                     };
                 }
             }
-
-            // ... sisa kode ...
 
             await update(ref(db), updates);
             message.success({ content: 'Tersimpan!', key: 'tx' });
@@ -438,7 +435,18 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                                                 </Col>
                                                 <Col xs={6} md={3}><Form.Item {...restField} name={[name, 'jumlah']} style={{ marginBottom: 4 }}><InputNumber min={1} placeholder="Qty" style={{ width: '100%' }} /></Form.Item></Col>
                                                 <Col xs={10} md={4}><Form.Item {...restField} name={[name, 'hargaSatuan']} style={{ marginBottom: 4 }}><InputNumber formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={(v) => v.replace(/\$\s?|(,*)/g, '')} style={{ width: '100%' }} placeholder="Harga" /></Form.Item></Col>
-                                                <Col xs={8} md={2}><Form.Item {...restField} name={[name, 'diskonPersen']} style={{ marginBottom: 4 }}><InputNumber min={0} max={100} formatter={v => `${v}%`} parser={v => v.replace('%', '')} style={{ width: '100%' }} /></Form.Item></Col>
+                                                <Col xs={8} md={2}>
+                                                    <Form.Item {...restField} name={[name, 'diskonPersen']} style={{ marginBottom: 4 }}>
+                                                        <InputNumber 
+                                                            min={0} 
+                                                            max={100}
+                                                            step={0.1} 
+                                                            formatter={v => `${v}%`} 
+                                                            parser={v => v.replace('%', '').replace(',', '.')} 
+                                                            style={{ width: '100%' }} 
+                                                        />
+                                                    </Form.Item>
+                                                </Col>
                                                 <Col xs={12} md={4}><SimpleSubtotal index={index} /></Col>
                                                 <Col xs={2} md={1} style={{ textAlign: 'center' }}><Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(name)} /></Col>
                                             </Row>

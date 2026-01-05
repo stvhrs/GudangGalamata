@@ -15,7 +15,7 @@ import MobileHeader from './components/layout/MobileHeader';
 
 // --- Halaman Aplikasi ---
 import BukuPage from './pages/BukuPage/BukuPage';
-import MutasiPage from './pages/MutasiPage/MutasiPage';
+// import MutasiPage from './pages/MutasiPage/MutasiPage';
 import TransaksiJualPage from './pages/TransaksiJualPage/TransaksiJualPage';
 // import DataGeneratorPage from './pages/DataGeneratorPage'; // Hapus jika tidak dipakai
 import PelangganPage from './pages/PelangganPage/PelangganPage';
@@ -27,8 +27,8 @@ import ReturPage from './pages/ReturPage/ReturPage';
 import LoginPage from './pages/LoginPage/LoginPage';
 
 // --- Halaman Publik ---
-import InvoicePublicPage from './pages/InvoicePublicPage';
-import NotaPublicPage from './pages/NotaPublicPage';
+// import InvoicePublicPage from './pages/InvoicePublicPage';
+// import NotaPublicPage from './pages/NotaPublicPage';
 
 // --- (BARU) Impor Halaman Generate ---
 // Pastikan Anda sudah membuat file-file ini atau ganti dengan impor yang benar
@@ -168,8 +168,8 @@ const AppRoutes = () => {
                 <Route path="/login" element={<LoginPage />} />
 
                 {/* Rute Publik */}
-                <Route path="/invoice/:id" element={<InvoicePublicPage />} />
-                <Route path="/nota/:id" element={<NotaPublicPage />} />
+                {/* <Route path="/invoice/:id" element={<InvoicePublicPage />} />
+                <Route path="/nota/:id" element={<NotaPublicPage />} /> */}
 
                 {/* Rute Internal yang Dilindungi */}
                 <Route

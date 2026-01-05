@@ -1,20 +1,17 @@
 import React, { useState, useMemo, useCallback, useDeferredValue, useTransition } from 'react';
 import {
     Layout, Card, Spin, Input, Row, Col, Tag, Button, Modal,
-    Dropdown, App, DatePicker, Space, Tabs, Divider, Grid, Empty, Typography, Tooltip
+    App, DatePicker, Space, Tabs, Divider, Grid, Typography, Tooltip
 } from 'antd';
 import {
-    PlusOutlined, MoreOutlined, PrinterOutlined, ReadOutlined,
-    PullRequestOutlined, SearchOutlined, CloseCircleOutlined,
-    DownloadOutlined, ShareAltOutlined,
-    EyeOutlined, EyeInvisibleOutlined
+    PlusOutlined, PrinterOutlined, ReadOutlined,
+    SearchOutlined, CloseCircleOutlined, EyeOutlined, EyeInvisibleOutlined, 
+    EditOutlined, LoadingOutlined,
+    MenuFoldOutlined, MenuUnfoldOutlined // <-- ICON BARU
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/id';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { Worker, Viewer } from '@react-pdf-viewer/core';
-import '@react-pdf-viewer/core/lib/styles/index.css';
+import RawTextPreviewModal from '../../components/RawTextPreviewModal'; 
 
 // --- FIREBASE IMPORTS ---
 import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
@@ -24,13 +21,12 @@ import useDebounce from '../../hooks/useDebounce';
 import TransaksiJualForm from './components/TransaksiJualForm';
 import TransaksiJualDetailModal from './components/TransaksiJualDetailModal';
 import TransaksiJualTableComponent from './components/TransaksiJualTableComponent';
-import { generateInvoicePDF, generateNotaPDF } from '../../utils/pdfGenerator';
+
+// IMPORT HELPER RAW TEXT BARU
+import { generateTransaksiText } from '../../utils/notaTransaksiText';
 
 // IMPORT HOOK
 import { useTransaksiJualStream } from '../../hooks/useFirebaseData';
-
-import TagihanPelangganTab from './components/TagihanPelangganTab';
-import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
 
 const { Content } = Layout;
 const { Text } = Typography;
@@ -62,9 +58,10 @@ export default function TransaksiJualPage() {
 
     const [dateRange, setDateRange] = useState([defaultStart, defaultEnd]);
     const [isAllTime, setIsAllTime] = useState(false);
-
-    // --- STATE SENSOR NOMINAL ---
     const [showTotals, setShowTotals] = useState(false);
+    
+    // --- [BARU] State untuk Toggle Kolom Diskon & Retur ---
+    const [showExtraCols, setShowExtraCols] = useState(false);
 
     // Filter Params
     const filterParams = useMemo(() => {
@@ -96,11 +93,14 @@ export default function TransaksiJualPage() {
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedTransaksi, setSelectedTransaksi] = useState(null);
 
-    // --- PDF State ---
-    const [isTxPdfModalOpen, setIsTxPdfModalOpen] = useState(false);
-    const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
-    const [txPdfFileName, setTxPdfFileName] = useState('laporan.pdf');
-    const [isTxPdfGenerating, setIsTxPdfGenerating] = useState(false);
+    // --- RAW TEXT PREVIEW STATE ---
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [previewContent, setPreviewContent] = useState('');
+    const [loadingPreview, setLoadingPreview] = useState(false);
+    const [previewTitle, setPreviewTitle] = useState('Preview');
+    
+    // --- STATE LOADING BUTTON ROW ---
+    const [printingId, setPrintingId] = useState(null);
 
     // --- CONCURRENT UI ---
     const deferredAllTransaksi = useDeferredValue(allTransaksi);
@@ -118,16 +118,11 @@ export default function TransaksiJualPage() {
         );
     }, [debouncedSearchText, selectedStatus, isAllTime, dateRange, defaultStart, defaultEnd]);
 
-
     const filteredTransaksi = useMemo(() => {
         let data = [...(deferredAllTransaksi || [])];
-
-        // Filter Status
         if (deferredSelectedStatus.length > 0) {
             data = data.filter((tx) => deferredSelectedStatus.includes(normalizeStatus(tx.statusPembayaran)));
         }
-
-        // Filter Search
         if (deferredDebouncedSearch) {
             const q = deferredDebouncedSearch.toLowerCase();
             data = data.filter((tx) =>
@@ -139,7 +134,7 @@ export default function TransaksiJualPage() {
         return data.sort((a, b) => (b.tanggal || 0) - (a.tanggal || 0));
     }, [deferredAllTransaksi, deferredSelectedStatus, deferredDebouncedSearch]);
 
-    // --- Footer & Summary Calculation ---
+    // --- Footer & Summary ---
     const footerTotals = useMemo(() => {
         const filteredData = filteredTransaksi || [];
         const totals = filteredData.reduce(
@@ -150,82 +145,41 @@ export default function TransaksiJualPage() {
                 biayaLain: acc.biayaLain + Number(tx.totalBiayaLain || 0), 
                 netto: acc.netto + Number(tx.totalNetto || 0),
                 bayar: acc.bayar + Number(tx.totalBayar || 0),
-                // Gunakan property sisaTagihan dari DB agar akurat
                 sisa: acc.sisa + Number(tx.sisaTagihan || 0) 
             }), { bruto: 0, diskon: 0, retur: 0, biayaLain: 0, netto: 0, bayar: 0, sisa: 0 }
         );
-
         return {
-            totalBruto: totals.bruto,
-            totalDiskon: totals.diskon,
-            totalRetur: totals.retur,
-            totalBiayaLain: totals.biayaLain,
-            totalTagihan: totals.netto,
-            totalTerbayar: totals.bayar,
-            totalSisa: totals.sisa,
-            totalTransaksi: filteredData.length
+            totalBruto: totals.bruto, totalDiskon: totals.diskon, totalRetur: totals.retur,
+            totalBiayaLain: totals.biayaLain, totalTagihan: totals.netto, totalTerbayar: totals.bayar,
+            totalSisa: totals.sisa, totalTransaksi: filteredData.length
         };
     }, [filteredTransaksi]);
 
-    // --- TAB SUMMARY ---
+    // --- Tab Summary ---
     const TabSummary = useMemo(() => {
         if (screens.xs) return null;
-
         const renderValue = (val, style = {}) => {
-            if (showTotals) {
-                return <Text strong style={style}>{formatCurrency(val)}</Text>;
-            }
+            if (showTotals) return <Text strong style={style}>{formatCurrency(val)}</Text>;
             return <Text strong style={{ ...style, fontFamily: 'monospace', letterSpacing: '2px' }}>••••••••</Text>;
         };
-
         const separator = <Divider type="vertical" style={{ height: '24px', margin: '0 12px' }} />;
-
         return (
             <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingRight: '8px' }}>
                 <Tooltip title={showTotals ? "Sembunyikan Nominal" : "Tampilkan Nominal"}>
-                    <Button
-                        type="text"
-                        shape="circle"
-                        icon={showTotals ? <EyeOutlined /> : <EyeInvisibleOutlined />}
-                        onClick={() => setShowTotals(!showTotals)}
-                    />
+                    <Button type="text" shape="circle" icon={showTotals ? <EyeOutlined /> : <EyeInvisibleOutlined />} onClick={() => setShowTotals(!showTotals)} />
                 </Tooltip>
-                
                 {separator}
-                <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Bruto</Text>
-                    {renderValue(footerTotals.totalBruto)}
-                </div>
-                
+                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Bruto</Text>{renderValue(footerTotals.totalBruto)}</div>
                 {separator}
-                <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Diskon</Text>
-                    {renderValue(footerTotals.totalDiskon, { color: '#faad14' })}
-                </div>
-
+                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Diskon</Text>{renderValue(footerTotals.totalDiskon, { color: '#faad14' })}</div>
                 {separator}
-                <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Retur</Text>
-                    {renderValue(footerTotals.totalRetur, { color: '#cf1322' })}
-                </div>
-
+                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Retur</Text>{renderValue(footerTotals.totalRetur, { color: '#cf1322' })}</div>
                 {separator}
-                <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Biaya Lain</Text>
-                    {renderValue(footerTotals.totalBiayaLain, { color: '#1677ff' })}
-                </div>
-                
+                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Netto</Text>{renderValue(footerTotals.totalTagihan, { color: '#1677ff' })}</div>
                 {separator}
-                <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Total Bayar</Text>
-                    {renderValue(footerTotals.totalTerbayar, { color: '#3f8600' })}
-                </div>
-                
+                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Bayar</Text>{renderValue(footerTotals.totalTerbayar, { color: '#3f8600' })}</div>
                 {separator}
-                <div style={{ textAlign: 'right' }}>
-                    <Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Sisa Tagihan</Text>
-                    {renderValue(footerTotals.totalSisa, { color: footerTotals.totalSisa > 0 ? '#cf1322' : '#3f8600' })}
-                </div>
+                <div style={{ textAlign: 'right' }}><Text type="secondary" style={{ fontSize: '11px', display: 'block' }}>Sisa</Text>{renderValue(footerTotals.totalSisa, { color: footerTotals.totalSisa > 0 ? '#cf1322' : '#3f8600' })}</div>
             </div>
         );
     }, [footerTotals, screens.xs, showTotals]);
@@ -237,7 +191,6 @@ export default function TransaksiJualPage() {
     const resetFilters = useCallback(() => { setSearchText(''); setSelectedStatus([]); setIsAllTime(false); setDateRange([defaultStart, defaultEnd]); }, [defaultStart, defaultEnd]);
     const handleTableChange = useCallback((p, f) => { setPagination(p); setSelectedStatus(f.statusPembayaran || []); }, []);
 
-    // Modal Handlers
     const handleOpenCreate = useCallback(() => { setFormMode('create'); setEditingTx(null); setIsFormModalOpen(true); }, []);
     const handleOpenEdit = useCallback((tx) => { setFormMode('edit'); setEditingTx(tx); setIsFormModalOpen(true); }, []);
     const handleCloseFormModal = useCallback(() => { setIsFormModalOpen(false); setEditingTx(null); }, []);
@@ -245,192 +198,175 @@ export default function TransaksiJualPage() {
     const handleOpenDetailModal = useCallback((tx) => { setSelectedTransaksi(tx); setIsDetailModalOpen(true); }, []);
     const handleCloseDetailModal = useCallback(() => { setSelectedTransaksi(null); setIsDetailModalOpen(false); }, []);
 
-    // --- HELPER FETCH ITEM ---
+    // --- FETCH ITEM HELPER ---
     const fetchInvoiceItems = async (invoiceId) => {
         try {
             const dbRef = ref(db, 'invoice_items');
             const q = query(dbRef, orderByChild('invoiceId'), equalTo(invoiceId));
             const snapshot = await get(q);
-            if (snapshot.exists()) {
-                return Object.values(snapshot.val());
-            } else {
-                return [];
+            if (snapshot.exists()) return Object.values(snapshot.val());
+            const invSnap = await get(ref(db, `invoices/${invoiceId}/items`));
+            if (invSnap.exists()) {
+                const raw = invSnap.val();
+                return Array.isArray(raw) ? raw : Object.values(raw);
             }
+            return [];
         } catch (error) {
             console.error("Error fetching invoice items:", error);
             throw error;
         }
     };
 
-    // --- PDF & PREVIEW HANDLERS ---
-    const openPdfModal = (blob, fileName) => {
-        const url = URL.createObjectURL(blob);
-        setPdfPreviewUrl(url);
-        setTxPdfFileName(fileName);
-        setIsTxPdfModalOpen(true);
-        setIsTxPdfGenerating(false);
-    };
-
-    const handleCloseTxPdfModal = () => {
-        setIsTxPdfModalOpen(false);
-        if (pdfPreviewUrl) {
-            URL.revokeObjectURL(pdfPreviewUrl);
-            setPdfPreviewUrl('');
+    // --- RAW TEXT GENERATION & PRINT ---
+    const handleShowPreview = async (tx, type) => {
+        setPrintingId(tx.id); 
+        setLoadingPreview(true);
+        setPreviewTitle(type === 'INVOICE' ? 'Preview Invoice' : 'Preview Nota');
+        try {
+            const items = await fetchInvoiceItems(tx.id);
+            const rawText = generateTransaksiText(tx, items, type || 'NOTA');
+            setPreviewContent(rawText);
+            setIsPreviewOpen(true);
+        } catch (e) {
+            console.error(e);
+            message.error("Gagal generate data: " + e.message);
+        } finally {
+            setLoadingPreview(false);
+            setPrintingId(null); 
         }
     };
 
-   const handleGenerateInvoice = async (tx) => {
-    message.loading({ content: 'Mengambil data item & Membuat Invoice...', key: 'pdfGen' });
-    try {
-        const items = await fetchInvoiceItems(tx.id);
-        const fullTxData = { ...tx, items: items };
-        
-        // --- PERBAIKAN DI SINI ---
-        
-        // 1. Await dulu fungsinya agar mendapatkan URL String (bukan Promise)
-        const pdfUrl = await generateInvoicePDF(fullTxData);
-
-        // 2. Fetch URL tersebut untuk dijadikan Blob
-        const blob = await fetch(pdfUrl).then(r => r.blob());
-        
-        // -------------------------
-
-        openPdfModal(blob, `${tx.id}.pdf`);
-        message.success({ content: 'Invoice Siap', key: 'pdfGen' });
-    } catch (e) {
-        console.error(e);
-        message.error({ content: 'Gagal membuat Invoice', key: 'pdfGen' });
-    }
-};
-  const handleGenerateNota = async (tx) => {
-    message.loading({ content: 'Mengambil data item & Membuat Nota...', key: 'pdfGen' });
-    try {
-        const items = await fetchInvoiceItems(tx.id);
-        const fullTxData = { ...tx, items: items };
-
-        // --- PERBAIKAN DI SINI ---
-        
-        // 1. Generate dulu URL-nya (Wajib pakai await karena functionnya async)
-        const pdfUrl = await generateNotaPDF(fullTxData);
-
-        // 2. Fetch URL tersebut untuk dijadikan Blob Object
-        // (Hanya jika openPdfModal kamu memang mewajibkan inputnya tipe Blob, bukan URL)
-        const blob = await fetch(pdfUrl).then(r => r.blob());
-        
-        // -------------------------
-
-        openPdfModal(blob, `Nota-${tx.id}.pdf`);
-        message.success({ content: 'Nota Siap', key: 'pdfGen' });
-
-    } catch (e) {
-        console.error(e);
-        message.error({ content: 'Gagal membuat Nota', key: 'pdfGen' });
-    }
-};
-
-    const handleGenerateReportPdf = () => {
-        setIsTxPdfGenerating(true);
-        setTimeout(() => {
-            try {
-                const doc = new jsPDF('l', 'mm', 'a4');
-                const nowStr = dayjs().format('YYYYMMDD_HHmm');
-                const fileName = `Laporan_Transaksi_${nowStr}.pdf`;
-
-                doc.setFontSize(16);
-                doc.text("Laporan Transaksi Penjualan", 14, 15);
-
-                doc.setFontSize(10);
-                let periodeInfo = isAllTime ? "Periode: Semua Waktu" :
-                    (dateRange?.[0] ? `Periode: ${dateRange[0].format('DD MMM YYYY')} s/d ${dateRange[1].format('DD MMM YYYY')}` : "");
-                doc.text(periodeInfo, 14, 22);
-
-                const tableColumn = ["No", "Tanggal", "ID Invoice", "Customer", "Bruto", "Diskon", "Retur", "Biaya Lain", "Netto", "Bayar", "Sisa", "Status"];
-                const tableRows = filteredTransaksi.map((tx, index) => [
-                    index + 1,
-                    formatDate(tx.tanggal),
-                    tx.id,
-                    tx.namaCustomer,
-                    formatCurrency(tx.totalBruto),
-                    formatCurrency(tx.totalDiskon),
-                    formatCurrency(tx.totalRetur),
-                    formatCurrency(tx.totalBiayaLain),
-                    formatCurrency(tx.totalNetto),
-                    formatCurrency(tx.totalBayar),
-                    formatCurrency(tx.sisaTagihan),
-                    normalizeStatus(tx.statusPembayaran)
-                ]);
-
-                autoTable(doc, {
-                    head: [tableColumn],
-                    body: tableRows,
-                    startY: 30,
-                    styles: { fontSize: 8 },
-                    headStyles: { fillColor: [22, 119, 255] },
-                    columnStyles: {
-                        4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' },
-                        7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' }, 10: { halign: 'right' }
-                    }
-                });
-
-                const finalY = doc.lastAutoTable.finalY + 10;
-                doc.setFontSize(10);
-                doc.setFont("helvetica", "bold");
-
-                doc.text(`Total Transaksi: ${filteredTransaksi.length}`, 14, finalY);
-                doc.text(`Total Bruto: ${formatCurrency(footerTotals.totalBruto)}`, 14, finalY + 5);
-                doc.text(`Total Diskon: ${formatCurrency(footerTotals.totalDiskon)}`, 14, finalY + 10);
-                doc.text(`Total Retur: ${formatCurrency(footerTotals.totalRetur)}`, 14, finalY + 15);
-                
-                doc.text(`Biaya Lain: ${formatCurrency(footerTotals.totalBiayaLain)}`, 100, finalY + 5);
-
-                doc.text(`Total Netto: ${formatCurrency(footerTotals.totalTagihan)}`, 180, finalY + 5);
-                doc.text(`Total Bayar: ${formatCurrency(footerTotals.totalTerbayar)}`, 180, finalY + 10);
-                doc.text(`Total Sisa: ${formatCurrency(footerTotals.totalSisa)}`, 180, finalY + 15);
-
-                const pdfBlob = doc.output('blob');
-                openPdfModal(pdfBlob, fileName);
-
-            } catch (error) {
-                console.error("Gagal membuat PDF:", error);
-                message.error("Gagal membuat laporan PDF");
-                setIsTxPdfGenerating(false);
-            }
-        }, 100);
+    const handlePrintFromPreview = () => {
+        if (!previewContent) return;
+        const printWindow = window.open('', '', 'width=950,height=600');
+        const style = `
+            <style>
+                @page { size: 9.5in 5.5in; margin: 0; }
+                html, body { margin: 0; padding: 0; width: 9.5in; height: 5.5in; }
+                body {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 13px; 
+                    line-height: 1.15;
+                    padding-top: 0.1in;
+                    padding-left: 0.1in;
+                    white-space: pre; 
+                }
+                @media print { body { -webkit-print-color-adjust: exact; } }
+            </style>
+        `;
+        printWindow.document.write('<html><head><title>Print</title>' + style + '</head><body>');
+        printWindow.document.write(previewContent);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
     };
 
+    // --- KOLOM AKSI ---
     const renderAksi = useCallback((_, record) => {
-        const items = [
-            { key: "detail", label: "Lihat Detail", onClick: () => handleOpenDetailModal(record) },
-            { key: "edit", label: "Edit Transaksi", onClick: () => handleOpenEdit(record) },
-            { type: "divider" },
-            { key: "inv", label: "Generate Invoice", onClick: () => handleGenerateInvoice(record) },
-            {
-                key: "nota",
-                label: "Generate Nota",
-                onClick: () => handleGenerateNota(record)
-            },
-        ];
-        return <Dropdown menu={{ items }} trigger={["click"]}><Button icon={<MoreOutlined />} size="small" /></Dropdown>;
-    }, [handleOpenDetailModal, handleOpenEdit]);
+        const isPrinting = printingId === record.id;
+        
+        return (
+            <Space size="small">
+                <Tooltip title="Lihat Detail">
+                    <Button 
+                        size="small" 
+                        type="text" 
+                        icon={<EyeOutlined />} 
+                        style={{ color: '#1890ff' }} 
+                        onClick={() => handleOpenDetailModal(record)} 
+                    />
+                </Tooltip>
+                
+                <Tooltip title="Edit Transaksi">
+                    <Button 
+                        size="small" 
+                        type="text" 
+                        icon={<EditOutlined />} 
+                        style={{ color: '#faad14' }} 
+                        onClick={() => handleOpenEdit(record)} 
+                    />
+                </Tooltip>
+                
+                <Tooltip title="Cetak Nota (Dot Matrix)">
+                    <Button 
+                        size="small" 
+                        type="text" 
+                        icon={isPrinting ? <LoadingOutlined /> : <PrinterOutlined />} 
+                        loading={isPrinting}
+                        style={{ color: '#52c41a' }} 
+                        onClick={() => handleShowPreview(record, 'NOTA')} 
+                    />
+                </Tooltip>
+            </Space>
+        );
+    }, [handleOpenDetailModal, handleOpenEdit, printingId]);
 
+    // --- CONFIG COLUMNS DENGAN TOGGLE ---
     const columns = useMemo(() => [
         { title: 'No.', width: 50, fixed: 'left', render: (_t, _r, idx) => ((pagination.current - 1) * pagination.pageSize) + idx + 1 },
-        { title: 'Tanggal', dataIndex: 'tanggal', width: 100, render: formatDate, sorter: (a, b) => (a.tanggal || 0) - (b.tanggal || 0) },
-        { title: 'ID', dataIndex: 'id', width: 140, render: (id) => <Text copyable={{ text: id }}>{id}</Text>, sorter: (a, b) => (a.id || '').localeCompare(b.id || '') },
-        { title: 'Customer', dataIndex: 'namaCustomer', width: 180, sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || '') },
-        { title: 'Bruto', dataIndex: 'totalBruto', align: 'right', width: 120, render: formatCurrency, sorter: (a, b) => (a.totalBruto || 0) - (b.totalBruto || 0) },
-        { title: 'Dsc', dataIndex: 'totalDiskon', align: 'right', width: 90, render: (val) => <span style={{ color: '#faad14' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span>, sorter: (a, b) => (a.totalDiskon || 0) - (b.totalDiskon || 0) },
-        { title: 'Retur', dataIndex: 'totalRetur', align: 'right', width: 90, render: (val) => <span style={{ color: '#cf1322' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span>, sorter: (a, b) => (a.totalRetur || 0) - (b.totalRetur || 0) }, // KOLOM RETUR
-        { title: 'Netto', dataIndex: 'totalNetto', align: 'right', width: 120, render: (val) => <Text strong>{formatCurrency(val)}</Text>, sorter: (a, b) => (a.totalNetto || 0) - (b.totalNetto || 0) },
-        { title: 'Bayar', dataIndex: 'totalBayar', align: 'right', width: 120, render: (val) => <span style={{ color: '#3f8600' }}>{formatCurrency(val)}</span>, sorter: (a, b) => (a.totalBayar || 0) - (b.totalBayar || 0) },
-        { title: 'Sisa', dataIndex: 'sisaTagihan', align: 'right', width: 120, sorter: (a, b) => (a.sisaTagihan || 0) - (b.sisaTagihan || 0), render: (val) => <span style={{ color: val > 0 ? '#cf1322' : '#3f8600', fontWeight: val > 0 ? 'bold' : 'normal' }}>{formatCurrency(val)}</span> }, // SISA DARI PROPERTY
-        { title: 'Status', dataIndex: 'statusPembayaran', width: 100, fixed: 'right', filters: [{ text: 'BELUM', value: 'BELUM' }, { text: 'LUNAS', value: 'LUNAS' }, ,], filteredValue: selectedStatus.length ? selectedStatus : null, render: (s) => <Tag color={normalizeStatus(s) === 'LUNAS' ? 'green' : normalizeStatus(s) === 'BELUM' ? 'red' : 'orange'}>{normalizeStatus(s)}</Tag> },
-        { title: 'Aksi', align: 'center', width: 60, fixed: 'right', render: renderAksi },
-    ], [pagination, renderAksi, selectedStatus]);
+        { title: 'Tanggal', dataIndex: 'tanggal', width: 80, render: formatDate, sorter: (a, b) => (a.tanggal || 0) - (b.tanggal || 0) },
+        { title: 'ID', dataIndex: 'id', width: 100, render: (id) => <Text copyable={{ text: id }}>{id}</Text>, sorter: (a, b) => (a.id || '').localeCompare(b.id || '') },
+        { title: 'Customer', dataIndex: 'namaCustomer', width: 120, sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || '') },
+        
+        // --- MODIFIKASI: KOLOM BRUTO DENGAN BUTTON TOGGLE ---
+        { 
+            title: (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
+                    Bruto
+                    <Tooltip title={showExtraCols ? "Sembunyikan Detail (Diskon & Retur)" : "Tampilkan Detail (Diskon & Retur)"}>
+                        <Button 
+                            type="text" 
+                            size="small" 
+                            icon={showExtraCols ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} 
+                            onClick={(e) => {
+                                e.stopPropagation(); 
+                                setShowExtraCols(!showExtraCols);
+                            }}
+                            style={{ color: '#1890ff', backgroundColor: '#e6f7ff' }}
+                        />
+                    </Tooltip>
+                </div>
+            ), 
+            dataIndex: 'totalBruto', 
+            align: 'right', 
+            width: 100, // Lebarkan dikit biar tombol muat
+            render: formatCurrency, 
+            sorter: (a, b) => (a.totalBruto || 0) - (b.totalBruto || 0) 
+        },
 
-    const tableScrollX = 1600; // Adjusted for new column
+        // --- KOLOM DISKON (CONDITIONAL) ---
+        ...(showExtraCols ? [{ 
+            title: 'Dsc', 
+            dataIndex: 'totalDiskon', 
+            align: 'right', 
+            width: 90, 
+            render: (val) => <span style={{ color: '#faad14' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span> 
+        }] : []),
 
-    // [OPTIMASI 4] Gabungkan logic loading
+        // --- KOLOM RETUR (CONDITIONAL) ---
+        ...(showExtraCols ? [{ 
+            title: 'Retur', 
+            dataIndex: 'totalRetur', 
+            align: 'right', 
+            width: 90, 
+            render: (val) => <span style={{ color: '#cf1322' }}>{val > 0 ? `-${formatCurrency(val)}` : '-'}</span> 
+        }] : []),
+
+        { title: 'Netto', dataIndex: 'totalNetto', align: 'right', width: 100, render: (val) => <Text strong>{formatCurrency(val)}</Text> },
+        { title: 'Bayar', dataIndex: 'totalBayar', align: 'right', width: 100, render: (val) => <span style={{ color: '#3f8600' }}>{formatCurrency(val)}</span> },
+        { title: 'Sisa', dataIndex: 'sisaTagihan', align: 'right', width: 100, sorter: (a, b) => (a.sisaTagihan || 0) - (b.sisaTagihan || 0), render: (val) => <span style={{ color: val > 0 ? '#cf1322' : '#3f8600', fontWeight: val > 0 ? 'bold' : 'normal' }}>{formatCurrency(val)}</span> },
+        { title: 'Status', dataIndex: 'statusPembayaran', width: 60, filters: [{ text: 'BELUM', value: 'BELUM' }, { text: 'LUNAS', value: 'LUNAS' }], filteredValue: selectedStatus.length ? selectedStatus : null, render: (s) => <Tag color={normalizeStatus(s) === 'LUNAS' ? 'green' : normalizeStatus(s) === 'BELUM' ? 'red' : 'orange'}>{normalizeStatus(s)}</Tag> },
+        { 
+            title: 'Aksi', 
+            align: 'center', 
+            width: 100, 
+            fixed: 'right', 
+            render: renderAksi 
+        },
+    ], [pagination, renderAksi, selectedStatus, showExtraCols]); // dependency: showExtraCols
+
+    const tableScrollX = 1600; 
     const isLoading = loadingTransaksi || isPending || isProcessing;
 
     const tabItems = [
@@ -451,32 +387,18 @@ export default function TransaksiJualPage() {
                                     <RangePicker format="D MMM YYYY" value={dateRange} onChange={handleDateChange} disabled={isAllTime} allowClear={false} style={{ width: 240 }} />
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px' }}>
-                                    <Button
-                                        icon={<PrinterOutlined />}
-                                        onClick={handleGenerateReportPdf}
-                                        disabled={!filteredTransaksi.length}
-                                        loading={isTxPdfGenerating}
-                                    >
-                                        Laporan PDF
-                                    </Button>
                                     <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreate}>Tambah</Button>
                                 </div>
                             </div>
                         </Col>
                     </Row>
 
-                    {/* [OPTIMASI 5] Gunakan isLoading gabungan pada Spin */}
-                    <Spin spinning={isLoading} tip={isAllTime ? "Mengunduh & Memproses SEMUA data..." : "Memproses data..."} size="large" style={{ minHeight: 200 }}>
+                    <Spin spinning={isLoading} tip="Memproses data..." size="large" style={{ minHeight: 200 }}>
                         <TransaksiJualTableComponent columns={columns} dataSource={filteredTransaksi} loading={false} pagination={pagination} handleTableChange={handleTableChange} tableScrollX={tableScrollX} rowClassName={(r, i) => (i % 2 === 0 ? 'table-row-even' : 'table-row-odd')} />
                     </Spin>
                 </Card>
             )
-        },
-        // {
-        //     key: '2',
-        //     label: <Space><PullRequestOutlined /> Tagihan Customer</Space>,
-        //     children: <TagihanPelangganTab allTransaksi={allTransaksi} loadingTransaksi={loadingTransaksi} dateRange={dateRange} isAllTime={isAllTime} />
-        // }
+        }
     ];
 
     return (
@@ -490,11 +412,13 @@ export default function TransaksiJualPage() {
 
                 <TransaksiJualDetailModal open={isDetailModalOpen} onCancel={handleCloseDetailModal} transaksi={selectedTransaksi} />
 
-                <PdfPreviewModal
-                    visible={isTxPdfModalOpen}
-                    onClose={handleCloseTxPdfModal}
-                    pdfBlobUrl={pdfPreviewUrl}
-                    fileName={txPdfFileName}
+                <RawTextPreviewModal
+                    visible={isPreviewOpen}
+                    onCancel={() => setIsPreviewOpen(false)}
+                    content={previewContent}
+                    loading={loadingPreview}
+                    title={previewTitle}
+                    onPrint={handlePrintFromPreview}
                 />
             </Content>
         </Layout>

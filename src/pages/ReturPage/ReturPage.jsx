@@ -1,294 +1,274 @@
-import React, { useState, useMemo, useDeferredValue } from 'react';
+import React, { useState, useMemo, useCallback, useDeferredValue, useTransition } from 'react';
 import {
-    Layout, Card, Table, Button, Input, Space, Typography,
-    Row, Col, message, Tooltip, Tag, Spin
+    Layout, Card, Spin, Input, Row, Col, Button,
+    Space, App, DatePicker, Typography, Table, Tooltip
 } from 'antd';
 import {
-    PlusOutlined, EditOutlined,
-    PrinterOutlined, SearchOutlined, LoadingOutlined
+    PlusOutlined, PrinterOutlined,
+    SearchOutlined, CloseCircleOutlined, LoadingOutlined, EditOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/id';
 
-// --- FIREBASE IMPORTS (Realtime Database) ---
-import { db } from '../../api/firebase'; 
+// --- FIREBASE IMPORTS ---
 import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
+import { db } from '../../api/firebase';
 
-// UTILS & HOOKS
-import { currencyFormatter } from '../../utils/formatters';
-import { useReturStream, globalRetur } from '../../hooks/useFirebaseData'; 
 import useDebounce from '../../hooks/useDebounce';
-import { generateNotaReturPDF } from '../../utils/notaretur';
+import ReturForm from './components/ReturForm';
 
-// COMPONENTS
-import ReturForm from './components/ReturForm'; 
-import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
-import { DatePicker } from 'antd';
+// IMPORT HELPER RAW TEXT RETUR
+import { generateReturText } from '../../utils/printReturText';
 
-dayjs.locale('id');
+// IMPORT WIDGET PREVIEW
+import RawTextPreviewModal from '../../components/RawTextPreviewModal';
+
+// IMPORT HOOK
+import { useReturStream, globalRetur } from '../../hooks/useFirebaseData';
+
 const { Content } = Layout;
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
-// --- STYLING ---
-const styles = {
-    pageContainer: { padding: '24px', backgroundColor: '#fff1f0', minHeight: '100vh' }, 
-    card: { borderRadius: 8, border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', background: '#fff' },
-    headerTitle: { fontSize: 16, fontWeight: 600, color: '#cc6804ff' },
-};
+// --- Helpers ---
+const formatCurrency = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value || 0);
+const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
 
-const ReturPage = () => {
-    // --- STATE ---
+export default function ReturPage() {
+    const { message } = App.useApp();
+    const [isPending, startTransition] = useTransition();
+
+    // --- STATE CONFIG ---
+    const defaultStart = useMemo(() => dayjs().subtract(6, 'month').startOf('day'), []);
+    const defaultEnd = useMemo(() => dayjs().endOf('day'), []);
+
     const [dateRange, setDateRange] = useState(() => {
-        if (globalRetur?.lastDateRange) {
-            return globalRetur.lastDateRange;
-        }
-return [
-    dayjs().subtract(6, 'month').startOf('day'),
-    dayjs().endOf('day'),
-];
+        if (globalRetur?.lastDateRange) return globalRetur.lastDateRange;
+        return [defaultStart, defaultEnd];
     });
 
+    // --- DATA FETCHING ---
+    const { returList = [], loadingRetur } = useReturStream(dateRange);
+
+    // --- State UI ---
     const [searchText, setSearchText] = useState('');
-    const [printingId, setPrintingId] = useState(null); 
-    
-    // --- DATA FETCHING (HEADER ONLY) ---
-    const { returList = [], loadingRetur = true } = useReturStream(dateRange);
-    
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    const debouncedSearchText = useDebounce(searchText, 300);
+    const [printingId, setPrintingId] = useState(null); // State untuk loading tombol print
+
+    const [pagination, setPagination] = useState({
+        current: 1, pageSize: 10, showSizeChanger: true, pageSizeOptions: ["10", '25', '50', '100'], 
+        showTotal: (total, range) => `${range[0]}-${range[1]} dari ${total} retur`
+    });
+
+    // --- Modals ---
+    const [isFormModalOpen, setIsFormModalOpen] = useState(false);
     const [editingRetur, setEditingRetur] = useState(null);
-    const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
-    const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
-    const [pdfFileName, setPdfFileName] = useState('');
 
-    // --- [OPTIMASI 1] HOOKS & DEBOUNCE ---
-    // Ubah debounce ke 800ms agar lebih ringan
-    const debouncedSearchText = useDebounce(searchText, 800);
-    
-    // [OPTIMASI 2] Deferred Value
-    // React akan memproses filtering di background (low priority)
-    const deferredSearch = useDeferredValue(debouncedSearchText);
-    
-    // [OPTIMASI 3] Deteksi Background Processing
-    // Jika input user (debounced) beda dengan hasil proses (deferred), berarti sedang loading
-    const isProcessing = debouncedSearchText !== deferredSearch;
+    // --- RAW TEXT PREVIEW STATE (RawTextPreviewModal) ---
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [previewContent, setPreviewContent] = useState('');
+    const [loadingPreview, setLoadingPreview] = useState(false);
 
-    // Gabungkan status loading (Fetch Data + Filter Data)
-    const isLoading = loadingRetur || isProcessing;
+    // --- CONCURRENT UI OPTIMIZATION ---
+    const deferredReturList = useDeferredValue(returList);
+    const deferredDebouncedSearch = useDeferredValue(debouncedSearchText);
+    const isProcessing = (debouncedSearchText !== deferredDebouncedSearch);
 
-    // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
-        // Gunakan deferredSearch agar UI tidak freeze
-        let data = [...(returList || [])];
+        let data = [...(deferredReturList || [])];
 
-        if (deferredSearch) {
-            const q = deferredSearch.toLowerCase();
-            data = data.filter(tx =>
-                (tx.id || '').toLowerCase().includes(q) ||
-                (tx.namaCustomer || '').toLowerCase().includes(q) ||
-                (tx.invoiceId || '').toLowerCase().includes(q) ||
-                (tx.keterangan || '').toLowerCase().includes(q)
+        if (deferredDebouncedSearch) {
+            const q = deferredDebouncedSearch.toLowerCase();
+            data = data.filter((item) =>
+                (item.id || '').toLowerCase().includes(q) ||
+                (item.namaCustomer || '').toLowerCase().includes(q) ||
+                (item.invoiceId || '').toLowerCase().includes(q) ||
+                (item.keterangan || '').toLowerCase().includes(q)
             );
         }
+        // Sort Terbaru
+        return data.sort((a, b) => (b.tanggal || 0) - (a.tanggal || 0));
+    }, [deferredReturList, deferredDebouncedSearch]);
 
-        // Sort: Tanggal Terbaru
-        data.sort((a, b) => b.tanggal - a.tanggal);
-        return data;
-    }, [returList, deferredSearch]);
-
-    // --- HANDLERS ---
-    const handleTambah = () => { setEditingRetur(null); setIsModalOpen(true); };
-    const handleEdit = (record) => { setEditingRetur({ ...record }); setIsModalOpen(true); };
-
-    const handleCloseModal = () => {
-        setIsModalOpen(false);
-        setTimeout(() => setEditingRetur(null), 300);
-    };
-
-    // --- PRINT HANDLER ---
-  const handlePrintTransaction = async (record) => {
-    setPrintingId(record.id); 
+    // --- Handlers ---
+    const handleSearchChange = useCallback((e) => { setSearchText(e.target.value); setPagination(prev => ({ ...prev, current: 1 })); }, []);
+    const handleDateChange = useCallback((dates) => { 
+        if(dates) setDateRange(dates); 
+        setPagination(prev => ({ ...prev, current: 1 })); 
+    }, []);
     
-    try {
-        const returItems = [];
-        const itemsRef = ref(db, 'return_items');
-        const q = query(itemsRef, orderByChild('returnId'), equalTo(record.id));
-        const snapshot = await get(q);
+    const resetFilters = useCallback(() => { setSearchText(''); setDateRange([defaultStart, defaultEnd]); }, [defaultStart, defaultEnd]);
 
-        if (snapshot.exists()) {
-            snapshot.forEach((childSnapshot) => {
-                returItems.push({
-                    id: childSnapshot.key,
-                    ...childSnapshot.val()
-                });
-            });
+    const handleOpenCreate = () => { setEditingRetur(null); setIsFormModalOpen(true); };
+    const handleOpenEdit = (record) => { setEditingRetur(record); setIsFormModalOpen(true); };
+    const handleCloseFormModal = () => { setIsFormModalOpen(false); setTimeout(() => setEditingRetur(null), 300); };
+
+    // --- FETCH ITEM HELPER (On Demand) ---
+    const fetchReturItems = async (returId) => {
+        try {
+            const dbRef = ref(db, 'return_items');
+            const q = query(dbRef, orderByChild('returnId'), equalTo(returId));
+            const snapshot = await get(q);
+            if (snapshot.exists()) {
+                const raw = snapshot.val();
+                return Object.keys(raw).map(key => ({
+                    id: key,
+                    ...raw[key]
+                }));
+            }
+            return [];
+        } catch (error) {
+            console.error("Error fetching retur items:", error);
+            message.error("Gagal mengambil detail item retur.");
+            return [];
         }
-
-        // Panggil dengan AWAIT
-        const pdfUrl = await generateNotaReturPDF(record, returItems);
-        
-        setPdfPreviewUrl(pdfUrl);
-        setPdfFileName(`Retur_${record.id}.pdf`);
-        setIsPreviewModalVisible(true);
-        message.success("Nota Retur Siap");
-
-    } catch (error) {
-        console.error("Gagal generate PDF Retur:", error);
-        message.error("Gagal mengambil detail retur.");
-    } finally {
-        setPrintingId(null); 
-    }
-};
-    const handleClosePreviewModal = () => {
-        setIsPreviewModalVisible(false);
-        if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
-        setPdfPreviewUrl('');
     };
 
-    // --- TABLE COLUMNS ---
-    const columns = [
-        {
-            title: "Tanggal",
-            dataIndex: 'tanggal',
-            key: 'tanggal',
-            width: 130,
-            fixed: 'left',
-            render: (val) => dayjs(val).format('DD MMM YYYY'),
-            sorter: (a, b) => a.tanggal - b.tanggal,
-            defaultSortOrder: 'descend',
-        },
-        {
-            title: "ID Retur",
-            dataIndex: 'id',
-            key: 'id',
-            width: 150,
-            render: (text) => <Text copyable style={{ fontSize: 12 }}>{text}</Text>,
-            sorter: (a, b) => (a.id || '').localeCompare(b.id || ''),
-        },
-        {
-            title: "Ref Invoice",
-            dataIndex: 'invoiceId',
-            key: 'invoiceId',
-            width: 150,
-            render: (text) => <Text type="secondary" style={{ fontSize: 12 }}>{text || '-'}</Text>,
-        },
-        {
-            title: "Nama Customer",
-            dataIndex: 'namaCustomer',
-            key: 'namaCustomer',
-            width: 250,
-            render: (text) => (
-                <div style={{ lineHeight: '1.2' }}>
-                    <Text strong>{text || 'Umum'}</Text>
-                </div>
-            ),
-            sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || ''),
-        },
-        {
-            title: "Keterangan",
-            dataIndex: 'keterangan',
-            key: 'keterangan',
-            render: (text) => <Text type="secondary" style={{ fontSize: 13 }}>{text || '-'}</Text>,
-        },
-        {
-            title: "Total Retur",
-            dataIndex: 'totalRetur',
-            key: 'totalRetur',
-            align: 'right',
-            width: 160,
-            render: (val) => <Text strong style={{ color: '#cf1322' }}>{currencyFormatter(val)}</Text>,
-            sorter: (a, b) => (a.totalRetur || 0) - (b.totalRetur || 0),
-        },
-        {
-            title: 'Aksi',
-            key: 'aksi',
-            align: 'center',
-            width: 100,
-            fixed: 'right',
-            render: (_, r) => (
-                <Space size="small">
-                    <Tooltip title="Cetak Nota Retur">
-                        <Button
-                            size="small"
-                            type="text"
-                            icon={printingId === r.id ? <LoadingOutlined /> : <PrinterOutlined />}
-                            onClick={() => handlePrintTransaction(r)}
-                            disabled={printingId !== null} 
-                        />
-                    </Tooltip>
-                    <Tooltip title="Edit">
-                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
-                    </Tooltip>
-                </Space>
-            )
-        },
-    ];
+    // --- RAW TEXT GENERATION & PRINT ---
+    const handleShowPreview = async (record) => {
+        setPrintingId(record.id); 
+        setLoadingPreview(true);
+        
+        try {
+            // Ambil item dulu dari firebase
+            const items = await fetchReturItems(record.id);
+            // Generate Text
+            const rawText = generateReturText(record, items);
+            
+            setPreviewContent(rawText);
+            setIsPreviewOpen(true);
+        } catch (e) {
+            console.error(e);
+            message.error("Gagal generate nota: " + e.message);
+        } finally {
+            setPrintingId(null);
+            setLoadingPreview(false);
+        }
+    };
+
+    const handlePrintFromPreview = () => {
+        if (!previewContent) return;
+        const printWindow = window.open('', '', 'width=950,height=600');
+        const style = `
+            <style>
+                @page { size: 9.5in 5.5in; margin: 0; }
+                html, body { margin: 0; padding: 0; width: 9.5in; height: 5.5in; }
+                body {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 13px;
+                    line-height: 1.15;
+                    padding-top: 0.1in;
+                    padding-left: 0.1in;
+                    white-space: pre; 
+                }
+                @media print { body { -webkit-print-color-adjust: exact; } }
+            </style>
+        `;
+        printWindow.document.write('<html><head><title>Print Retur</title>' + style + '</head><body>');
+        printWindow.document.write(previewContent);
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+    };
+
+    // --- COLUMNS (ICON LANGSUNG) ---
+    const renderAksi = useCallback((_, record) => {
+        return (
+            <Space>
+                <Tooltip title="Cetak Nota">
+                    <Button 
+                        size="small" 
+                        type="text" 
+                        icon={printingId === record.id ? <LoadingOutlined /> : <PrinterOutlined />} 
+                        onClick={() => handleShowPreview(record)}
+                        disabled={printingId !== null && printingId !== record.id}
+                    />
+                </Tooltip>
+                <Tooltip title="Edit Retur">
+                    <Button 
+                        size="small" 
+                        type="text" 
+                        icon={<EditOutlined />} 
+                        onClick={() => handleOpenEdit(record)} 
+                    />
+                </Tooltip>
+            </Space>
+        );
+    }, [printingId]); 
+
+    const columns = useMemo(() => [
+        { title: 'No.', width: 50, fixed: 'left', render: (_t, _r, idx) => ((pagination.current - 1) * pagination.pageSize) + idx + 1 },
+        { title: 'Tanggal', dataIndex: 'tanggal', width: 110, render: formatDate, sorter: (a, b) => (a.tanggal || 0) - (b.tanggal || 0) },
+        { title: 'ID Retur', dataIndex: 'id', width: 140, render: (id) => <Text copyable={{ text: id }}>{id}</Text> },
+        { title: 'Ref Invoice', dataIndex: 'invoiceId', width: 140, render: (t) => <Text type="secondary">{t || '-'}</Text> },
+        { title: 'Customer', dataIndex: 'namaCustomer', width: 200, sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || '') },
+        { title: 'Keterangan', dataIndex: 'keterangan', render: (t) => <Text type="secondary" style={{fontSize: 12}}>{t ? (t.length > 30 ? t.substring(0,30)+'...' : t) : '-'}</Text> },
+        { title: 'Total Retur', dataIndex: 'totalRetur', align: 'right', width: 150, render: (val) => <Text strong style={{ color: '#cf1322' }}>{formatCurrency(val)}</Text>, sorter: (a, b) => (a.totalRetur || 0) - (b.totalRetur || 0) },
+        { title: 'Aksi', align: 'center', width: 100, fixed: 'right', render: renderAksi },
+    ], [pagination, renderAksi]);
+
+    const isLoading = loadingRetur || isPending || isProcessing;
 
     return (
-        <Content style={styles.pageContainer}>
-            <Card style={styles.card}>
-                <Row gutter={[16, 16]} align="middle" style={{ marginBottom: 20 }}>
+        <Content style={{ padding: '24px', backgroundColor: '#fff1f0', minHeight: '100vh' }}>
+            <Card bodyStyle={{ padding: '24px' }}>
+                <Row gutter={[16, 16]} align="middle" style={{ marginBottom: 24 }}>
                     <Col xs={24} md={8}>
-                        <Text style={styles.headerTitle}>Daftar Retur Penjualan</Text>
+                        <Text strong style={{ fontSize: 16, color: '#cf1322' }}>Daftar Retur Penjualan</Text>
                     </Col>
-                    <Col xs={24} md={16} style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
-                        <RangePicker
-                            style={{ width: 240 }}
-                            onChange={(d) => d && setDateRange(d)}
-                            value={dateRange}
-                            format="DD MMM YYYY"
-                            allowClear={false}
-                        />
-                        <Input
-                            placeholder="Cari Customer, ID, Invoice..."
-                            // Visual feedback untuk debounce
-                            suffix={searchText !== debouncedSearchText ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
-                            style={{ width: 220 }}
-                            onChange={(e) => setSearchText(e.target.value)}
-                            allowClear
-                        />
-                        <Button type="primary" danger icon={<PlusOutlined />} onClick={handleTambah}>
-                           Input Retur
-                        </Button>
+                    <Col xs={24} md={16}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                             {searchText && <Button icon={<CloseCircleOutlined />} danger type="text" size="small" onClick={resetFilters}>Reset</Button>}
+                            
+                            <RangePicker format="D MMM YYYY" value={dateRange} onChange={handleDateChange} allowClear={false} style={{ width: 240 }} />
+                            
+                            <Input 
+                                placeholder="Cari ID / Customer..." 
+                                prefix={searchText !== debouncedSearchText ? <LoadingOutlined /> : <SearchOutlined style={{ color: '#bfbfbf' }} />} 
+                                value={searchText} 
+                                onChange={handleSearchChange} 
+                                allowClear 
+                                style={{ width: 200 }} 
+                            />
+                            
+                            <Button type="primary" danger icon={<PlusOutlined />} onClick={handleOpenCreate}>Input Retur</Button>
+                        </div>
                     </Col>
                 </Row>
 
-                {/* [OPTIMASI 4] Bungkus Table dengan Spin & isLoading gabungan */}
                 <Spin spinning={isLoading} tip="Memproses data retur..." size="large" style={{ minHeight: 200 }}>
-                    <Table
+                    <Table 
                         columns={columns}
                         dataSource={filteredData}
-                        // Loading bawaan Table dimatikan
-                        loading={false} 
+                        loading={false}
                         rowKey="id"
-                        size="middle"
+                        pagination={pagination}
+                        onChange={(p) => setPagination(p)}
                         scroll={{ x: 1200 }}
-                        pagination={{
-                            defaultPageSize: 10,
-                            showTotal: (total) => `Total ${total} Data`,
-                            showSizeChanger: true
-                        }}
+                        size="middle"
                     />
                 </Spin>
             </Card>
 
-            {isModalOpen && (
-                <ReturForm
-                    key={editingRetur ? editingRetur.id : 'create-new'}
-                    open={isModalOpen}
-                    onCancel={handleCloseModal}
-                    initialValues={editingRetur}
+            {isFormModalOpen && (
+                <ReturForm 
+                    key={editingRetur ? editingRetur.id : 'create'} 
+                    open={isFormModalOpen} 
+                    onCancel={handleCloseFormModal} 
+                    initialValues={editingRetur} 
                 />
             )}
 
-            <PdfPreviewModal
-                visible={isPreviewModalVisible}
-                onClose={handleClosePreviewModal}
-                pdfBlobUrl={pdfPreviewUrl}
-                fileName={pdfFileName}
+            {/* --- MODAL PREVIEW RAW TEXT (Reusable Widget) --- */}
+            <RawTextPreviewModal
+                visible={isPreviewOpen}
+                onCancel={() => setIsPreviewOpen(false)}
+                content={previewContent}
+                loading={loadingPreview}
+                title="Preview Nota Retur"
+                onPrint={handlePrintFromPreview}
             />
         </Content>
     );
-};
-
-export default ReturPage;
+}

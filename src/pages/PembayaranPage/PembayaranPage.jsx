@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
     Layout, Card, Table, Button, Input, Space, Typography,
-    Row, Col, message, Tooltip, Tag, Spin
+    Row, Col, message, Tooltip, Spin
 } from 'antd';
 import {
     PlusOutlined, EditOutlined,
@@ -18,11 +18,12 @@ import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 import { currencyFormatter } from '../../utils/formatters';
 import { usePembayaranStream, globalPembayaran } from '../../hooks/useFirebaseData';
 import useDebounce from '../../hooks/useDebounce';
-import { generateNotaPembayaranPDF } from '../../utils/notamutasipembayaran';
+// Import fungsi generator teks ESC/P yang baru
+import { generateNotaPembayaranText } from '../../utils/notaPembayaranText'; 
 
 // COMPONENTS
 import PembayaranForm from './components/PembayaranForm';
-import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
+import RawTextPreviewModal from '../../components/RawTextPreviewModal'; // Import Widget Baru
 import { DatePicker } from 'antd';
 
 dayjs.locale('id');
@@ -43,34 +44,33 @@ const PembayaranPage = () => {
         if (globalPembayaran.lastDateRange) {
             return globalPembayaran.lastDateRange;
         }
-return [
-    dayjs().subtract(6, 'month').startOf('day'),
-    dayjs().endOf('day'),
-];
+        return [
+            dayjs().subtract(6, 'month').startOf('day'),
+            dayjs().endOf('day'),
+        ];
     });
 
     const [searchText, setSearchText] = useState('');
     const [printingId, setPrintingId] = useState(null); // State loading khusus print
     
+    // --- PREVIEW STATE ---
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [previewContent, setPreviewContent] = useState('');
+    const [loadingPreview, setLoadingPreview] = useState(false);
+
     // --- DATA FETCHING (HEADER ONLY) ---
     const { pembayaranList = [], loadingPembayaran = true } = usePembayaranStream(dateRange);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPembayaran, setEditingPembayaran] = useState(null);
-    const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
-    const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
-    const [pdfFileName, setPdfFileName] = useState('');
 
     // --- [OPTIMASI 1] HOOKS & DEBOUNCE ---
-    // Ubah debounce ke 800ms agar lebih santai saat mengetik
     const debouncedSearchText = useDebounce(searchText, 800);
     
     // [OPTIMASI 2] Deferred Value
-    // React akan memproses ini di background (prioritas rendah)
     const deferredSearch = useDeferredValue(debouncedSearchText);
     
     // [OPTIMASI 3] Deteksi Background Processing
-    // Jika input user (debounced) beda dengan hasil proses (deferred), berarti sedang loading
     const isProcessing = debouncedSearchText !== deferredSearch;
 
     // Gabungkan status loading
@@ -78,7 +78,6 @@ return [
 
     // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
-        // Gunakan deferredSearch di sini agar UI tidak freeze
         let data = [...(pembayaranList || [])];
 
         if (deferredSearch) {
@@ -105,45 +104,83 @@ return [
         setTimeout(() => setEditingPembayaran(null), 300);
     };
 
-    // --- PRINT HANDLER ---
-   const handlePrintTransaction = async (record) => {
-    setPrintingId(record.id); 
-    
-    try {
-        const allocations = [];
-        const allocRef = ref(db, 'payment_allocations');
-        const q = query(allocRef, orderByChild('paymentId'), equalTo(record.id));
-        const snapshot = await get(q);
-
-        if (snapshot.exists()) {
-            snapshot.forEach((childSnapshot) => {
-                allocations.push({
-                    id: childSnapshot.key,
-                    ...childSnapshot.val()
-                });
-            });
-        }
-
-        // Panggil dengan AWAIT
-        const pdfUrl = await generateNotaPembayaranPDF(record, allocations);
+    // --- PRINT HANDLER (RAW TEXT / ESC/P) ---
+    const handleShowPreview = async (record) => {
+        setPrintingId(record.id); // Start Loading Button Icon
+        setLoadingPreview(true); // Start Loading Modal (jika belum kebuka, tp disini kita load dulu)
         
-        setPdfPreviewUrl(pdfUrl);
-        setPdfFileName(`Nota_${record.id}.pdf`);
-        setIsPreviewModalVisible(true);
-        message.success("Nota Pembayaran Siap");
+        try {
+            // 1. Ambil Data Detail (Alokasi) dari Firebase
+            const allocQuery = query(
+                ref(db, 'payment_allocations'), 
+                orderByChild('paymentId'), 
+                equalTo(record.id)
+            );
+            const snapshot = await get(allocQuery);
+            
+            let dataAlokasi = [];
+            if (snapshot.exists()) {
+                const raw = snapshot.val();
+                dataAlokasi = Object.values(raw);
+            }
 
-    } catch (error) {
-        console.error("Gagal generate PDF:", error);
-        message.error("Gagal mengambil data detail pembayaran.");
-    } finally {
-        setPrintingId(null);
-    }
-};
+            // 2. Generate Raw String (ESC/P)
+            const rawData = generateNotaPembayaranText(record, dataAlokasi);
+            setPreviewContent(rawData);
+            setIsPreviewOpen(true);
 
-    const handleClosePreviewModal = () => {
-        setIsPreviewModalVisible(false);
-        if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
-        setPdfPreviewUrl('');
+        } catch (err) {
+            console.error("Gagal print", err);
+            message.error("Gagal memuat struk: " + err.message);
+        } finally {
+            setPrintingId(null);
+            setLoadingPreview(false);
+        }
+    };
+
+    // --- HANDLE REAL PRINT (Browser Print) ---
+    const handlePrintFromPreview = () => {
+        if (!previewContent) return;
+
+        const printWindow = window.open('', '', 'width=950,height=600');
+        
+        const style = `
+            <style>
+                @page {
+                    size: 9.5in 5.5in;
+                    margin: 0;
+                }
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    width: 9.5in;
+                    height: 5.5in;
+                }
+                body {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 13px; 
+                    line-height: 1.18;
+                    padding-top: 0.1in;
+                    padding-left: 0.1in;
+                    white-space: pre; 
+                }
+                @media print {
+                    body { -webkit-print-color-adjust: exact; }
+                }
+            </style>
+        `;
+
+        printWindow.document.write('<html><head><title>Print Nota</title>' + style + '</head><body>');
+        printWindow.document.write(previewContent);
+        printWindow.document.write('</body></html>');
+        
+        printWindow.document.close();
+        printWindow.focus();
+        
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 500);
     };
 
     // --- TABLE COLUMNS ---
@@ -202,12 +239,12 @@ return [
             fixed: 'right',
             render: (_, r) => (
                 <Space size="small">
-                    <Tooltip title="Cetak">
+                    <Tooltip title="Cetak Struk">
                         <Button
                             size="small"
                             type="text"
                             icon={printingId === r.id ? <LoadingOutlined /> : <PrinterOutlined />}
-                            onClick={() => handlePrintTransaction(r)}
+                            onClick={() => handleShowPreview(r)}
                             disabled={printingId !== null} 
                         />
                     </Tooltip>
@@ -236,7 +273,6 @@ return [
                         />
                         <Input
                             placeholder="Cari Customer, ID, Ket..."
-                            // Indikator visual search aktif (saat debounce)
                             suffix={searchText !== debouncedSearchText ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
                             style={{ width: 220 }}
                             onChange={(e) => setSearchText(e.target.value)}
@@ -248,12 +284,10 @@ return [
                     </Col>
                 </Row>
 
-                {/* [OPTIMASI 4] Bungkus Table dengan Spin & isLoading gabungan */}
                 <Spin spinning={isLoading} tip="Memproses data..." size="large" style={{ minHeight: 200 }}>
                     <Table
                         columns={columns}
                         dataSource={filteredData}
-                        // Loading bawaan tabel dimatikan, diganti Spin di luar agar lebih jelas
                         loading={false} 
                         rowKey="id"
                         size="middle"
@@ -276,11 +310,14 @@ return [
                 />
             )}
 
-            <PdfPreviewModal
-                visible={isPreviewModalVisible}
-                onClose={handleClosePreviewModal}
-                pdfBlobUrl={pdfPreviewUrl}
-                fileName={pdfFileName}
+            {/* --- MODAL PREVIEW RAW TEXT (REUSABLE WIDGET) --- */}
+            <RawTextPreviewModal
+                visible={isPreviewOpen}
+                onCancel={() => setIsPreviewOpen(false)}
+                content={previewContent}
+                loading={loadingPreview}
+                title="Preview Nota Pembayaran"
+                onPrint={handlePrintFromPreview}
             />
         </Content>
     );

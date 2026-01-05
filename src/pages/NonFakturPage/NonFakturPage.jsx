@@ -12,15 +12,15 @@ import 'dayjs/locale/id';
 
 // UTILS & HOOKS
 import { currencyFormatter } from '../../utils/formatters';
-// Pastikan hook ini mengarah ke node 'non_faktur'
 import { useNonFakturStream, globalNonFaktur } from '../../hooks/useFirebaseData'; 
 import useDebounce from '../../hooks/useDebounce';
-// Import PDF Generator yang baru dibuat
-import { generateNotaNonFakturPDF } from '../../utils/notamutasinonfaktur';
+
+// IMPORT GENERATOR TEXT
+import { generateNotaNonFakturText } from '../../utils/notamutasinonfaktur';
 
 // COMPONENTS
 import NonFakturForm from './components/NonFakturForm';
-import PdfPreviewModal from '../BukuPage/components/PdfPreviewModal';
+import RawTextPreviewModal from '../../components/RawTextPreviewModal'; // Import Widget Modal
 
 dayjs.locale('id');
 const { Content } = Layout;
@@ -31,7 +31,7 @@ const { RangePicker } = DatePicker;
 const styles = {
     pageContainer: { padding: '24px', backgroundColor: '#f0f5ff', minHeight: '100vh' },
     card: { borderRadius: 8, border: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', background: '#fff' },
-    headerTitle: { fontSize: 16, fontWeight: 600, color: '#722ed1' }, // Warna Ungu untuk VF
+    headerTitle: { fontSize: 16, fontWeight: 600, color: '#722ed1' }, 
 };
 
 const NonFakturPage = () => {
@@ -40,44 +40,32 @@ const NonFakturPage = () => {
         if (typeof globalNonFaktur !== 'undefined' && globalNonFaktur.lastDateRange) {
             return globalNonFaktur.lastDateRange;
         }
-return [
-    dayjs().subtract(6, 'month').startOf('day'),
-    dayjs().endOf('day'),
-];
+        return [
+            dayjs().subtract(6, 'month').startOf('day'),
+            dayjs().endOf('day'),
+        ];
     });
 
     const [searchText, setSearchText] = useState('');
-    const [printingId, setPrintingId] = useState(null);
+    const [printingId, setPrintingId] = useState(null); // Loading state untuk icon button
+    
+    // --- PREVIEW STATE (RawTextPreviewModal) ---
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [previewContent, setPreviewContent] = useState('');
     
     // --- DATA FETCHING ---
     const { nonFakturList = [], loadingNonFaktur = true } = useNonFakturStream(dateRange);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingRecord, setEditingRecord] = useState(null);
-    
-    // PDF State
-    const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
-    const [pdfPreviewUrl, setPdfPreviewUrl] = useState('');
-    const [pdfFileName, setPdfFileName] = useState('');
 
-    // --- [OPTIMASI 1] HOOKS & DEBOUNCE ---
-    // Gunakan 800ms agar lebih ringan
+    // --- OPTIMASI SEARCH ---
     const debouncedSearchText = useDebounce(searchText, 800);
-    
-    // [OPTIMASI 2] Deferred Value
-    // React memproses filtering di background (low priority)
     const deferredSearch = useDeferredValue(debouncedSearchText);
-    
-    // [OPTIMASI 3] Deteksi Background Processing
-    // Jika input user beda dengan hasil deferred, berarti sedang loading filter
     const isProcessing = debouncedSearchText !== deferredSearch;
-
-    // Gabungkan status loading (Fetch Data + Filter Data)
     const isLoading = loadingNonFaktur || isProcessing;
 
-    // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
-        // Gunakan deferredSearch agar UI utama tidak freeze
         let data = [...(nonFakturList || [])];
 
         if (deferredSearch) {
@@ -89,7 +77,6 @@ return [
             );
         }
 
-        // Sort by tanggal terbaru
         data.sort((a, b) => b.tanggal - a.tanggal);
         return data;
     }, [nonFakturList, deferredSearch]);
@@ -110,30 +97,70 @@ return [
         setTimeout(() => setEditingRecord(null), 300);
     };
 
-    // --- PRINT HANDLER ---
-   const handlePrintTransaction = async (record) => {
-    setPrintingId(record.id); 
-    
-    try {
-        // Panggil dengan AWAIT karena sekarang return Promise -> Blob URL
-        const pdfUrl = await generateNotaNonFakturPDF(record);
+    // --- HANDLER SHOW PREVIEW (Generate Text & Open Modal) ---
+    const handleShowPreview = (record) => {
+        setPrintingId(record.id);
         
-        setPdfPreviewUrl(pdfUrl);
-        setPdfFileName(`Nota_VF_${record.id}.pdf`);
-        setIsPreviewModalVisible(true);
-        message.success("PDF Berhasil dibuat");
-    } catch (error) {
-        console.error("Gagal generate PDF:", error);
-        message.error("Gagal membuat PDF");
-    } finally {
-        setPrintingId(null); 
-    }
-};
+        try {
+            // 1. Generate String Text
+            const textData = generateNotaNonFakturText(record);
+            
+            // 2. Set Content & Open Modal
+            setPreviewContent(textData);
+            setIsPreviewOpen(true);
 
-    const handleClosePreviewModal = () => {
-        setIsPreviewModalVisible(false);
-        if (pdfPreviewUrl) URL.revokeObjectURL(pdfPreviewUrl);
-        setPdfPreviewUrl('');
+        } catch (error) {
+            console.error("Generate Error:", error);
+            message.error("Gagal membuat preview nota");
+        } finally {
+            setPrintingId(null);
+        }
+    };
+
+    // --- HANDLER PRINT REAL (Browser Print dari Modal) ---
+    const handlePrintFromPreview = () => {
+        if (!previewContent) return;
+
+        const printWindow = window.open('', '', 'width=950,height=600');
+        
+        // CSS untuk Dot Matrix 9.5 inch
+        const style = `
+            <style>
+                @page { 
+                    size: 9.5in 5.5in; 
+                    margin: 0; 
+                }
+                html, body { 
+                    margin: 0; 
+                    padding: 0; 
+                    width: 9.5in; 
+                    height: 5.5in; 
+                }
+                body {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 13px; 
+                    line-height: 1.15;
+                    padding-top: 0.1in;
+                    padding-left: 0.1in;
+                    white-space: pre; 
+                }
+                @media print { 
+                    body { -webkit-print-color-adjust: exact; } 
+                }
+            </style>
+        `;
+
+        printWindow.document.write('<html><head><title>Print Nota Non-Faktur</title>' + style + '</head><body>');
+        printWindow.document.write(previewContent);
+        printWindow.document.write('</body></html>');
+        
+        printWindow.document.close();
+        printWindow.focus();
+        
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 500);
     };
 
     // --- TABLE COLUMNS ---
@@ -193,7 +220,7 @@ return [
                             size="small"
                             type="text"
                             icon={printingId === r.id ? <LoadingOutlined /> : <PrinterOutlined />}
-                            onClick={() => handlePrintTransaction(r)}
+                            onClick={() => handleShowPreview(r)}
                             disabled={printingId !== null && printingId !== r.id}
                         />
                     </Tooltip>
@@ -222,7 +249,6 @@ return [
                         />
                         <Input
                             placeholder="Cari VF, Customer..."
-                            // Visual feedback untuk debounce input
                             suffix={searchText !== debouncedSearchText ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
                             style={{ width: 200 }}
                             onChange={(e) => setSearchText(e.target.value)}
@@ -234,12 +260,10 @@ return [
                     </Col>
                 </Row>
 
-                {/* [OPTIMASI 4] Bungkus Table dengan Spin & isLoading gabungan */}
                 <Spin spinning={isLoading} tip="Memproses data..." size="large" style={{ minHeight: 200 }}>
                     <Table
                         columns={columns}
                         dataSource={filteredData}
-                        // Matikan loading internal table agar tidak bentrok dengan Spin luar
                         loading={false}
                         rowKey="id"
                         size="middle"
@@ -262,11 +286,14 @@ return [
                 />
             )}
 
-            <PdfPreviewModal
-                visible={isPreviewModalVisible}
-                onClose={handleClosePreviewModal}
-                pdfBlobUrl={pdfPreviewUrl}
-                fileName={pdfFileName}
+            {/* --- MODAL PREVIEW RAW TEXT --- */}
+            <RawTextPreviewModal
+                visible={isPreviewOpen}
+                onCancel={() => setIsPreviewOpen(false)}
+                content={previewContent}
+                loading={false}
+                title="Preview Nota Non-Faktur"
+                onPrint={handlePrintFromPreview}
             />
         </Content>
     );
