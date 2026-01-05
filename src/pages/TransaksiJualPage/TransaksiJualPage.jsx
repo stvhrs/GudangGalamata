@@ -304,7 +304,7 @@ export default function TransaksiJualPage() {
 
     // --- CONFIG COLUMNS DENGAN TOGGLE ---
     const columns = useMemo(() => [
-        { title: 'No.', width: 50, fixed: 'left', render: (_t, _r, idx) => ((pagination.current - 1) * pagination.pageSize) + idx + 1 },
+        { title: 'No.', width: 30, fixed: 'left', render: (_t, _r, idx) => ((pagination.current - 1) * pagination.pageSize) + idx + 1 },
         { title: 'Tanggal', dataIndex: 'tanggal', width: 80, render: formatDate, sorter: (a, b) => (a.tanggal || 0) - (b.tanggal || 0) },
         { title: 'ID', dataIndex: 'id', width: 100, render: (id) => <Text copyable={{ text: id }}>{id}</Text>, sorter: (a, b) => (a.id || '').localeCompare(b.id || '') },
         { title: 'Customer', dataIndex: 'namaCustomer', width: 120, sorter: (a, b) => (a.namaCustomer || '').localeCompare(b.namaCustomer || '') },

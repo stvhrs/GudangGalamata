@@ -20,26 +20,24 @@ const RawTextPreviewModal = ({
     `;
 
     // --- LOGIC LUBANG (DOTS) ---
-    // Menggunakan Flex dengan 'space-between' di dalam container tinggi 5.5 inch
     const renderHoles = () => {
-        // 11 Lubang standar untuk 5.5 inch
         const holes = Array.from({ length: 11 }); 
         return (
             <div style={{
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'space-between', // 🔥 BIKIN JARAK OTOMATIS
+                justifyContent: 'space-between', 
                 alignItems: 'center',
                 height: '100%',
-                padding: '10px 0', // Padding atas bawah agar tidak mepet ujung
+                padding: '10px 0', 
             }}>
                 {holes.map((_, i) => (
                     <div key={i} style={{
                         width: '4mm',
                         height: '4mm',
                         borderRadius: '50%',
-                        backgroundColor: '#333333', // Warna background modal (efek bolong)
-                        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', // Efek kedalaman
+                        backgroundColor: '#333333', 
+                        boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.5)', 
                     }} />
                 ))}
             </div>
@@ -126,16 +124,20 @@ const RawTextPreviewModal = ({
                                 </span>
                             </div>
 
-                            <pre style={{ 
-                                fontFamily: '"Courier New", Courier, monospace', 
-                                fontSize: '13px', 
-                                lineHeight: '1.18', 
-                                margin: 0, 
-                                whiteSpace: 'pre', 
-                                color: '#333'
-                            }}>
-                                {content || "Tidak ada data."}
-                            </pre>
+                            {/* --- PERBAIKAN DI SINI --- */}
+                            <pre 
+                                style={{ 
+                                    fontFamily: '"Courier New", Courier, monospace', 
+                                    fontSize: '13px', 
+                                    lineHeight: '1.18', 
+                                    margin: 0, 
+                                    whiteSpace: 'pre', 
+                                    color: '#333'
+                                }}
+                                // Menggunakan property ini agar tag <b> dirender sebagai HTML
+                                dangerouslySetInnerHTML={{ __html: content || "Tidak ada data." }}
+                            />
+                            
                         </div>
 
                         {/* --- STRIP LUBANG KANAN --- */}

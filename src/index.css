@@ -13,7 +13,30 @@
   -moz-osx-font-smoothing: grayscale;
 }
 /* index.css atau App.css */
+@media print {
+  /* Menyembunyikan elemen lain saat nge-print (misal tombol back/print) */
+  body * {
+    visibility: hidden;
+  }
 
+  /* Hanya menampilkan area struk/invoice */
+  .print-area, .print-area * {
+    visibility: visible;
+  }
+  
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  /* PENTING: Menghilangkan header/footer bawaan browser (URL, Tanggal, No Halaman) */
+  @page {
+    margin: 0; /* Hilangkan margin default browser */
+    size: auto; 
+  }
+}
 .ant-table-tbody > tr.zebra-row:nth-child(even) > td {
   background-color: #fafafa; /* Warna abu-abu terang */
 }
