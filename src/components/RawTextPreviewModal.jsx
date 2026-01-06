@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { Modal, Button, Spin, message } from 'antd'; // Tambah message
-import { PrinterOutlined, FileImageOutlined } from '@ant-design/icons'; // Tambah Icon
-import html2canvas from 'html2canvas'; // Import library
+import { Modal, Button, Spin, message } from 'antd';
+import { PrinterOutlined, FileImageOutlined } from '@ant-design/icons';
+import html2canvas from 'html2canvas';
 
 const RawTextPreviewModal = ({ 
     visible, 
@@ -11,38 +11,73 @@ const RawTextPreviewModal = ({
     title = "Preview Nota (Dot Matrix Layout)",
     onPrint 
 }) => {
-    // Ref untuk menangkap elemen kertas
     const paperRef = useRef(null);
-    // State loading khusus untuk proses generate gambar
     const [copyLoading, setCopyLoading] = useState(false);
 
+    // ============================================================
+    //  LOGIC PEWARNAAN TEKS (PER BARIS)
+    // ============================================================
+// ============================================================
+    //  LOGIC PEWARNAAN TEKS (PER BARIS)
+    // ============================================================
+    const formatContentWithColor = (text) => {
+        if (!text) return "Tidak ada data.";
+        
+        const lines = text.split('\n');
+        const styleGreen = 'color: #3f8600; font-weight: bold;'; 
+        const styleRed = 'color: #cf1322; font-weight: bold;';   
+
+        const processedLines = lines.map(line => {
+            // A. Cek Status (Prioritas)
+            if (line.includes("BELUM LUNAS")) return `<span style="${styleRed}">${line}</span>`;
+            if (line.includes("LUNAS") && !line.includes("BELUM")) return `<span style="${styleGreen}">${line}</span>`;
+
+            // --- [BARU] PENGECUALIAN ---
+            // Jika baris mengandung "Tagihan :" DAN "Bayar :" secara bersamaan, 
+            // biarkan tetap hitam (jangan dihijaukan).
+            if (line.includes("Tagihan :") && line.includes("Bayar :")) {
+                return line; 
+            }
+
+            // B. Cek Totalan
+            const totalKeywords = [
+                "TOTAL PEMBAYARAN:",
+                "TOTAL UANG KEMBALI :",
+                "TOTAL UANG KEMBALI :",
+                "TOTAL BAYAR:",
+                "TOTAL TAGIHAN",
+                "Sisa    :" // Keyword ini yang tadinya memicu warna hijau
+            ];
+            
+            const isTotalLine = totalKeywords.some(keyword => line.includes(keyword));
+            if (isTotalLine) return `<span style="${styleGreen}">${line}</span>`;
+
+            return line;
+        });
+
+        return processedLines.join('\n');
+    };
     // --- FUNGSI COPY IMAGE KE CLIPBOARD ---
     const handleCopyToClipboard = async () => {
         if (!paperRef.current) return;
 
         setCopyLoading(true);
         try {
-            // 1. Convert DOM ke Canvas
             const canvas = await html2canvas(paperRef.current, {
-                scale: 2, // Meningkatkan resolusi agar teks tajam saat di-paste
-                backgroundColor: null, // Transparan di luar border radius (opsional)
-                useCORS: true // Mencegah error jika ada gambar eksternal
+                scale: 2, 
+                backgroundColor: null, 
+                useCORS: true 
             });
 
-            // 2. Convert Canvas ke Blob (File Object)
             canvas.toBlob(async (blob) => {
                 if (!blob) {
                     message.error("Gagal generate gambar.");
                     setCopyLoading(false);
                     return;
                 }
-
                 try {
-                    // 3. Tulis ke Clipboard (Fitur Browser Modern)
-                    // Item Clipboard harus berupa array of ClipboardItem
                     const data = [new ClipboardItem({ [blob.type]: blob })];
                     await navigator.clipboard.write(data);
-                    
                     message.success("Gambar tersalin! Silakan Ctrl+V di WhatsApp.");
                 } catch (err) {
                     console.error("Clipboard Error:", err);
@@ -50,8 +85,7 @@ const RawTextPreviewModal = ({
                 } finally {
                     setCopyLoading(false);
                 }
-            }, 'image/png'); // Format PNG
-
+            }, 'image/png');
         } catch (error) {
             console.error("Html2Canvas Error:", error);
             message.error("Gagal memproses gambar.");
@@ -65,14 +99,8 @@ const RawTextPreviewModal = ({
         .custom-scroll-modal .ant-modal-body::-webkit-scrollbar-track { background: #262626; }
         .custom-scroll-modal .ant-modal-body::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
         .custom-scroll-modal .ant-modal-body::-webkit-scrollbar-thumb:hover { background: #777; }
-
-        /* Sembunyikan container print di layar biasa */
         .print-source-hidden { display: none; }
-
-        /* Saat Print: Override agar muncul */
-        @media print {
-            .print-source-hidden { display: flex !important; }
-        }
+        @media print { .print-source-hidden { display: flex !important; } }
     `;
 
     // --- LOGIC LUBANG (DOTS) ---
@@ -98,7 +126,6 @@ const RawTextPreviewModal = ({
         <>
             <style>{additionalStyles}</style>
             
-            {/* --- MODAL PREVIEW --- */}
             <Modal
                 title={title}
                 open={visible}
@@ -113,32 +140,17 @@ const RawTextPreviewModal = ({
                 }} 
                 footer={[
                     <Button key="close" onClick={onCancel} disabled={copyLoading}>Tutup</Button>,
-                    
-                    // --- TOMBOL COPY IMAGE BARU ---
-                    <Button 
-                        key="copy-img"
-                        icon={<FileImageOutlined />}
-                        onClick={handleCopyToClipboard}
-                        loading={copyLoading}
-                        disabled={!content || loading}
-                        style={{ borderColor: '#52c41a', color: '#52c41a' }} // Warna hijau (mirip WA)
-                    >
+                    <Button key="copy-img" icon={<FileImageOutlined />} onClick={handleCopyToClipboard} loading={copyLoading} disabled={!content || loading} style={{ borderColor: '#52c41a', color: '#52c41a' }}>
                         Salin Gambar (Ctrl+V)
                     </Button>,
-
-                    <Button 
-                        key="print" type="primary" icon={<PrinterOutlined />} 
-                        onClick={onPrint} disabled={!content || loading || copyLoading}
-                    >
+                    <Button key="print" type="primary" icon={<PrinterOutlined />} onClick={onPrint} disabled={!content || loading || copyLoading}>
                         Print Sekarang
                     </Button>
                 ]}
             >
                 <Spin spinning={loading} tip="Menyiapkan preview..." style={{ color: '#fff' }}>
                     
-                    {/* --- VISUALISASI KERTAS --- 
-                        Tambahkan ref={paperRef} di sini agar div INI yang difoto 
-                    */}
+                    {/* --- VISUALISASI KERTAS --- */}
                     <div ref={paperRef} style={{ 
                         background: '#fff', 
                         width: '9.5in',    
@@ -147,23 +159,26 @@ const RawTextPreviewModal = ({
                         flexDirection: 'row',
                         boxShadow: '0 15px 40px rgba(0,0,0,0.5)', 
                         position: 'relative',
-                        overflow: 'hidden', // Pastikan overflow hidden agar shadow tidak terpotong aneh
+                        overflow: 'hidden', 
                         marginBottom: '15px',
                         flexShrink: 0 
                     }}>
                         
                         {/* STRIP LUBANG KIRI */}
-                        <div style={{ 
-                            width: '0.5in', height: 'auto', 
-                            borderRight: '1px dashed #ccc', backgroundColor: '#f2f2f2' 
-                        }}>
+                        <div style={{ width: '0.5in', height: 'auto', borderRight: '1px dashed #ccc', backgroundColor: '#f2f2f2' }}>
                             {renderHoles()}
                         </div>
 
                         {/* AREA KONTEN TENGAH */}
                         <div style={{ 
-                            flex: 1, display: 'flex', justifyContent: 'center', 
-                            paddingTop: '0.1in', position: 'relative' 
+                            flex: 1, 
+                            display: 'flex', 
+                            justifyContent: 'center', 
+                            paddingTop: '0.1in', 
+                            position: 'relative',
+                            // PENTING: Padding kiri kanan 0 agar muat 96 char
+                            paddingLeft: 0,
+                            paddingRight: 0
                         }}>
                             {/* Visualisasi Batas Bawah */}
                             <div style={{
@@ -180,19 +195,25 @@ const RawTextPreviewModal = ({
                                 </span>
                             </div>
 
+                            {/* --- CONTENT PREVIEW --- */}
                             <pre style={{ 
+                                // Font Native Windows 7
                                 fontFamily: '"Courier New", Courier, monospace', 
-                                fontSize: '13px', lineHeight: '1.18', margin: 0, 
-                                whiteSpace: 'pre', color: '#333'
-                            }} dangerouslySetInnerHTML={{ __html: content || "Tidak ada data." }} />
+                                fontSize: '13px', 
+                                lineHeight: '1.18', 
+                                margin: 0, 
+                                whiteSpace: 'pre', 
+                                color: '#333',
+                                letterSpacing: '-0.5px', // Condensed Mode
+                                // fontWeight: '600'  <-- INI DIHAPUS (Biar gak bold semua)
+                            }} 
+                            dangerouslySetInnerHTML={{ __html: formatContentWithColor(content) }} 
+                            />
                             
                         </div>
 
                         {/* STRIP LUBANG KANAN */}
-                        <div style={{ 
-                            width: '0.5in', height: 'auto', 
-                            borderLeft: '1px dashed #ccc', backgroundColor: '#f2f2f2'
-                        }}>
+                        <div style={{ width: '0.5in', height: 'auto', borderLeft: '1px dashed #ccc', backgroundColor: '#f2f2f2' }}>
                             {renderHoles()}
                         </div>
 
@@ -207,7 +228,7 @@ const RawTextPreviewModal = ({
 
             {/* --- AREA KHUSUS PRINT --- */}
             <div className="print-container print-source-hidden">
-                <pre className="struk-content" dangerouslySetInnerHTML={{ __html: content || "" }} />
+                <pre className="struk-content" dangerouslySetInnerHTML={{ __html: formatContentWithColor(content) }} />
             </div>
         </>
     );

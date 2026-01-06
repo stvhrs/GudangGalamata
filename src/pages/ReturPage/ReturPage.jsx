@@ -18,7 +18,7 @@ import useDebounce from '../../hooks/useDebounce';
 import ReturForm from './components/ReturForm';
 
 // IMPORT HELPER RAW TEXT RETUR
-import { generateReturText } from '../../utils/printReturText';
+import { generateReturText } from '../../utils/notaTransaksiText';
 
 // IMPORT WIDGET PREVIEW
 import RawTextPreviewModal from '../../components/RawTextPreviewModal';

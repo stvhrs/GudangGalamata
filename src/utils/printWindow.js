@@ -36,7 +36,7 @@ export const printRawHtml = (content, title = 'Print Document') => {
                 line-height: 1.0; 
 
                 /* --- ZONA AMAN ATAS (SAFETY MARGIN) --- */
-                padding-top: 15mm; 
+                padding-top: 10mm; 
                 padding-left: 0; 
                 padding-right: 0;
             }

@@ -19,7 +19,7 @@ import { currencyFormatter } from '../../utils/formatters';
 import { usePembayaranStream, globalPembayaran } from '../../hooks/useFirebaseData';
 import useDebounce from '../../hooks/useDebounce';
 // Import fungsi generator teks yang SUDAH DIPERBAIKI
-import { generateNotaPembayaranText } from '../../utils/notaPembayaranText'; 
+import { generateNotaPembayaranText } from '../../utils/notaTransaksiText';
 import { printRawHtml } from '../../utils/printWindow';
 
 // COMPONENTS

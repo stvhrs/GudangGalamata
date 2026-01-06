@@ -14,9 +14,9 @@ import 'dayjs/locale/id';
 import { currencyFormatter } from '../../utils/formatters';
 import { useNonFakturStream, globalNonFaktur } from '../../hooks/useFirebaseData'; 
 import useDebounce from '../../hooks/useDebounce';
-
+import { printRawHtml } from '../../utils/printWindow'; // atau '../../utils/helpers'
 // IMPORT GENERATOR TEXT
-import { generateNotaNonFakturText } from '../../utils/notamutasinonfaktur';
+import { generateNotaNonFakturText }from '../../utils/notaTransaksiText';
 
 // COMPONENTS
 import NonFakturForm from './components/NonFakturForm';
