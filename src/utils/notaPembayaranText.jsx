@@ -1,34 +1,58 @@
+// src/utils/notaPembayaranText.js
+
+// --- KONFIGURASI DAN HELPER ---
+
+// 1. Definisi Konstanta BOLD (Penting agar tidak Error)
+// Catatan: Jika menggunakan window.print() browser, kode ESC/P (\x1B...) tidak akan membuat bold visual,
+// tapi diperlukan jika string ini dikirim raw ke printer Dot Matrix.
+// Jika ingin preview rapi di browser tanpa merusak spasi, biarkan string kosong atau gunakan kode ESC.
+const BOLD_ON = "";  // Bisa diganti "\x1B\x45\x01" untuk ESC/P
+const BOLD_OFF = ""; // Bisa diganti "\x1B\x45\x00" untuk ESC/P
+
+const TOTAL_WIDTH = 96; // Lebar karakter kertas (biasanya 96 untuk 9.5 inch continuous form condensed)
+const FF = "\x0C";      // Form Feed (Ganti Halaman)
+const HR = "-".repeat(TOTAL_WIDTH) + "\n";
+
 const companyInfo = {
     nama: "CV. GANGSAR MULIA UTAMA",
     hp: "0882-0069-05391"
 };
 
+// 2. Helper Formatter
 const formatNumber = (value) => new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0 }).format(value || 0);
-const formatDate = (timestamp) => new Date(timestamp || 0).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute:'2-digit' });
 
-// Helper Padding
+const formatDate = (timestamp) => {
+    if (!timestamp) return '-';
+    // Menggunakan native Date agar tidak perlu dependensi dayjs di file util ini
+    return new Date(timestamp).toLocaleDateString('id-ID', { 
+        day: '2-digit', month: '2-digit', year: 'numeric', 
+        hour: '2-digit', minute:'2-digit' 
+    }).replace(/\./g, ':'); // fix format waktu indo
+};
+
+// 3. Helper Padding (Penting untuk kerapian)
 const pad = (str, len, align = 'left') => {
     let s = String(str || '').substring(0, len); 
     if (align === 'left') return s.padEnd(len, ' ');
     if (align === 'right') return s.padStart(len, ' ');
+    
     // Center logic
     const leftPad = Math.floor((len - s.length) / 2);
+    // Pastikan tidak negatif
+    if (leftPad < 0) return s;
     return s.padStart(s.length + leftPad, ' ').padEnd(len, ' ');
 };
 
-// --- KONFIGURASI KERTAS 9.5 INCH (SAMA DENGAN TRANSAKSI) ---
-const TOTAL_WIDTH = 96;
-const HR = "-".repeat(TOTAL_WIDTH) + "\n";
-const FF = "\x0C"; // Form Feed untuk pindah halaman
-
 // ==========================================
-// 4a. CODE: NOTA PEMBAYARAN
+// FUNGSI UTAMA: GENERATE NOTA PEMBAYARAN
 // ==========================================
 export const generateNotaPembayaranText = (payment, allocations) => {
     let items = [];
+    // Validasi data alokasi
     if (allocations && Array.isArray(allocations) && allocations.length > 0) {
         items = allocations;
     } else {
+        // Fallback jika tidak ada detail alokasi
         items = [{
             invoiceId: '-',
             amount: Number(payment.totalBayar || 0),
@@ -36,8 +60,8 @@ export const generateNotaPembayaranText = (payment, allocations) => {
         }];
     }
 
-    const TARGET_LINES_PER_PAGE = 29; 
-    const FIXED_USED_LINES = 16; 
+    const TARGET_LINES_PER_PAGE = 29; // Sesuaikan dengan tinggi kertas (biasanya 29 baris untuk setengah kuarto/continuous)
+    const FIXED_USED_LINES = 16;      // Jumlah baris header + footer
     const AVAILABLE_BODY_LINES = TARGET_LINES_PER_PAGE - FIXED_USED_LINES;
     const totalPages = Math.ceil(items.length / AVAILABLE_BODY_LINES) || 1;
     
@@ -64,10 +88,11 @@ export const generateNotaPembayaranText = (payment, allocations) => {
 
         txt += lblBayar + pad(idDokumen, 35) + pad(lblTgl + tanggal, widthInfoRight, 'right') + "\n";
         
-        // CUSTOMER BOLD
+        // CUSTOMER LINE
         txt += "Customer  : " + BOLD_ON + pad(namaPelanggan.substring(0, 70), 70) + BOLD_OFF + "\n"; 
         txt += HR;
         
+        // TABLE HEADER
         const wNo = 4; const wInv = 22; const wJml = 20; const spc = " ";
         const wKet = TOTAL_WIDTH - (wNo + wInv + wJml + 3); 
 
@@ -77,20 +102,25 @@ export const generateNotaPembayaranText = (payment, allocations) => {
                pad("Jumlah (Rp)", wJml, 'right') + "\n";
         txt += HR;
 
+        // --- BODY (ITEMS) ---
         let bodyLinesUsed = 0;
         pageItems.forEach((item, i) => {
             const globalIndex = startIdx + i + 1;
             const amount = Number(item.amount || 0);
             calculatedTotal += amount;
             
+            // Handle Keterangan: ambil dari item, atau fallback ke payment desc
+            const ket = item.keterangan || payment.keterangan || '-';
+
             txt += pad(globalIndex.toString(), wNo) + spc +
                    pad(item.invoiceId || '-', wInv) + spc +
-                   pad((item.keterangan || payment.keterangan || '-').substring(0, wKet), wKet) + spc +
+                   pad(ket.substring(0, wKet), wKet) + spc +
                    pad(formatNumber(amount), wJml, 'right') + "\n";
             
             bodyLinesUsed++;
         });
 
+        // FILLER LINES (Agar footer selalu di bawah)
         const linesToFill = AVAILABLE_BODY_LINES - bodyLinesUsed;
         if (linesToFill > 0) {
             for (let k = 0; k < linesToFill; k++) txt += "\n"; 
@@ -98,13 +128,14 @@ export const generateNotaPembayaranText = (payment, allocations) => {
 
         txt += HR;
         
+        // --- FOOTER ---
         if (isLastPage) {
             const finalTotal = Number(payment.totalBayar) || calculatedTotal;
             const labelTotal = "TOTAL PEMBAYARAN:";
             const valueTotal = formatNumber(finalTotal);
             const widthLabel = TOTAL_WIDTH - wJml - 1; 
 
-            // TOTAL BOLD
+            // TOTAL LINE
             txt += BOLD_ON + pad(labelTotal, widthLabel, 'right') + " " + pad(valueTotal, wJml, 'right') + BOLD_OFF + "\n";
             
             txt += "\n"; 
@@ -126,9 +157,10 @@ export const generateNotaPembayaranText = (payment, allocations) => {
 };
 
 // ==========================================
-// 4b. CODE: NOTA NON-FAKTUR
+// FUNGSI SEKUNDER: GENERATE NOTA NON-FAKTUR
 // ==========================================
 export const generateNotaNonFakturText = (data) => {
+    // Bungkus data tunggal menjadi array item
     const items = [{
         keterangan: data.keterangan || '-',
         amount: Number(data.totalBayar || 0)
@@ -160,7 +192,6 @@ export const generateNotaNonFakturText = (data) => {
         
         txt += lblRef + pad(idDokumen, 35) + pad(lblTgl + tanggal, TOTAL_WIDTH - (lblRef.length + 35), 'right') + "\n";
         
-        // CUSTOMER BOLD
         txt += "Customer  : " + BOLD_ON + pad(namaPelanggan.substring(0, 70), 70) + BOLD_OFF + "\n";
         txt += HR;
         
@@ -196,7 +227,6 @@ export const generateNotaNonFakturText = (data) => {
             const labelTotal = "TOTAL BAYAR:";
             const valueTotal = formatNumber(finalTotal);
             
-            // TOTAL BOLD
             txt += BOLD_ON + pad(labelTotal, TOTAL_WIDTH - wJml - 2, 'right') + "  " + pad(valueTotal, wJml, 'right') + BOLD_OFF + "\n";
             
             txt += "\n"; 

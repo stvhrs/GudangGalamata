@@ -39,6 +39,9 @@ const pad = (str, len, align = 'left') => {
 // ==========================================
 // 3. CODE: NOTA RETUR
 // ==========================================
+// ==========================================
+// FUNCTION GENERATE RETUR
+// ==========================================
 export const generateReturText = (returData, items) => {
     let txt = "";
 
@@ -121,10 +124,15 @@ export const generateReturText = (returData, items) => {
     // --- FOOTER ---
     txt += HR;
 
-    const totalRetur = Number(returData.totalRetur || 0);
-    // Note: Keterangan sudah dihapus
+    // 🔥 [BARU] HITUNG TOTAL QTY RETUR 🔥
+    const totalQtyRetur = dataItems.reduce((acc, curr) => acc + (Number(curr.qty || 0)), 0);
+    
+    // Tampilkan Total Qty (Rata Kiri, sebelum Total Uang)
+    txt += pad(`Total Buku Retur: ${formatNumber(totalQtyRetur)} pcs`, TOTAL_WIDTH, 'left') + "\n";
 
-    const labelTotal = "TOTAL RETUR :";
+    // Total Uang
+    const totalRetur = Number(returData.totalRetur || 0);
+    const labelTotal = "TOTAL UANG DIKEMBALIKAN :";
     const valTotal = formatNumber(totalRetur);
     
     // Layout Total align kanan

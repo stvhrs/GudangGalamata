@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useDeferredValue } from 'react';
 import {
     Layout, Card, Table, Button, Input, Space, Typography,
-    Row, Col, message, Tooltip, Spin
+    Row, Col, message, Tooltip, Spin, DatePicker
 } from 'antd';
 import {
     PlusOutlined, EditOutlined,
@@ -10,7 +10,7 @@ import {
 import dayjs from 'dayjs';
 import 'dayjs/locale/id';
 
-// --- FIREBASE IMPORTS (Realtime Database) ---
+// --- FIREBASE IMPORTS ---
 import { db } from '../../api/firebase'; 
 import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 
@@ -18,13 +18,12 @@ import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 import { currencyFormatter } from '../../utils/formatters';
 import { usePembayaranStream, globalPembayaran } from '../../hooks/useFirebaseData';
 import useDebounce from '../../hooks/useDebounce';
-// Import fungsi generator teks ESC/P yang baru
+// Import fungsi generator teks yang SUDAH DIPERBAIKI
 import { generateNotaPembayaranText } from '../../utils/notaPembayaranText'; 
 
 // COMPONENTS
 import PembayaranForm from './components/PembayaranForm';
-import RawTextPreviewModal from '../../components/RawTextPreviewModal'; // Import Widget Baru
-import { DatePicker } from 'antd';
+import RawTextPreviewModal from '../../components/RawTextPreviewModal'; 
 
 dayjs.locale('id');
 const { Content } = Layout;
@@ -51,32 +50,25 @@ const PembayaranPage = () => {
     });
 
     const [searchText, setSearchText] = useState('');
-    const [printingId, setPrintingId] = useState(null); // State loading khusus print
+    const [printingId, setPrintingId] = useState(null); 
     
     // --- PREVIEW STATE ---
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [previewContent, setPreviewContent] = useState('');
     const [loadingPreview, setLoadingPreview] = useState(false);
 
-    // --- DATA FETCHING (HEADER ONLY) ---
+    // --- DATA FETCHING ---
     const { pembayaranList = [], loadingPembayaran = true } = usePembayaranStream(dateRange);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPembayaran, setEditingPembayaran] = useState(null);
 
-    // --- [OPTIMASI 1] HOOKS & DEBOUNCE ---
+    // --- SEARCH & FILTER ---
     const debouncedSearchText = useDebounce(searchText, 800);
-    
-    // [OPTIMASI 2] Deferred Value
     const deferredSearch = useDeferredValue(debouncedSearchText);
-    
-    // [OPTIMASI 3] Deteksi Background Processing
     const isProcessing = debouncedSearchText !== deferredSearch;
-
-    // Gabungkan status loading
     const isLoading = loadingPembayaran || isProcessing;
 
-    // --- FILTER LOGIC ---
     const filteredData = useMemo(() => {
         let data = [...(pembayaranList || [])];
 
@@ -104,10 +96,10 @@ const PembayaranPage = () => {
         setTimeout(() => setEditingPembayaran(null), 300);
     };
 
-    // --- PRINT HANDLER (RAW TEXT / ESC/P) ---
+    // --- PRINT HANDLER (LOGIC UTAMA) ---
     const handleShowPreview = async (record) => {
-        setPrintingId(record.id); // Start Loading Button Icon
-        setLoadingPreview(true); // Start Loading Modal (jika belum kebuka, tp disini kita load dulu)
+        setPrintingId(record.id); 
+        setLoadingPreview(true); 
         
         try {
             // 1. Ambil Data Detail (Alokasi) dari Firebase
@@ -124,13 +116,15 @@ const PembayaranPage = () => {
                 dataAlokasi = Object.values(raw);
             }
 
-            // 2. Generate Raw String (ESC/P)
+            // 2. Generate Raw String (Safe Call)
+            // Ini memanggil fungsi di file util yang sudah diperbaiki
             const rawData = generateNotaPembayaranText(record, dataAlokasi);
+            
             setPreviewContent(rawData);
             setIsPreviewOpen(true);
 
         } catch (err) {
-            console.error("Gagal print", err);
+            console.error("Gagal print:", err);
             message.error("Gagal memuat struk: " + err.message);
         } finally {
             setPrintingId(null);
@@ -139,31 +133,49 @@ const PembayaranPage = () => {
     };
 
     // --- HANDLE REAL PRINT (Browser Print) ---
+  // --- HANDLE REAL PRINT (Browser Print) ---
     const handlePrintFromPreview = () => {
         if (!previewContent) return;
 
-        const printWindow = window.open('', '', 'width=950,height=600');
+        // Gunakan _blank agar aman di beberapa browser
+        const printWindow = window.open('', '_blank', 'width=950,height=600');
         
         const style = `
             <style>
                 @page {
-                    size: 9.5in 5.5in;
-                    margin: 0;
+                    /* Biarkan Driver Printer yang menentukan ukuran kertas */
+                    /* Kita set margin 0 agar CSS kita yang atur posisi */
+                    size: auto; 
+                    margin: 0mm; 
                 }
                 html, body {
                     margin: 0;
                     padding: 0;
-                    width: 9.5in;
-                    height: 5.5in;
+                    width: 100%;  /* Lebar mengikuti kertas yang dipilih user */
+                    height: 100%;
                 }
                 body {
                     font-family: 'Courier New', Courier, monospace;
                     font-size: 13px; 
                     line-height: 1.18;
-                    padding-top: 0.1in;
-                    padding-left: 0.1in;
-                    white-space: pre; 
+                    
+                    /* --- TEKNIK AUTO CENTER --- */
+                    display: flex;           /* Jadikan body sebagai container flex */
+                    justify-content: center; /* Tengahkan isi secara Horizontal (Kiri-Kanan) */
+                    align-items: flex-start; /* Mulai dari atas (jangan ditengah vertikal) */
+                    padding-top: 0.1in;      /* Beri jarak sedikit dari bibir atas kertas */
                 }
+                
+                /* Wrapper untuk teks Nota */
+                #nota-container {
+                    white-space: pre;       /* Wajib: Agar spasi nota tidak hancur */
+                    width: fit-content;     /* Lebar menyesuaikan panjang teks */
+                    text-align: left;       /* Teks di dalam nota tetap rata kiri sesuai format pad() */
+                    
+                    /* Opsi: Tambah border tipis saat debug agar kelihatan batasnya (hapus nanti) */
+                    /* border: 1px dashed #ccc; */ 
+                }
+
                 @media print {
                     body { -webkit-print-color-adjust: exact; }
                 }
@@ -171,7 +183,12 @@ const PembayaranPage = () => {
         `;
 
         printWindow.document.write('<html><head><title>Print Nota</title>' + style + '</head><body>');
+        
+        // PENTING: Bungkus previewContent dengan div container
+        printWindow.document.write('<div id="nota-container">');
         printWindow.document.write(previewContent);
+        printWindow.document.write('</div>');
+        
         printWindow.document.write('</body></html>');
         
         printWindow.document.close();
@@ -182,7 +199,6 @@ const PembayaranPage = () => {
             printWindow.close();
         }, 500);
     };
-
     // --- TABLE COLUMNS ---
     const columns = [
         {
@@ -273,7 +289,7 @@ const PembayaranPage = () => {
                         />
                         <Input
                             placeholder="Cari Customer, ID, Ket..."
-                            suffix={searchText !== debouncedSearchText ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
+                            suffix={isProcessing ? <LoadingOutlined style={{ color: 'rgba(0,0,0,.25)' }} /> : <SearchOutlined style={{ color: 'rgba(0,0,0,.25)' }} />}
                             style={{ width: 220 }}
                             onChange={(e) => setSearchText(e.target.value)}
                             allowClear
@@ -310,7 +326,6 @@ const PembayaranPage = () => {
                 />
             )}
 
-            {/* --- MODAL PREVIEW RAW TEXT (REUSABLE WIDGET) --- */}
             <RawTextPreviewModal
                 visible={isPreviewOpen}
                 onCancel={() => setIsPreviewOpen(false)}

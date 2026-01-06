@@ -145,31 +145,71 @@ export default function ReturPage() {
             setLoadingPreview(false);
         }
     };
-
+ // --- HANDLE REAL PRINT (Browser Print) ---
     const handlePrintFromPreview = () => {
         if (!previewContent) return;
-        const printWindow = window.open('', '', 'width=950,height=600');
+
+        // Gunakan _blank agar aman di beberapa browser
+        const printWindow = window.open('', '_blank', 'width=950,height=600');
+        
         const style = `
             <style>
-                @page { size: 9.5in 5.5in; margin: 0; }
-                html, body { margin: 0; padding: 0; width: 9.5in; height: 5.5in; }
+                @page {
+                    /* Biarkan Driver Printer yang menentukan ukuran kertas */
+                    /* Kita set margin 0 agar CSS kita yang atur posisi */
+                    size: auto; 
+                    margin: 0mm; 
+                }
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;  /* Lebar mengikuti kertas yang dipilih user */
+                    height: 100%;
+                }
                 body {
                     font-family: 'Courier New', Courier, monospace;
-                    font-size: 13px;
-                    line-height: 1.15;
-                    padding-top: 0.1in;
-                    padding-left: 0.1in;
-                    white-space: pre; 
+                    font-size: 13px; 
+                    line-height: 1.18;
+                    
+                    /* --- TEKNIK AUTO CENTER --- */
+                    display: flex;           /* Jadikan body sebagai container flex */
+                    justify-content: center; /* Tengahkan isi secara Horizontal (Kiri-Kanan) */
+                    align-items: flex-start; /* Mulai dari atas (jangan ditengah vertikal) */
+                    padding-top: 0.1in;      /* Beri jarak sedikit dari bibir atas kertas */
                 }
-                @media print { body { -webkit-print-color-adjust: exact; } }
+                
+                /* Wrapper untuk teks Nota */
+                #nota-container {
+                    white-space: pre;       /* Wajib: Agar spasi nota tidak hancur */
+                    width: fit-content;     /* Lebar menyesuaikan panjang teks */
+                    text-align: left;       /* Teks di dalam nota tetap rata kiri sesuai format pad() */
+                    
+                    /* Opsi: Tambah border tipis saat debug agar kelihatan batasnya (hapus nanti) */
+                    /* border: 1px dashed #ccc; */ 
+                }
+
+                @media print {
+                    body { -webkit-print-color-adjust: exact; }
+                }
             </style>
         `;
-        printWindow.document.write('<html><head><title>Print Retur</title>' + style + '</head><body>');
+
+        printWindow.document.write('<html><head><title>Print Nota</title>' + style + '</head><body>');
+        
+        // PENTING: Bungkus previewContent dengan div container
+        printWindow.document.write('<div id="nota-container">');
         printWindow.document.write(previewContent);
+        printWindow.document.write('</div>');
+        
         printWindow.document.write('</body></html>');
+        
         printWindow.document.close();
         printWindow.focus();
-        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+        
+        setTimeout(() => {
+            printWindow.print();
+            printWindow.close();
+        }, 500);
     };
 
     // --- COLUMNS (ICON LANGSUNG) ---

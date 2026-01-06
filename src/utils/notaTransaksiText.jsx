@@ -1,3 +1,6 @@
+// ==========================================
+// CONFIG & HELPERS (Pastikan ini ada di file Anda)
+// ==========================================
 const companyInfo = {
     nama: "CV. GANGSAR MULIA UTAMA",
     hp: "0882-0069-05391"
@@ -29,6 +32,15 @@ const padBold = (str, len, align = 'left') => {
 const TOTAL_WIDTH = 96; 
 const HR = "-".repeat(TOTAL_WIDTH) + "\n";
 
+// ==========================================
+// FUNCTION GENERATE TEXT
+// ==========================================
+// ==========================================
+// FUNCTION GENERATE TEXT (INVOICE / NOTA)
+// ==========================================
+// ==========================================
+// FUNCTION GENERATE TEXT (INVOICE / NOTA)
+// ==========================================
 export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     const dataItems = (items && items.length > 0) ? items : [];
     const TARGET_LINES = 29; 
@@ -41,6 +53,9 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
         currentLine += linesInStr;
     };
 
+    // 1. HITUNG TOTAL QTY
+    const totalQtyBuku = dataItems.reduce((acc, curr) => acc + (Number(curr.qty || curr.jumlah || 0)), 0);
+
     // --- HEADER ---
     addLine(padBold(companyInfo.nama, TOTAL_WIDTH, 'center') + "\n");
     const judulDokumen = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
@@ -51,8 +66,20 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     const namaPelanggan = transaksi.namaCustomer || 'Umum';
     const tanggal = formatDate(transaksi.tanggal);
 
-    addLine("No. Trans : " + pad(idDokumen, 35) + pad("Tanggal : " + tanggal, TOTAL_WIDTH - 47, 'right') + "\n");
-    addLine("Customer  : " + padBold(namaPelanggan.substring(0, 70), 70) + "\n"); 
+    // --- BARIS 1: No Trans (Kiri) ... Tanggal (Kanan)
+    const txtKiri1 = "No. Trans : " + idDokumen;
+    const txtKanan1 = "Tanggal : " + tanggal;
+    const gap1 = TOTAL_WIDTH - (txtKiri1.length + txtKanan1.length);
+    addLine(txtKiri1 + " ".repeat(gap1 > 0 ? gap1 : 0) + txtKanan1 + "\n");
+    
+    // --- BARIS 2: Customer Saja (Total Buku dipindah ke bawah) ---
+    // Gunakan spasi ekstra di label agar sejajar dengan "No. Trans :"
+    const lblCust = "Customer  : "; 
+    const valCust = namaPelanggan.substring(0, 50); 
+    
+    // Cetak Customer (Tanpa Total Buku di kanan)
+    addLine(lblCust + BOLD_START + valCust + BOLD_END + "\n"); 
+
     addLine(HR);
 
     // --- TABEL HEADER ---
@@ -90,7 +117,7 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     });
 
     // --- FOOTER PUSH ---
-    const FOOTER_HEIGHT = 8;
+    const FOOTER_HEIGHT = 8; 
     let linesRemaining = TARGET_LINES - (currentLine % TARGET_LINES);
     if (linesRemaining < FOOTER_HEIGHT) {
         for (let k = 0; k < linesRemaining; k++) addLine("\n");
@@ -101,8 +128,9 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
         for (let k = 0; k < emptyLinesNeeded; k++) addLine("\n");
     }
 
-    // --- CETAK FOOTER CUSTOM ---
+    // --- FINANCIAL SUMMARY ---
     addLine(HR);
+    
     const totalBruto = Number(transaksi.totalBruto || 0);
     const totalDiskon = Number(transaksi.totalDiskon || 0);
     const totalBiayaLain = Number(transaksi.totalBiayaLain || 0);
@@ -112,57 +140,49 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
 
     const wF1 = 30; // Kolom 1
     const wF2 = 26; // Kolom 2
-    const wF3 = 40; // Kolom 3 (Lebar)
+    const wF3 = 40; // Kolom 3 (Lebar cukup untuk Biaya + Total Buku)
 
-    // Helper render BARU (Support Bold per Kolom)
+    // Helper render Row Aligned
     const renderRowAligned = (l1, v1, l2, v2, l3, v3, bold1 = false, bold2 = false, bold3 = false) => {
         let str = "";
-
-        // COL 1: Label Width 8 (Untuk "Bruto", "Tagihan")
+        // COL 1
         if (l1) {
             const labelPadded = pad(l1, 8); 
             const content = `${labelPadded}: ${v1}`;
-            
-            if (bold1) str += padBold(content, wF1, 'left');
-            else str += pad(content, wF1, 'left');
-        } else {
-            str += pad("", wF1);
-        }
+            str += bold1 ? padBold(content, wF1, 'left') : pad(content, wF1, 'left');
+        } else str += pad("", wF1);
 
-        // COL 2: Label Width 6 (Untuk "Disc", "Bayar")
+        // COL 2
         if (l2) {
             const labelPadded = pad(l2, 6);
             const content = `${labelPadded}: ${v2}`;
+            str += bold2 ? padBold(content, wF2, 'left') : pad(content, wF2, 'left');
+        } else str += pad("", wF2);
 
-            if (bold2) str += padBold(content, wF2, 'left');
-            else str += pad(content, wF2, 'left');
-        } else {
-            str += pad("", wF2);
-        }
-
-        // COL 3: Disamakan dengan Col 1 (Padding 8 dan Rata Kiri)
+        // COL 3
         if (l3) {
             const labelPadded = pad(l3, 8); 
             const content = `${labelPadded}: ${v3}`; 
-            
-            if (bold3) str += padBold(content, wF3, 'left');
-            else str += pad(content, wF3, 'left');
-        } else {
-            str += pad("", wF3);
-        }
+            str += bold3 ? padBold(content, wF3, 'left') : pad(content, wF3, 'left');
+        } else str += pad("", wF3);
 
         return str + "\n";
     };
 
-    // Baris 1: Bruto | Disc | Biaya (Semua Biasa/Tidak Bold)
+    // --- MODIFIKASI DISINI (GABUNG BIAYA + TOTAL BUKU) ---
+    // Kita gabung string untuk nilai Kolom 3 agar tampil: "Biaya: 0   Total Buku: 10"
+    
+    const valBiayaDanBuku = `${formatNumber(totalBiayaLain)}   Total Buku: ${formatNumber(totalQtyBuku)}`;
+
+    // Baris 1: Bruto | Disc | Biaya + Total Buku (Normal)
     addLine(renderRowAligned(
         "Bruto", formatNumber(totalBruto), 
         "Disc", formatNumber(totalDiskon), 
-        "Biaya", formatNumber(totalBiayaLain), 
+        "Biaya", valBiayaDanBuku, 
         false, false, false
     ));
 
-    // Baris 2: Tagihan | Bayar | Sisa (SEMUA BOLD)
+    // Baris 2: Tagihan | Bayar | Sisa (BOLD)
     addLine(renderRowAligned(
         "Tagihan", formatNumber(totalNetto), 
         "Bayar", formatNumber(totalBayar), 
@@ -178,4 +198,4 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     addLine(pad("(________________)", wTTD, 'center') + spacerTTD + pad(`( ${namaPelanggan.substring(0, 30)} )`, wTTD, 'center'));
 
     return txt;
-};
+};  

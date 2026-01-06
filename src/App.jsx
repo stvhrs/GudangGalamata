@@ -4,7 +4,7 @@ import { Layout, ConfigProvider, Drawer, Grid, Typography, App as AntApp, Button
 import idID from 'antd/locale/id_ID';
 import 'dayjs/locale/id';
 import { CloseOutlined, LogoutOutlined } from '@ant-design/icons';
-
+import { useArrowFocus } from './hooks/useArrowFocus';
 // --- Context and Auth Components ---
 import { AuthProvider, useAuth } from './AuthContext'; // Sesuaikan path
 import ProtectedRoute from './ProtectedRoute'; // Sesuaikan path
@@ -187,6 +187,7 @@ const AppRoutes = () => {
 
 
 const App = () => {
+    useArrowFocus('.focusable');
     return (
         <ConfigProvider locale={idID}>
             <AntApp> {/* Konteks App Ant Design */}

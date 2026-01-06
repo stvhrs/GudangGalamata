@@ -11,30 +11,49 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-/* index.css atau App.css */
+}/* Styling Khusus Mode Print */
 @media print {
-  /* Menyembunyikan elemen lain saat nge-print (misal tombol back/print) */
-  body * {
-    visibility: hidden;
+  /* Reset margin default browser agar kita bisa kontrol penuh */
+  @page {
+    margin: 0;
+    size: auto; 
   }
 
-  /* Hanya menampilkan area struk/invoice */
-  .print-area, .print-area * {
+  body * {
+    visibility: hidden; /* Sembunyikan elemen lain (navbar, sidebar, dll) */
+  }
+
+  /* Tampilkan hanya container print */
+  .print-container, .print-container * {
     visibility: visible;
   }
-  
-  .print-area {
+
+  .print-container {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
+    
+    /* --- INI MAGIC-NYA UNTUK CENTER --- */
+    display: flex;
+    justify-content: center; /* Membuat isi container berada di tengah horizontal */
+    padding-top: 20px; /* Jarak dari atas kertas (opsional) */
   }
 
-  /* PENTING: Menghilangkan header/footer bawaan browser (URL, Tanggal, No Halaman) */
-  @page {
-    margin: 0; /* Hilangkan margin default browser */
-    size: auto; 
+  .struk-content {
+    /* Pastikan text di dalam tetap rata kiri sesuai format string kamu */
+    text-align: left; 
+    
+    /* Font wajib Monospace agar spasi hitunganmu presisi */
+    font-family: 'Courier New', Courier, monospace; 
+    
+    /* Ukuran font harus pas. 
+       Untuk lebar 96 char, biasanya font 10px - 12px.
+       Jika terlalu besar, text akan turun ke bawah (wrapping) */
+    font-size: 10pt; 
+    
+    /* Menjaga spasi tetap dirender */
+    white-space: pre; 
   }
 }
 .ant-table-tbody > tr.zebra-row:nth-child(even) > td {
