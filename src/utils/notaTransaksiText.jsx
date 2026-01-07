@@ -1,373 +1,316 @@
-// ==========================================
-// 1. CONFIG & HELPERS (GLOBAL)
-// ==========================================
+// src/utils/invoiceGenerators.js
 
 export const companyInfo = {
     nama: "CV. GANGSAR MULIA UTAMA",
-    hp: "0882-0069-05391"
+    hp: "0882-0069-05391",
 };
 
-// --- KONFIGURASI PRINTER ---
-export const TOTAL_WIDTH = 96; // Lebar karakter (Mode Elite/Condensed)
-export const HR = "-".repeat(TOTAL_WIDTH) + "\n";
-export const FF = "\x0C"; // Form Feed
-
-// --- KONFIGURASI BOLD ---
-const BOLD_START = '<b>';
-const BOLD_END = '</b>';
-const HTML_TAG_LEN = 7; 
-
+// Helper Formatters
 export const formatNumber = (value) => new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0 }).format(value || 0);
-
 export const formatDate = (timestamp) => {
     if(!timestamp) return '-';
     return new Date(timestamp).toLocaleDateString('id-ID', { 
-        day: '2-digit', month: '2-digit', year: 'numeric', 
-        hour: '2-digit', minute:'2-digit' 
-    }).replace(/\./g, ':');
-};
-
-// --- FUNGSI PADDING (STANDARD) ---
-export const pad = (str, len, align = 'left') => {
-    let s = String(str || '').substring(0, len); 
-    if (align === 'left') return s.padEnd(len, ' ');
-    if (align === 'right') return s.padStart(len, ' ');
-    
-    // Center logic
-    const leftPad = Math.floor((len - s.length) / 2);
-    return s.padStart(s.length + leftPad, ' ').padEnd(len, ' ');
-};
-
-// --- FUNGSI PADDING (BOLD) ---
-export const padBold = (str, len, align = 'left') => {
-    const boldStr = BOLD_START + str + BOLD_END;
-    return pad(boldStr, len + HTML_TAG_LEN, align);
+        day: '2-digit', month: '2-digit', year: 'numeric'
+    });
 };
 
 // ==========================================
-// [HELPER BARU] AUTO PUSH FOOTER & TTD
-// ==========================================
-const printFooterWithPush = (addLine, currentLine, targetLines, namaPelanggan, capStatus = "") => {
-    // 1. Hitung Tinggi Blok Footer (Cap + TTD)
-    // - Cap Status (jika ada): 1 baris
-    // - Hormat Kami: 1 baris
-    // - Spasi TTD: 2 baris
-    // - Nama: 1 baris
-    const footerHeight = capStatus ? 5 : 4; 
-    
-    // 2. Hitung sisa baris di halaman ini
-    let linesRemaining = targetLines - (currentLine % targetLines);
-    
-    // 3. Jika sisa baris tidak cukup untuk footer, ganti halaman dulu
-    if (linesRemaining < footerHeight) {
-        for (let k = 0; k < linesRemaining; k++) addLine("\n");
-        linesRemaining = targetLines; 
-    }
-
-    // 4. Dorong ke bawah (Isi kekosongan dengan Enter)
-    const linesToPush = linesRemaining - footerHeight;
-    if (linesToPush > 0) {
-        for (let k = 0; k < linesToPush; k++) addLine("\n");
-    } else {
-        addLine("\n"); // Safety margin minimal 1
-    }
-
-    // 5. Cetak Cap Status (Jika ada, misal LUNAS/BELUM LUNAS)
-    if (capStatus) {
-        // Centerkan Cap
-        addLine(padBold(capStatus, TOTAL_WIDTH, 'center') + "\n");
-    }
-
-    // 6. Cetak Tanda Tangan (Rapi & Center)
-    const wTTD = 38; 
-    const spacerTTD = " ".repeat(TOTAL_WIDTH - (wTTD * 2)); // Sisa ruang di tengah
-    
-    // Baris 1: Label
-    addLine(pad("Hormat Kami,", wTTD, 'center') + spacerTTD + pad("Penerima,", wTTD, 'center') + "\n");
-    
-    // Baris 2-3: Spasi TTD
-    addLine("\n\n"); 
-    
-    // Baris 4: Nama (Upper Case & Dipotong biar tidak hancur)
-    const customerNameDisp = namaPelanggan.substring(0, 30).toUpperCase();
-    addLine(pad("( Admin )", wTTD, 'center') + spacerTTD + pad(`( ${customerNameDisp} )`, wTTD, 'center'));
-};
-
-
-// ==========================================
-// 2. GENERATE NOTA TRANSAKSI (INVOICE)
+// 1. GENERATE NOTA TRANSAKSI (INVOICE)
 // ==========================================
 export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
-    const dataItems = (items && items.length > 0) ? items : [];
-    const TARGET_LINES = 29; 
-    let currentLine = 0;
-    let txt = "";
-
-    const addLine = (str) => {
-        txt += str;
-        const linesInStr = (str.match(/\n/g) || []).length;
-        currentLine += linesInStr;
-    };
-
-    const totalQtyBuku = dataItems.reduce((acc, curr) => acc + (Number(curr.qty || curr.jumlah || 0)), 0);
+    const dataItems = items || [];
+    const judul = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
     const sisaTagihan = Number(transaksi.sisaTagihan || 0);
-    const statusLunas = sisaTagihan <= 0 ? "LUNAS" : "BELUM LUNAS";
+    const namaPelanggan = (transaksi.namaCustomer || 'Umum').toUpperCase();
 
-    // --- HEADER ---
-    addLine(padBold(companyInfo.nama, TOTAL_WIDTH, 'center') + "\n");
-    const judulDokumen = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
-    addLine(padBold(judulDokumen, TOTAL_WIDTH, 'center') + "\n"); 
-    addLine(HR);
+    let totalQty = 0;
+    dataItems.forEach(i => totalQty += Number(i.qty || i.jumlah || 0));
 
-    const idDokumen = transaksi.id || '-';
-    const namaPelanggan = transaksi.namaCustomer || 'Umum';
-    const tanggal = formatDate(transaksi.tanggal);
+    let html = `
+    <table style="width: 100%; margin-bottom: 5px; font-family: 'Courier New', monospace;">
+        <tr>
+            <td width="60%" style="vertical-align: top;">
+                <div style="font-size:18px; font-weight:bold;">${companyInfo.nama}</div>
+                <div>${companyInfo.hp}</div>
+            </td>
+            <td width="40%" class="text-right" style="vertical-align: top;">
+                <div style="font-size:16px; font-weight:bold;">${judul}</div>
+                <div>No: <b>${transaksi.id || '-'}</b></div>
+                <div>Tgl: ${formatDate(transaksi.tanggal)}</div>
+            </td>
+        </tr>
+    </table>
 
-    // Baris Info
-    const txtKiri1 = "No. Trans : " + idDokumen;
-    const txtKanan1 = "Tanggal : " + tanggal;
-    const gap1 = TOTAL_WIDTH - (txtKiri1.length + txtKanan1.length);
-    addLine(txtKiri1 + " ".repeat(gap1 > 0 ? gap1 : 0) + txtKanan1 + "\n");
-    
-    const lblCust = "Customer  : "; 
-    const valCust = namaPelanggan.substring(0, 50); 
-    addLine(lblCust + BOLD_START + valCust + BOLD_END + "\n"); 
-    addLine(HR);
+    <div style="margin-bottom: 5px; font-family: 'Courier New', monospace;">
+        Kepada Yth: <b>${namaPelanggan}</b>
+    </div>
 
-    // Tabel Header
-    const wNo = 3; const wQty = 7; const wHrg = 15; const wDisc = 7; const wSub = 17; 
-    const wItem = TOTAL_WIDTH - (wNo + wQty + wHrg + wDisc + wSub); 
-    addLine(padBold("No", wNo) + padBold("Judul Buku", wItem) + padBold("Qty", wQty, 'center') + 
-            padBold("Harga", wHrg, 'right') + padBold("Disc", wDisc, 'right') + padBold("Subtotal", wSub, 'right') + "\n");
-    addLine(HR);
+    <table style="width: 100%; border-collapse: collapse; table-layout: fixed; font-family: 'Courier New', monospace; font-size: 12px;">
+        <thead style="border-top: 1px solid black; border-bottom: 1px solid black;">
+            <tr>
+                <th width="25px" class="text-center" style="vertical-align: top; padding: 5px 0;">No</th>
+                <th class="text-left" style="vertical-align: top; padding: 5px 0;">Nama Barang</th>
+                <th width="40px" class="text-center" style="vertical-align: top; padding: 5px 0;">Qty</th>
+                <th width="85px" class="text-right" style="vertical-align: top; padding: 5px 0;">Harga</th>
+                <th width="95px" class="text-right" style="vertical-align: top; padding: 5px 0;">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
 
-    // Items
-    dataItems.forEach((item, i) => {
-        const harga = Number(item.harga || item.hargaSatuan || 0);
+    dataItems.forEach((item, index) => {
         const qty = Number(item.qty || item.jumlah || 0);
+        const harga = Number(item.harga || item.hargaSatuan || 0);
         const subtotal = Number(item.subtotal || 0);
-        let fullTitle = (item.judul || item.productName || '-');
-        let safeLen = wItem - 1; 
-        let line1 = fullTitle.substring(0, safeLen).trim();
-        let line2 = fullTitle.length > safeLen ? fullTitle.substring(safeLen, safeLen * 2).trim() : "";
 
-        addLine(pad((i + 1).toString(), wNo) + pad(line1, wItem) + pad(qty.toString(), wQty, 'center') + 
-                pad(formatNumber(harga), wHrg, 'right') + pad("-", wDisc, 'right') + pad(formatNumber(subtotal), wSub, 'right') + "\n");
-        if (line2) addLine(pad("", wNo) + pad(line2, wItem) + "\n");
+        html += `
+            <tr>
+                <td class="text-center" style="padding: 2px 0; vertical-align: top;">${index + 1}</td>
+                <td class="text-left" style="padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${item.judul || item.productName || '-'}</td>
+                <td class="text-center" style="padding: 2px 0; vertical-align: top;">${qty}</td>
+                <td class="text-right" style="padding: 2px 0; vertical-align: top;">${formatNumber(harga)}</td>
+                <td class="text-right" style="padding: 2px 0; vertical-align: top; font-weight:bold;">${formatNumber(subtotal)}</td>
+            </tr>
+        `;
     });
 
-    // Summary
-    addLine(HR);
-    const totalBruto = Number(transaksi.totalBruto || 0);
-    const totalDiskon = Number(transaksi.totalDiskon || 0);
-    const totalBiayaLain = Number(transaksi.totalBiayaLain || 0);
-    const totalNetto = Number(transaksi.totalNetto || 0);
-    const totalBayar = Number(transaksi.totalBayar || 0);
-    
-    const wF1 = 30; const wF2 = 26; const wF3 = 40; 
-    const renderRowAligned = (l1, v1, l2, v2, l3, v3, bold1, bold2, bold3) => {
-        let str = "";
-        if (l1) { const c = `${pad(l1, 8)}: ${v1}`; str += bold1 ? padBold(c, wF1, 'left') : pad(c, wF1, 'left'); } else str += pad("", wF1);
-        if (l2) { const c = `${pad(l2, 6)}: ${v2}`; str += bold2 ? padBold(c, wF2, 'left') : pad(c, wF2, 'left'); } else str += pad("", wF2);
-        if (l3) { const c = `${pad(l3, 8)}: ${v3}`; str += bold3 ? padBold(c, wF3, 'left') : pad(c, wF3, 'left'); } else str += pad("", wF3);
-        return str + "\n";
-    };
+    html += `
+        </tbody>
+        <tfoot style="border-top: 1px solid black;">
+            <tr>
+                <td colspan="2" class="text-right" style="font-weight:bold; padding-top: 5px; padding-right:10px;">Total Item:</td>
+                <td class="text-center" style="font-weight:bold; padding-top: 5px;">${formatNumber(totalQty)}</td>
+                <td colspan="2"></td>
+            </tr>
+        </tfoot>
+    </table>
 
-    addLine(pad(`Total Buku : ${formatNumber(totalQtyBuku)} pcs`, TOTAL_WIDTH, 'right') + "\n");
-    addLine(renderRowAligned("Bruto", formatNumber(totalBruto), "Disc", formatNumber(totalDiskon), "Biaya", formatNumber(totalBiayaLain), false, false, false));
-    addLine(renderRowAligned("Tagihan", formatNumber(totalNetto), "Bayar", formatNumber(totalBayar), "Sisa", formatNumber(sisaTagihan), true, true, true));
-    
-    // --- FOOTER DENGAN PUSH TO BOTTOM ---
-    const capStatus = `*** STATUS: ${statusLunas} ***`;
-    printFooterWithPush(addLine, currentLine, TARGET_LINES, namaPelanggan, capStatus);
-
-    return txt;
+    <table style="width: 100%; margin-top: 10px; font-family: 'Courier New', monospace;">
+        <tr>
+            <td width="55%" style="vertical-align: top; padding-right: 20px;">
+                <div style="font-size:11px; font-style: italic; margin-bottom: 15px; font-weight:bold;">
+                    * Komplain maksimal 3 hari setelah barang diterima.
+                </div>
+                <table style="width: 100%;">
+                    <tr>
+                        <td class="text-center" width="50%">Hormat Kami,<br><br><br><br><b>( Admin )</b></td>
+                        <td class="text-center" width="50%">Penerima,<br><br><br><br><b>( ${namaPelanggan.substring(0,15)} )</b></td>
+                    </tr>
+                </table>
+            </td>
+            <td width="45%" style="vertical-align: top;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td class="text-right" style="font-weight:bold;" width="60%">Total Bruto :</td>
+                        <td class="text-right" width="40%">${formatNumber(transaksi.totalBruto)}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-right" style="font-weight:bold;">Diskon :</td>
+                        <td class="text-right"><b>${formatNumber(transaksi.totalDiskon)}</b></td>
+                    </tr>
+                    <tr>
+                        <td class="text-right" style="font-weight:bold; padding-bottom: 5px;">Biaya Lain :</td>
+                        <td class="text-right" style="padding-bottom: 5px;">${formatNumber(transaksi.totalBiayaLain)}</td>
+                    </tr>
+                    <tr style="border-top: 1px solid black;">
+                        <td class="text-right" style="font-weight:bold; font-size:14px; padding-top: 5px;">GRAND TOTAL :</td>
+                        <td class="text-right" style="font-weight:bold; font-size:14px; padding-top: 5px;">${formatNumber(transaksi.totalNetto)}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-right" style="font-weight:bold; padding-bottom: 5px;">Bayar :</td>
+                        <td class="text-right" style="padding-bottom: 5px;">${formatNumber(transaksi.totalBayar)}</td>
+                    </tr>
+                    <tr style="border-top: 1px solid black;">
+                        <td class="text-right" style="font-weight:bold; padding-top: 5px;">Sisa :</td>
+                        <td class="text-right" style="font-weight:bold; padding-top: 5px;">${formatNumber(sisaTagihan)}</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    `;
+    return html;
 };
 
 // ==========================================
-// 3. GENERATE NOTA PEMBAYARAN (CICILAN)
+// 2. GENERATE NOTA PEMBAYARAN (CICILAN)
 // ==========================================
 export const generateNotaPembayaranText = (payment, allocations) => {
-    const dataItems = (allocations && Array.isArray(allocations) && allocations.length > 0) ? allocations : [{ invoiceId: '-', amount: Number(payment.totalBayar || 0), keterangan: payment.keterangan }];
-    const TARGET_LINES = 29;
-    let currentLine = 0;
-    let txt = "";
+    const items = allocations || [];
+    const namaPelanggan = (payment.namaCustomer || 'Umum').toUpperCase();
 
-    const addLine = (str) => {
-        txt += str;
-        const linesInStr = (str.match(/\n/g) || []).length;
-        currentLine += linesInStr;
-    };
-
-    // Header
-    addLine(padBold(companyInfo.nama, TOTAL_WIDTH, 'center') + "\n");
-    addLine(padBold("NOTA PEMBAYARAN", TOTAL_WIDTH, 'center') + "\n"); 
-    addLine(HR);
-
-    const idDokumen = payment.id || '-';
-    const namaPelanggan = payment.namaCustomer || 'Umum';
-    const tanggal = formatDate(payment.tanggal);
-
-    const txtKiri = "No. Bayar : " + idDokumen;
-    const txtKanan = "Tanggal : " + tanggal;
-    const gap = TOTAL_WIDTH - (txtKiri.length + txtKanan.length);
-    addLine(txtKiri + " ".repeat(gap > 0 ? gap : 0) + txtKanan + "\n");
+    let html = `
+    <div style="text-align:center; font-weight:bold; font-size:16px; font-family: 'Courier New', monospace;">${companyInfo.nama}</div>
+    <div style="text-align:center; font-weight:bold; font-size:14px; margin-bottom:5px; font-family: 'Courier New', monospace;">NOTA PEMBAYARAN</div>
     
-    addLine("Customer  : " + BOLD_START + pad(namaPelanggan.substring(0, 50), 50) + BOLD_END + "\n"); 
-    addLine(HR);
+    <div style="border-bottom: 1px solid black; margin-bottom: 5px;"></div>
     
-    // Table Header
-    const wNo = 4; const wInv = 22; const wJml = 20; const spc = " ";
-    const wKet = TOTAL_WIDTH - (wNo + wInv + wJml + 3); 
-    addLine(padBold("No", wNo) + spc + padBold("No. Invoice", wInv) + spc + padBold("Keterangan", wKet) + spc + padBold("Jumlah (Rp)", wJml, 'right') + "\n");
-    addLine(HR);
+    <table style="width:100%; margin-bottom: 10px; font-family: 'Courier New', monospace;">
+        <tr>
+            <td width="50%">No. Bayar: <b>${payment.id}</b></td>
+            <td width="50%" class="text-right">Tanggal: ${formatDate(payment.tanggal)}</td>
+        </tr>
+        <tr><td colspan="2">Customer: <b>${namaPelanggan}</b></td></tr>
+    </table>
 
-    // Items
-    let calculatedTotal = 0;
-    dataItems.forEach((item, i) => {
-        const amount = Number(item.amount || 0);
-        calculatedTotal += amount;
-        const ket = item.keterangan || payment.keterangan || '-';
-        addLine(pad((i+1).toString(), wNo) + spc + pad(item.invoiceId || '-', wInv) + spc + pad(ket.substring(0, wKet), wKet) + spc + pad(formatNumber(amount), wJml, 'right') + "\n");
+    <table style="width:100%; border-collapse: collapse; table-layout: fixed; font-family: 'Courier New', monospace; font-size:12px;">
+        <thead style="border-top: 1px solid black; border-bottom: 1px solid black;">
+            <tr>
+                <th width="25px" class="text-center" style="vertical-align: top; padding: 5px 0;">No</th>
+                <th width="140px" class="text-left" style="vertical-align: top; padding: 5px 0;">No. Invoice</th>
+                <th class="text-left" style="vertical-align: top; padding: 5px 0;">Keterangan</th>
+                <th width="110px" class="text-right" style="vertical-align: top; padding: 5px 0;">Jumlah (Rp)</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+
+    items.forEach((item, i) => {
+        html += `
+            <tr>
+                <td class="text-center" style="vertical-align: top; padding-top: 2px;">${i + 1}</td>
+                <td class="text-left" style="vertical-align: top; padding-top: 2px;">${item.invoiceId || '-'}</td>
+                <td class="text-left" style="vertical-align: top; padding-right:5px; padding-top: 2px;">${item.keterangan || payment.keterangan || '-'}</td>
+                <td class="text-right" style="font-weight:bold; vertical-align: top; padding-top: 2px;">${formatNumber(item.amount)}</td>
+            </tr>
+        `;
     });
 
-    // Total
-    addLine(HR);
-    const finalTotal = Number(payment.totalBayar) || calculatedTotal;
-    const labelTotal = "TOTAL PEMBAYARAN:";
-    const valueTotal = formatNumber(finalTotal);
-    addLine(padBold(labelTotal, TOTAL_WIDTH - wJml - 2, 'right') + "  " + padBold(valueTotal, wJml, 'right') + "\n");
-
-    // --- FOOTER PUSH ---
-    // Tidak ada cap status untuk pembayaran cicilan (opsional)
-    printFooterWithPush(addLine, currentLine, TARGET_LINES, namaPelanggan, "");
-
-    return txt;
+    html += `
+        </tbody>
+        <tfoot style="border-top: 1px solid black;">
+            <tr>
+                <td colspan="3" class="text-right" style="font-weight:bold; padding-top: 5px;">TOTAL PEMBAYARAN :</td>
+                <td class="text-right" style="font-weight:bold; font-size:15px; padding-top: 5px;">${formatNumber(payment.totalBayar)}</td>
+            </tr>
+        </tfoot>
+    </table>
+    <br/>
+    <div style="float: right; width: 200px; text-align: center; font-family: 'Courier New', monospace;">
+        Penerima,<br><br><br>
+        <b>( Admin )</b>
+    </div>
+    <div style="clear:both;"></div>
+    `;
+    return html;
 };
 
 // ==========================================
-// 4. GENERATE NOTA RETUR PENJUALAN
+// 3. GENERATE NOTA RETUR
 // ==========================================
 export const generateReturText = (returData, items) => {
-    const dataItems = (items && items.length > 0) ? items : [];
-    const TARGET_LINES = 29;
-    let currentLine = 0;
-    let txt = "";
+    const dataItems = items || [];
+    const namaPelanggan = (returData.namaCustomer || 'Umum').toUpperCase();
 
-    const addLine = (str) => {
-        txt += str;
-        const linesInStr = (str.match(/\n/g) || []).length;
-        currentLine += linesInStr;
-    };
+    let html = `
+    <div style="text-align:center; font-weight:bold; font-size:16px; font-family: 'Courier New', monospace;">${companyInfo.nama}</div>
+    <div style="text-align:center; font-weight:bold; font-size:14px; margin-bottom:5px; font-family: 'Courier New', monospace;">NOTA RETUR PENJUALAN</div>
+    <div style="border-bottom: 1px solid black; margin-bottom: 5px;"></div>
 
-    // Header
-    addLine(padBold(companyInfo.nama, TOTAL_WIDTH, 'center') + "\n");
-    addLine(padBold("NOTA RETUR PENJUALAN", TOTAL_WIDTH, 'center') + "\n");
-    addLine(HR);
+    <table style="width:100%; margin-bottom:10px; font-family: 'Courier New', monospace;">
+        <tr>
+            <td width="60%">
+                No. Retur: <b>${returData.id || '-'}</b><br>
+                Ref. Inv : <b>${returData.invoiceId || '-'}</b>
+            </td>
+            <td width="40%" class="text-right">
+                Tanggal: ${formatDate(returData.tanggal)}<br>
+                Customer: <b>${namaPelanggan}</b>
+            </td>
+        </tr>
+    </table>
 
-    const idDokumen = returData.id || '-';
-    const refInvoice = returData.invoiceId || '-';
-    const namaPelanggan = returData.namaCustomer || 'Umum';
-    const tanggal = formatDate(returData.tanggal);
+    <table style="width:100%; border-collapse: collapse; table-layout: fixed; font-family: 'Courier New', monospace; font-size:12px;">
+        <thead style="border-top: 1px solid black; border-bottom: 1px solid black;">
+            <tr>
+                <th width="25px" class="text-center" style="vertical-align: top; padding: 5px 0;">No</th>
+                <th class="text-left" style="vertical-align: top; padding: 5px 0;">Barang</th>
+                <th width="40px" class="text-center" style="vertical-align: top; padding: 5px 0;">Qty</th>
+                <th width="85px" class="text-right" style="vertical-align: top; padding: 5px 0;">Harga</th>
+                <th width="95px" class="text-right" style="vertical-align: top; padding: 5px 0;">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
 
-    const txtKiri1 = "No. Retur : " + idDokumen;
-    const txtKanan1 = "Tanggal : " + tanggal;
-    const gap1 = TOTAL_WIDTH - (txtKiri1.length + txtKanan1.length);
-    addLine(txtKiri1 + " ".repeat(gap1 > 0 ? gap1 : 0) + txtKanan1 + "\n");
+    dataItems.forEach((item, i) => {
+        html += `
+            <tr>
+                <td class="text-center" style="vertical-align: top; padding-top: 2px;">${i + 1}</td>
+                <td class="text-left" style="vertical-align: top; padding-right:5px; padding-top: 2px;">${item.judul || item.productName || 'Retur Manual'}</td>
+                <td class="text-center" style="vertical-align: top; padding-top: 2px;">${item.qty || 0}</td>
+                <td class="text-right" style="vertical-align: top; padding-top: 2px;">${formatNumber(item.harga)}</td>
+                <td class="text-right" style="vertical-align: top; font-weight:bold; padding-top: 2px;">${formatNumber(item.subtotal)}</td>
+            </tr>
+        `;
+    });
 
-    const txtKiri2 = "Customer  : " + namaPelanggan.substring(0, 40);
-    const txtKanan2 = "Ref. Inv: " + refInvoice;
-    const gap2 = TOTAL_WIDTH - (txtKiri2.length + txtKanan2.length);
-    addLine(txtKiri2 + " ".repeat(gap2 > 0 ? gap2 : 0) + txtKanan2 + "\n");
-    addLine(HR);
-
-    // Table Header
-    const wNo = 4; const wQty = 6; const wHrg = 15; const wSub = 18; 
-    const wItem = TOTAL_WIDTH - (wNo + wQty + wHrg + wSub);
-    addLine(padBold("No", wNo) + padBold("Barang / Judul Buku", wItem) + padBold("Qty", wQty, 'center') + padBold("Harga", wHrg, 'right') + padBold("Subtotal", wSub, 'right') + "\n");
-    addLine(HR);
-
-    // Items
-    if (dataItems.length === 0) {
-        addLine(pad("1", wNo) + pad("Retur Manual", wItem) + pad("-", wQty, 'center') + pad("-", wHrg, 'right') + pad(formatNumber(returData.totalRetur), wSub, 'right') + "\n");
-    } else {
-        dataItems.forEach((item, i) => {
-            const harga = Number(item.harga || 0);
-            const qty = Number(item.qty || 0);
-            const subtotal = Number(item.subtotal || (qty * harga));
-            let fullTitle = (item.judul || item.productName || '-');
-            let line1 = fullTitle.substring(0, wItem).trim();
-            addLine(pad((i + 1).toString(), wNo) + pad(line1, wItem) + pad(formatNumber(qty), wQty, 'center') + pad(formatNumber(harga), wHrg, 'right') + pad(formatNumber(subtotal), wSub, 'right') + "\n");
-        });
-    }
-
-    // Footer Total
-    addLine(HR);
-    const totalQtyRetur = dataItems.reduce((acc, curr) => acc + (Number(curr.qty || 0)), 0);
-    addLine(pad(`Total Buku Retur: ${formatNumber(totalQtyRetur)} pcs`, TOTAL_WIDTH, 'left') + "\n");
-
-    const totalRetur = Number(returData.totalRetur || 0);
-    const totalLine = padBold("TOTAL UANG KEMBALI :", TOTAL_WIDTH - 25, 'right') + padBold(formatNumber(totalRetur), 25, 'right');
-    addLine(totalLine + "\n");
-
-    // --- FOOTER PUSH ---
-    printFooterWithPush(addLine, currentLine, TARGET_LINES, namaPelanggan, "");
-
-    return txt;
+    html += `
+        </tbody>
+        <tfoot style="border-top: 1px solid black;">
+            <tr>
+                <td colspan="4" class="text-right" style="font-weight:bold; padding-top: 5px;">TOTAL UANG KEMBALI :</td>
+                <td class="text-right" style="font-weight:bold; font-size:15px; padding-top: 5px;">${formatNumber(returData.totalRetur)}</td>
+            </tr>
+        </tfoot>
+    </table>
+    
+    <table style="width:100%; margin-top: 20px; font-family: 'Courier New', monospace;">
+        <tr>
+            <td width="50%" class="text-center">Hormat Kami,<br><br><br><b>( Admin )</b></td>
+            <td width="50%" class="text-center">Customer,<br><br><br><b>( ${namaPelanggan.substring(0,15)} )</b></td>
+        </tr>
+    </table>
+    `;
+    return html;
 };
 
 // ==========================================
-// 5. GENERATE NOTA NON-FAKTUR
+// 4. GENERATE NOTA NON-FAKTUR
 // ==========================================
 export const generateNotaNonFakturText = (data) => {
-    const items = [{ keterangan: data.keterangan || '-', amount: Number(data.totalBayar || 0) }];
-    const TARGET_LINES = 29;
-    let currentLine = 0;
-    let txt = "";
-
-    const addLine = (str) => {
-        txt += str;
-        const linesInStr = (str.match(/\n/g) || []).length;
-        currentLine += linesInStr;
-    };
-
-    // Header
-    addLine(padBold(companyInfo.nama, TOTAL_WIDTH, 'center') + "\n");
-    addLine(padBold("NOTA NON-FAKTUR", TOTAL_WIDTH, 'center') + "\n"); 
-    addLine(HR);
-
-    const idDokumen = data.id || '-';
-    const namaPelanggan = data.namaCustomer || 'Umum';
-    const tanggal = formatDate(data.tanggal);
-
-    const txtKiri = "No. Ref   : " + idDokumen;
-    const txtKanan = "Tanggal : " + tanggal;
-    const gap = TOTAL_WIDTH - (txtKiri.length + txtKanan.length);
-    addLine(txtKiri + " ".repeat(gap > 0 ? gap : 0) + txtKanan + "\n");
+    const namaPelanggan = (data.namaCustomer || 'Umum').toUpperCase();
     
-    addLine("Customer  : " + BOLD_START + pad(namaPelanggan.substring(0, 50), 50) + BOLD_END + "\n");
-    addLine(HR);
+    let html = `
+    <div style="text-align:center; font-weight:bold; font-size:16px; font-family: 'Courier New', monospace;">${companyInfo.nama}</div>
+    <div style="text-align:center; font-weight:bold; font-size:14px; margin-bottom:5px; font-family: 'Courier New', monospace;">NOTA NON-FAKTUR</div>
+    <div style="border-bottom: 1px solid black; margin-bottom: 5px;"></div>
     
-    // Table Header
-    const wNo = 4; const wKet = 69; const wJml = 21; const spc = " ";
-    addLine(padBold("No", wNo) + spc + padBold("Keterangan", wKet) + spc + padBold("Jumlah (Rp)", wJml, 'right') + "\n");
-    addLine(HR);
+    <table style="width:100%; margin-bottom: 10px; font-family: 'Courier New', monospace;">
+        <tr>
+            <td width="50%">No. Ref: <b>${data.id}</b></td>
+            <td width="50%" class="text-right">Tanggal: ${formatDate(data.tanggal)}</td>
+        </tr>
+        <tr><td colspan="2">Customer: <b>${namaPelanggan}</b></td></tr>
+    </table>
 
-    // Items
-    let calculatedTotal = 0;
-    items.forEach((item, i) => {
-        const amount = Number(item.amount || 0);
-        calculatedTotal += amount;
-        addLine(pad((i+1).toString(), wNo) + spc + pad(item.keterangan.substring(0, wKet), wKet) + spc + pad(formatNumber(amount), wJml, 'right') + "\n");
-    });
-
-    // Total
-    addLine(HR);
-    const finalTotal = Number(data.totalBayar) || calculatedTotal;
-    addLine(padBold("TOTAL BAYAR:", TOTAL_WIDTH - wJml - 2, 'right') + "  " + padBold(formatNumber(finalTotal), wJml, 'right') + "\n");
-
-    // --- FOOTER PUSH ---
-    printFooterWithPush(addLine, currentLine, TARGET_LINES, namaPelanggan, "");
-
-    return txt;
+    <table style="width:100%; border-collapse: collapse; table-layout: fixed; font-family: 'Courier New', monospace; font-size:12px;">
+        <thead style="border-top: 1px solid black; border-bottom: 1px solid black;">
+            <tr>
+                <th width="25px" class="text-center" style="vertical-align: top; padding: 5px 0;">No</th>
+                <th class="text-left" style="vertical-align: top; padding: 5px 0;">Keterangan</th>
+                <th width="120px" class="text-right" style="vertical-align: top; padding: 5px 0;">Jumlah (Rp)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="text-center" style="vertical-align: top; padding-top: 2px;">1</td>
+                <td class="text-left" style="vertical-align: top; padding-top: 2px;">${data.keterangan || '-'}</td>
+                <td class="text-right" style="font-weight:bold; vertical-align: top; padding-top: 2px;">${formatNumber(data.totalBayar)}</td>
+            </tr>
+        </tbody>
+        <tfoot style="border-top: 1px solid black;">
+            <tr>
+                <td colspan="2" class="text-right" style="font-weight:bold; padding-top: 5px;">TOTAL BAYAR :</td>
+                <td class="text-right" style="font-weight:bold; font-size:15px; padding-top: 5px;">${formatNumber(data.totalBayar)}</td>
+            </tr>
+        </tfoot>
+    </table>
+    <br/>
+    <div style="float: right; width: 200px; text-align: center; font-family: 'Courier New', monospace;">
+        Penerima,<br><br><br><b>( Admin )</b>
+    </div>
+    <div style="clear:both;"></div>
+    `;
+    return html;
 };

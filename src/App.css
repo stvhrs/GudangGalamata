@@ -60,7 +60,7 @@
     text-align: left; 
     
     /* Font wajib Monospace agar spasi hitunganmu presisi */
-    font-family: 'Courier New', Courier, monospace; 
+    font-family: 'Consolas', Courier, monospace; 
     
     /* Ukuran font harus pas. 
        Untuk lebar 96 char, biasanya font 10px - 12px.
