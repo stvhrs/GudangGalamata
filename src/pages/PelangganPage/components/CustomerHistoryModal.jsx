@@ -30,15 +30,17 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const [dateRange, setDateRange] = useState([null, null]);
     const [searchText, setSearchText] = useState('');
 
-    // State Print & Copy
+    // State Print, Copy & Pagination
     const [printableData, setPrintableData] = useState([]); 
     const [copyLoading, setCopyLoading] = useState(false);
+    
+    // Default Pagination State (Dimulai dari page 1, tapi akan di-override logic reverse paging)
+    const [pagination, setPagination] = useState({ current: 1, pageSize: 15 });
     
     // Ref untuk area yang akan dijadikan gambar
     const paperRef = useRef(null);
     
     // --- FORMAT ANGKA (Tanpa Rp) ---
-    // Menggunakan style 'decimal' agar hanya muncul angka dengan pemisah ribuan (titik)
     const formatNumber = (num) => {
         return new Intl.NumberFormat('id-ID', {
             style: 'decimal', 
@@ -58,6 +60,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             setSearchText('');
             setDateRange([null, null]);
             setPrintableData([]);
+            setPagination({ current: 1, pageSize: 15 });
         }
     }, [open, customer]);
 
@@ -140,6 +143,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
 
     // --- LOGIC CALCULATION ---
     const processedData = useMemo(() => {
+        // Sort Ascending (Terlama ke Terbaru) agar flow saldo benar
         const allDataAsc = [...rawData].sort((a, b) => a.date - b.date);
 
         let startFilter = dateRange?.[0] ? dateRange[0].startOf('day').valueOf() : 0;
@@ -155,12 +159,14 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         allDataAsc.forEach(item => {
             const amount = item.amount;
             
+            // Hitung saldo berjalan sebelum filter (untuk dapat saldo awal yang tepat)
             if (item.isDebit) {
                 runningBalance -= amount; 
             } else {
                 runningBalance += amount;
             }
 
+            // Logic Filter
             if (item.date < startFilter) {
                 openingBalance = runningBalance;
             } else if (item.date <= endFilter) {
@@ -195,8 +201,10 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             statusColor = '#3f8600'; 
         }
 
+        // KITA RETURN LIST SECARA ASCENDING (JANGAN DI REVERSE)
+        // Agar data terbaru ada di index terakhir (bawah)
         return {
-            list: displayList.reverse(), 
+            list: displayList, 
             openingBalance,
             totalDebitRange,
             totalCreditRange,
@@ -207,11 +215,27 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
 
     }, [rawData, dateRange, searchText, initialMigration]); 
 
+    // --- EFFECT: UPDATE PRINTABLE & AUTO JUMP TO LAST PAGE ---
     useEffect(() => {
         setPrintableData(processedData.list);
-    }, [processedData.list]);
 
-    const handleTableChange = (pagination, filters, sorter, extra) => {
+        // Logic "Reverse Paging":
+        // Jika ada data, hitung total halaman dan set current page ke halaman terakhir
+        if (processedData.list.length > 0) {
+            const totalItems = processedData.list.length;
+            const lastPage = Math.ceil(totalItems / pagination.pageSize);
+            setPagination(prev => ({
+                ...prev,
+                current: lastPage
+            }));
+        } else {
+            setPagination(prev => ({ ...prev, current: 1 }));
+        }
+    // Dependency hanya pada list, agar setiap kali filter berubah, dia loncat ke bawah lagi
+    }, [processedData.list]); 
+
+    const handleTableChange = (newPagination, filters, sorter, extra) => {
+        setPagination(newPagination); // Update state pagination saat user klik page
         setPrintableData(extra.currentDataSource);
     };
 
@@ -219,16 +243,13 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const handlePrint = () => {
         const win = window.open('', '', 'height=700,width=1000');
         
-        // Helper HTML untuk format accounting (Angka Saja)
         const formatCurrencyForPrint = (val, isCellEmpty = false) => {
             if (isCellEmpty) return '<div style="text-align: center">-</div>';
             
-            // Format angka saja tanpa mata uang
             const isNegative = val < 0;
             const absVal = Math.abs(val);
             const numberStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0 }).format(absVal);
             
-            // Susun HTML Flexbox (Tanpa "Rp" di span kiri)
             return `
                 <div style="display: flex; justify-content: space-between; width: 100%;">
                     <span></span> 
@@ -237,7 +258,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             `;
         };
 
-        // Buat baris tabel HTML
         const tableRows = printableData.map(item => `
             <tr>
                 <td style="white-space: nowrap;">${dayjs(item.date).format('DD MMM YY')}</td>
@@ -257,19 +277,15 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         win.document.write(`
             <style>
                 body { font-family: sans-serif; padding: 15px; color: #000; }
-                
-                /* Header Styles */
                 .header { text-align: center; margin-bottom: 10px; border-bottom: 2px solid #000; padding-bottom: 5px; }
                 .header h1 { font-size: 18px; margin: 0; color: #000; text-transform: uppercase; }
                 .header h2 { font-size: 14px; margin: 2px 0; font-weight: bold; color: #000; }
                 .print-date { font-size: 9px; margin-bottom: 5px; text-align: right; }
 
-                /* Summary Box (Rekap) */
                 .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 10px; border: 1px solid #000; }
                 .summary-table td { padding: 4px 6px; border: 1px solid #000; vertical-align: middle; }
                 .summary-label { background-color: #f0f0f0; font-weight: bold; width: 15%; }
                 
-                /* Main Data Table */
                 .main-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 9px; }
                 .main-table th, .main-table td { border: 1px solid #000; padding: 3px 5px; text-align: left; color: #000; vertical-align: middle; }
                 .main-table th { background-color: #f0f0f0; text-align: center; font-weight: bold; white-space: nowrap; }
@@ -329,7 +345,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         setTimeout(() => { win.print(); win.close(); }, 500);
     };
 
-    // --- FUNGSI COPY IMAGE (UI Modal, Hitam Putih) ---
+    // --- FUNGSI COPY IMAGE ---
     const handleCopyToClipboard = async () => {
         if (!paperRef.current) return;
 
@@ -350,7 +366,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 try {
                     const data = [new ClipboardItem({ [blob.type]: blob })];
                     await navigator.clipboard.write(data);
-                    message.success("Gambar tersalin! (Tanpa Rp)");
+                    message.success("Gambar tersalin! (Data Terakhir/Filter)");
                 } catch (err) {
                     console.error("Clipboard Error:", err);
                     message.error("Gagal menyalin. Browser mungkin memblokir akses clipboard.");
@@ -366,15 +382,13 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     };
 
-    // --- TABLE COLUMNS (UI Modal AntD - Tanpa Rp) ---
+    // --- TABLE COLUMNS ---
     const columns = [
         {
             title: 'Tanggal',
             dataIndex: 'date',
             key: 'date',
             width: 140,
-            defaultSortOrder: 'descend',
-            sorter: (a, b) => a.date - b.date,
             render: (val) => val ? dayjs(val).format('DD MMMM YYYY') : '-'
         },
         {
@@ -429,8 +443,13 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     ];
 
-    // Data slice untuk Image Capture
-    const captureDataList = processedData.list.slice(0, 15);
+    // --- DATA SLICE UNTUK IMAGE CAPTURE ---
+    // Karena urutan Ascending (Old -> New), dan kita mau "Data Terbaru" (yang ada di bawah)
+    // Maka kita ambil Slice Negative (-15)
+    // Jika data difilter, dia tetap akan ambil 15 data terbawah dari hasil filter tersebut.
+    const captureDataList = processedData.list.length > 15 
+        ? processedData.list.slice(-15) 
+        : processedData.list;
 
     return (
         <>
@@ -499,7 +518,15 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                         dataSource={processedData.list}
                         onChange={handleTableChange}
                         rowKey="key"
-                        pagination={{ defaultPageSize: 15, showSizeChanger: true, pageSizeOptions: ['15', '20', '50'], size: "small" }}
+                        // Controlled Pagination untuk efek "Jump to Last Page"
+                        pagination={{ 
+                            current: pagination.current,
+                            pageSize: pagination.pageSize,
+                            total: processedData.list.length,
+                            showSizeChanger: true, 
+                            pageSizeOptions: ['15', '20', '50'], 
+                            size: "small" 
+                        }}
                         size="small"
                         bordered
                         scroll={{ x: 800 }}
@@ -508,7 +535,8 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             </Modal>
 
             {/* ================================================================================= */}
-            {/* AREA KHUSUS GENERATE GAMBAR (COPY IMAGE) - Tanpa RP */}
+            {/* AREA KHUSUS GENERATE GAMBAR (COPY IMAGE) */}
+            {/* Mengikuti Filter & Menampilkan 15 Data Terbawah (Terbaru) */}
             {/* ================================================================================= */}
             <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
                 <div 
@@ -525,17 +553,17 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                     <div style={{ borderBottom: '2px solid #000', paddingBottom: '10px', marginBottom: '15px' }}>
                         <h2 style={{ margin: 0, color: '#000' }}>Laporan Singkat Transaksi</h2>
                         <h3 style={{ margin: '5px 0 0 0', color: '#000' }}>Pelanggan: {customer?.nama}</h3>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#000' }}>Dicetak pada: {dayjs().format('DD MMMM YYYY HH:mm')}</p>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#000' }}>
+                            {dateRange[0] && dateRange[1] 
+                                ? `Periode: ${dateRange[0].format('DD MMM YYYY')} - ${dateRange[1].format('DD MMM YYYY')}`
+                                : `Dicetak pada: ${dayjs().format('DD MMMM YYYY HH:mm')}`
+                            }
+                        </p>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', border: '1px solid #000', padding: '10px' }}>
-                        <div><div style={{ fontSize: '12px' }}>Saldo Awal</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.openingBalance)}</div></div>
-                        <div><div style={{ fontSize: '12px' }}>Total Debit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalDebitRange)}</div></div>
-                        <div><div style={{ fontSize: '12px' }}>Total Kredit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalCreditRange)}</div></div>
-                        <div style={{ borderLeft: '1px solid #000', paddingLeft: '15px' }}><div style={{ fontSize: '12px' }}>Saldo Akhir ({processedData.status})</div><div style={{ fontWeight: 'bold', fontSize: '16px' }}>{formatNumber(processedData.finalBalance)}</div></div>
+                    <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '12px', color: '#000' }}>
+                        Riwayat Transaksi (Terbaru/Filter):
                     </div>
-
-                    <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '12px', color: '#000' }}>15 Transaksi Terakhir:</div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', color: '#000' }}>
                         <thead>
                             <tr style={{ background: '#f0f0f0' }}> 
@@ -562,6 +590,13 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                             )}
                         </tbody>
                     </table>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '15px', border: '1px solid #000', padding: '10px' }}>
+                        <div><div style={{ fontSize: '12px' }}>Saldo Awal (Periode Ini)</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.openingBalance)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Total Debit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalDebitRange)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Total Kredit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalCreditRange)}</div></div>
+                        <div style={{ borderLeft: '1px solid #000', paddingLeft: '15px' }}><div style={{ fontSize: '12px' }}>Saldo Akhir ({processedData.status})</div><div style={{ fontWeight: 'bold', fontSize: '16px' }}>{formatNumber(processedData.finalBalance)}</div></div>
+                    </div>
                 </div>
             </div>
         </>
