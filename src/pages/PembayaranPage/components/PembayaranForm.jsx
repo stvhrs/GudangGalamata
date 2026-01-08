@@ -6,6 +6,7 @@ import {
 import { DeleteOutlined, SaveOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
+// Sesuaikan path import ini dengan struktur project Anda
 import { usePelangganStream } from '../../../hooks/useFirebaseData';
 import { db, storage } from '../../../api/firebase'; 
 import {
@@ -20,7 +21,7 @@ const { Option } = Select;
 const SOURCE_DEFAULT = 'INVOICE_PAYMENT'; 
 const ARAH_TRANSAKSI = 'IN';
 
-// Formatter Desimal (Presisi)
+// --- HELPER FUNCTIONS ---
 const currencyFormatter = (value) =>
     new Intl.NumberFormat('id-ID', { 
         style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 2 
@@ -28,14 +29,14 @@ const currencyFormatter = (value) =>
 
 const generateAllocationId = (paymentId, invoiceId) => `ALLOC_${paymentId}_${invoiceId}`;
 
-// --- COMPONENT LIST ITEM (UI DIPERBESAR) ---
+// --- COMPONENT LIST ITEM (MEMOIZED) ---
 const InvoiceListItem = React.memo(({ item, isSelected, allocation, onToggle, onNominalChange, readOnly }) => {
     const totalRetur = Number(item.totalRetur) || 0;
     
     return (
         <List.Item 
             style={{ 
-                padding: '12px 16px', // Padding diperbesar
+                padding: '12px 16px',
                 background: isSelected ? '#e6f7ff' : '#fff', 
                 borderBottom: '1px solid #f0f0f0', 
                 transition: 'all 0.3s'
@@ -235,14 +236,17 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
         return () => { isMounted = false; };
     }, [initialValues, open, selectedDate, form]);
 
+    // --- PERBAIKAN DI SINI ---
     const handleCustomerSelect = async (namaPelanggan) => {
         if (!namaPelanggan) return;
         setSelectedCustomerName(namaPelanggan);
         setIsSearching(true);
-        const exactNameUpper = namaPelanggan.toUpperCase(); 
+        
         try {
-          const targetStatus = `${exactNameUpper.replace(/\//g, '_')}_BELUM`;
-            const q = query(ref(db, 'invoices'), orderByChild('compositeStatus'), equalTo(targetStatus));
+            // FIX: Query by 'namaCustomer' langsung, jangan pakai compositeStatus + replace
+            // Ini akan mengambil SEMUA invoice milik customer tersebut
+            const q = query(ref(db, 'invoices'), orderByChild('namaCustomer'), equalTo(namaPelanggan));
+            
             const snap = await get(q);
             let results = [];
             
@@ -254,10 +258,10 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                     const totalRetur = Number(val.totalRetur) || 0;
                     const sudahBayar = Number(val.totalBayar) || 0;
                     
-                    // 🔥 RUMUS: Sisa = Netto - Retur - Bayar
+                    // Hitung Sisa Tagihan Realtime
                     const sisaTagihan = totalNetto - totalRetur - sudahBayar;
 
-                    // Filter > 0.01 untuk keamanan desimal
+                    // Filter Manual di sini: Hanya ambil yang sisa tagihannya > 0 (Belum Lunas)
                     if (sisaTagihan > 0.01) { 
                         results.push({ 
                             id: child.key, 
@@ -271,13 +275,21 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 });
             }
             results.sort((a, b) => dayjs(a.tanggal).valueOf() - dayjs(b.tanggal).valueOf());
-            if (results.length === 0) message.info(`Tidak ada tagihan BELUM LUNAS untuk "${namaPelanggan}".`);
+            
+            if (results.length === 0) {
+                message.info(`Tidak ada tagihan BELUM LUNAS untuk "${namaPelanggan}".`);
+            }
+            
             setInvoiceList(results);
             setTotalInputAmount(0);
             setPaymentAllocations({});
             setSelectedInvoiceIds([]);
-        } catch (err) { message.error("Gagal mengambil data tagihan."); } 
-        finally { setIsSearching(false); }
+        } catch (err) { 
+            console.error(err);
+            message.error("Gagal mengambil data tagihan."); 
+        } finally { 
+            setIsSearching(false); 
+        }
     };
 
     const distributeAmount = useCallback((amountToDistribute) => {
@@ -291,7 +303,6 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
             const amountNeeded = invoice.sisaTagihan;
             let amountToPay = remainingMoney >= amountNeeded ? amountNeeded : remainingMoney;
             
-            // Tanpa pembulatan paksa, gunakan desimal apa adanya
             remainingMoney = remainingMoney >= amountNeeded ? remainingMoney - amountNeeded : 0;
             
             newAllocations[invoice.id] = amountToPay;
@@ -385,7 +396,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                                 
                                 const newTotalBayar = Math.max(0, currentBayar - amount);
                                 
-                                // 🔥 UPDATE SISA TAGIHAN PROPERTY SAAT DELETE
+                                // UPDATE SISA TAGIHAN SAAT DELETE
                                 const newSisaTagihan = currentNetto - currentRetur - newTotalBayar;
 
                                 const customerName = invData.namaCustomer || 'UNKNOWN';
@@ -393,7 +404,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                                 const newComposite = `${customerName.toUpperCase()}_${newStatus}`;
                                 
                                 updates[`invoices/${invId}/totalBayar`] = newTotalBayar;
-                                updates[`invoices/${invId}/sisaTagihan`] = newSisaTagihan; // Update Property
+                                updates[`invoices/${invId}/sisaTagihan`] = newSisaTagihan; 
                                 updates[`invoices/${invId}/statusPembayaran`] = newStatus;
                                 updates[`invoices/${invId}/compositeStatus`] = newComposite;
                                 updates[`invoices/${invId}/updatedAt`] = Date.now();
@@ -493,7 +504,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 
                 const newTotalBayar = currentSudahBayar + amountAllocated;
 
-                // 🔥 UPDATE SISA TAGIHAN PROPERTY SAAT SAVE
+                // UPDATE SISA TAGIHAN
                 const newSisaTagihan = totalNetto - totalRetur - newTotalBayar;
 
                 let newStatus = 'BELUM';
@@ -504,7 +515,7 @@ const PembayaranForm = ({ open, onCancel, initialValues }) => {
                 const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
 
                 updates[`invoices/${invId}/totalBayar`] = newTotalBayar;
-                updates[`invoices/${invId}/sisaTagihan`] = newSisaTagihan; // Update Property
+                updates[`invoices/${invId}/sisaTagihan`] = newSisaTagihan; 
                 updates[`invoices/${invId}/statusPembayaran`] = newStatus;
                 updates[`invoices/${invId}/compositeStatus`] = newComposite;
                 updates[`invoices/${invId}/updatedAt`] = timestampNow;

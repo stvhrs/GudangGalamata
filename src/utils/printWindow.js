@@ -24,7 +24,7 @@ export const printRawHtml = (content, title = 'Print Document') => {
                 margin: 0;
                 /* PENTING: Font Monospace agar karakter sejajar & tajam di LX-310 */
                 font-family: 'Consolas', Courier, monospace; 
-                font-size: 13px; 
+                font-size: 16px; 
                 color: #000;
                 background-color: #fff;
             }

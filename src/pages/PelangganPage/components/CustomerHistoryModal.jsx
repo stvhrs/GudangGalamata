@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-    Modal, Table, DatePicker, Row, Col, Card, Statistic, Tag, Spin, Empty, Typography, Input, Button, Space, message 
+    Modal, Table, DatePicker, Row, Col, Card, Statistic, Tag, Spin, Typography, Input, Button, Space, message 
 } from 'antd';
 import { 
     ArrowUpOutlined,
@@ -13,7 +13,7 @@ import { ref, get, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../../../api/firebase'; 
 import dayjs from 'dayjs';
 import 'dayjs/locale/id'; 
-import html2canvas from 'html2canvas'; // PASTIKAN INSTALL: npm install html2canvas
+import html2canvas from 'html2canvas';
 
 // Set locale global ke Indonesia
 dayjs.locale('id');
@@ -37,7 +37,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     // Ref untuk area yang akan dijadikan gambar
     const paperRef = useRef(null);
     
-    // Format mata uang
+    // Format mata uang biasa (untuk tampilan UI Web)
     const formatRupiah = (num) => {
         return new Intl.NumberFormat('id-ID', {
             style: 'currency',
@@ -184,7 +184,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         });
 
         let status = 'LUNAS';
-        let statusColor = '#1890ff'; // Blue default
+        let statusColor = '#1890ff'; 
         
         if (runningBalance < 0) {
             status = 'HUTANG';
@@ -214,48 +214,113 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         setPrintableData(extra.currentDataSource);
     };
 
-    // --- FUNGSI PRINT BIASA ---
+    // --- FUNGSI PRINT KHUSUS (Accounting Format) ---
     const handlePrint = () => {
-        const totalDebitPrint = printableData.reduce((acc, curr) => acc + (curr.isDebit ? curr.amount : 0), 0);
-        const totalCreditPrint = printableData.reduce((acc, curr) => acc + (!curr.isDebit ? curr.amount : 0), 0);
-
         const win = window.open('', '', 'height=700,width=1000');
         
-        // ... (Kode HTML Print sama seperti sebelumnya) ...
+        // Helper HTML untuk format accounting (Rp kiri, Angka Kanan)
+        // Jika val null/undefined/0 (dan bukan saldo), tampilkan "-" di tengah
+        const formatCurrencyForPrint = (val, isCellEmpty = false) => {
+            if (isCellEmpty) return '<div style="text-align: center">-</div>';
+            
+            // Format angka saja (tanpa Rp) dengan pemisah ribuan
+            const isNegative = val < 0;
+            const absVal = Math.abs(val);
+            const numberStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0 }).format(absVal);
+            
+            // Susun HTML Flexbox
+            // Tanda minus (-) ditaruh di sebelah angka (kanan), bukan di Rp
+            return `
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                    <span></span>
+                    <span>${isNegative ? '-' : ''}${numberStr}</span>
+                </div>
+            `;
+        };
+
+        // Buat baris tabel HTML
         const tableRows = printableData.map(item => `
             <tr>
-                <td>${dayjs(item.date).format('DD MMM YYYY')}</td>
-                <td>${item.id}</td>
+                <td style="white-space: nowrap;">${dayjs(item.date).format('DD MMM YY')}</td>
+                <td style="white-space: nowrap;">${item.id}</td>
                 <td>${item.type}</td>
                 <td>${item.keterangan || ''}</td>
-                <td class="text-right" style="color: green">${!item.isDebit ? '+ ' + formatRupiah(item.amount) : '-'}</td>
-                <td class="text-right" style="color: red">${item.isDebit ? '- ' + formatRupiah(item.amount) : '-'}</td>
-                <td class="text-right" style="font-weight: bold; color: ${item.balance < 0 ? 'red' : 'green'}">${formatRupiah(item.balance)}</td>
+                
+                <td>${!item.isDebit ? formatCurrencyForPrint(item.amount) : formatCurrencyForPrint(0, true)}</td>
+                
+                <td>${item.isDebit ? formatCurrencyForPrint(item.amount) : formatCurrencyForPrint(0, true)}</td>
+                
+                <td style="font-weight: bold;">${formatCurrencyForPrint(item.balance)}</td>
             </tr>
         `).join('');
 
         win.document.write('<html><head><title>Cetak Riwayat Transaksi</title>');
         win.document.write(`
             <style>
-                body { font-family: sans-serif; padding: 20px; color: #000; }
-                .header { text-align: center; margin-bottom: 25px; border-bottom: 3px solid #000; padding-bottom: 15px; }
-                .header h1 { font-size: 26px; margin: 0 0 5px 0; }
-                .header h2 { font-size: 20px; margin: 5px 0; font-weight: bold; }
-                .summary-box { border: 1px solid #000; padding: 10px; margin-bottom: 20px; font-size: 13px; }
-                .main-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
-                .main-table th, .main-table td { border: 1px solid #999; padding: 4px; text-align: left; }
-                .main-table th { background-color: #eee; text-align: center; font-weight: bold; }
-                .text-right { text-align: right; }
+                body { font-family: sans-serif; padding: 15px; color: #000; }
+                
+                /* Header Styles */
+                .header { text-align: center; margin-bottom: 10px; border-bottom: 2px solid #000; padding-bottom: 5px; }
+                .header h1 { font-size: 18px; margin: 0; color: #000; text-transform: uppercase; }
+                .header h2 { font-size: 14px; margin: 2px 0; font-weight: bold; color: #000; }
+                .print-date { font-size: 9px; margin-bottom: 5px; text-align: right; }
+
+                /* Summary Box (Rekap) */
+                .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 10px; border: 1px solid #000; }
+                .summary-table td { padding: 4px 6px; border: 1px solid #000; vertical-align: middle; }
+                .summary-label { background-color: #f0f0f0; font-weight: bold; width: 15%; }
+                
+                /* Main Data Table */
+                .main-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 9px; }
+                .main-table th, .main-table td { border: 1px solid #000; padding: 3px 5px; text-align: left; color: #000; vertical-align: middle; }
+                .main-table th { background-color: #f0f0f0; text-align: center; font-weight: bold; white-space: nowrap; }
+                
+                @media print {
+                    * { color: #000 !important; border-color: #000 !important; }
+                    .main-table th, .summary-label { background-color: #e6e6e6 !important; -webkit-print-color-adjust: exact; }
+                }
             </style>
         `);
         win.document.write('</head><body>');
         win.document.write(`
-            <div class="header"><h1>Riwayat Transaksi</h1><h2>${customer?.nama || ''}</h2></div>
-            <div class="summary-box">
-               Saldo Akhir: <strong>${formatRupiah(processedData.finalBalance)}</strong> (${processedData.status})
+            <div class="print-date">Dicetak: ${dayjs().format('DD/MM/YYYY HH:mm')}</div>
+            <div class="header">
+                <h1>Riwayat Transaksi</h1>
+                <h2>${customer?.nama || 'PELANGGAN'}</h2>
             </div>
+            
+            <table class="summary-table">
+                <tr>
+                    <td class="summary-label">Saldo Awal</td>
+                    <td width="35%">${formatCurrencyForPrint(processedData.openingBalance)}</td>
+                    <td class="summary-label">Total Kredit (+)</td>
+                    <td width="35%">${formatCurrencyForPrint(processedData.totalCreditRange)}</td>
+                </tr>
+                <tr>
+                    <td class="summary-label">Saldo Akhir</td>
+                    <td style="font-weight: bold;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span>${formatCurrencyForPrint(processedData.finalBalance)}</span>
+                            <span style="margin-left: 10px; font-size: 9px;">(${processedData.status})</span>
+                        </div>
+                    </td>
+                    <td class="summary-label">Total Debit (-)</td>
+                    <td>${formatCurrencyForPrint(processedData.totalDebitRange)}</td>
+                </tr>
+            </table>
+
             <table class="main-table">
-                <thead><tr><th>Tanggal</th><th>ID</th><th>Tipe</th><th>Keterangan</th><th>Kredit (+)</th><th>Debit (-)</th><th>Saldo</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th width="8%">Tanggal</th>
+                        <th width="12%">ID</th>
+                        <th width="8%">Tipe</th>
+                        <th width="20%">Keterangan</th>
+                        <th width="17%">Kredit (+)</th>
+                        <th width="17%">Debit (-)</th>
+                        <th width="18%">Saldo</th>
+                    </tr>
+                </thead>
                 <tbody>${tableRows}</tbody>
             </table>
         `);
@@ -265,32 +330,28 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         setTimeout(() => { win.print(); win.close(); }, 500);
     };
 
-    // --- FUNGSI COPY IMAGE (KHUSUS 15 DATA TERBARU) ---
+    // --- FUNGSI COPY IMAGE (UI Modal, Hitam Putih) ---
     const handleCopyToClipboard = async () => {
         if (!paperRef.current) return;
 
         setCopyLoading(true);
         try {
-            // 1. Convert DOM hidden area ke Canvas
             const canvas = await html2canvas(paperRef.current, {
-                scale: 2, // Resolusi tinggi agar tajam di WA
-                backgroundColor: '#ffffff', // Pastikan background putih
+                scale: 2, 
+                backgroundColor: '#ffffff',
                 useCORS: true
             });
 
-            // 2. Convert Canvas ke Blob
             canvas.toBlob(async (blob) => {
                 if (!blob) {
                     message.error("Gagal generate gambar.");
                     setCopyLoading(false);
                     return;
                 }
-
                 try {
-                    // 3. Tulis ke Clipboard
                     const data = [new ClipboardItem({ [blob.type]: blob })];
                     await navigator.clipboard.write(data);
-                    message.success("Gambar tersalin! Tekan Ctrl+V di WhatsApp.");
+                    message.success("Gambar tersalin! (Hitam Putih)");
                 } catch (err) {
                     console.error("Clipboard Error:", err);
                     message.error("Gagal menyalin. Browser mungkin memblokir akses clipboard.");
@@ -306,7 +367,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     };
 
-    // --- TABLE COLUMNS ---
+    // --- TABLE COLUMNS (UI Modal AntD - Tetap Berwarna untuk User Experience) ---
     const columns = [
         {
             title: 'Tanggal',
@@ -369,8 +430,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     ];
 
-    // Data slice untuk Image Capture (15 Terbaru)
-    // processedData.list sudah di-reverse (descending), jadi ambil 0-15
+    // Data slice untuk Image Capture
     const captureDataList = processedData.list.slice(0, 15);
 
     return (
@@ -382,12 +442,11 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                         <Space>
                             <Button 
                                 icon={<CopyOutlined />} 
-                                type="primary" 
-                                style={{ background: '#25D366', borderColor: '#25D366' }} // Warna WA
+                                type="default"
                                 loading={copyLoading}
                                 onClick={handleCopyToClipboard}
                             >
-                                Salin Gambar (15 Data)
+                                Salin Gambar
                             </Button>
                             <Button icon={<PrinterOutlined />} onClick={handlePrint}>Cetak</Button>
                         </Space>
@@ -400,7 +459,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 style={{ top: 20 }}
                 bodyStyle={{ padding: '16px 24px' }}
             >
-                {/* 1. REKAP ATAS (Sama seperti sebelumnya) */}
+                {/* 1. REKAP ATAS (UI AntD) */}
                 <Row gutter={16} style={{ marginBottom: 20 }}>
                     <Col span={6}>
                         <Card bodyStyle={{ padding: '12px' }} style={{ background: '#fafafa', borderRadius: 8 }} size="small" bordered={false}>
@@ -450,7 +509,9 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             </Modal>
 
             {/* ================================================================================= */}
-            {/* AREA KHUSUS GENERATE GAMBAR (TERSEMBUNYI DARI USER, TAPI DI-RENDER OLEH BROWSER) */}
+            {/* AREA KHUSUS GENERATE GAMBAR (COPY IMAGE) */}
+            {/* Note: Saya samakan formatnya (Hitam Putih + Kolom Terpisah) tapi tanpa Flexbox complex */}
+            {/* karena html2canvas kadang bug dengan flexbox kompleks. Saya gunakan alignment text biasa. */}
             {/* ================================================================================= */}
             <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
                 <div 
@@ -459,66 +520,51 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                         width: '800px', 
                         padding: '20px', 
                         background: '#ffffff', 
+                        color: '#000000', 
                         fontFamily: 'Arial, sans-serif',
-                        border: '1px solid #ddd' // Border luar agar rapi saat dicapture
+                        border: '1px solid #000' 
                     }}
                 >
-                    {/* Header Gambar */}
-                    <div style={{ borderBottom: '2px solid #333', paddingBottom: '10px', marginBottom: '15px' }}>
-                        <h2 style={{ margin: 0, color: '#1890ff' }}>Laporan Singkat Transaksi</h2>
-                        <h3 style={{ margin: '5px 0 0 0' }}>Pelanggan: {customer?.nama}</h3>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>Dicetak pada: {dayjs().format('DD MMMM YYYY HH:mm')}</p>
+                    <div style={{ borderBottom: '2px solid #000', paddingBottom: '10px', marginBottom: '15px' }}>
+                        <h2 style={{ margin: 0, color: '#000' }}>Laporan Singkat Transaksi</h2>
+                        <h3 style={{ margin: '5px 0 0 0', color: '#000' }}>Pelanggan: {customer?.nama}</h3>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#000' }}>Dicetak pada: {dayjs().format('DD MMMM YYYY HH:mm')}</p>
                     </div>
 
-                    {/* Rekap Saldo Gambar */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', background: '#f5f5f5', padding: '10px', borderRadius: '4px' }}>
-                        <div>
-                            <div style={{ fontSize: '12px', color: '#666' }}>Saldo Awal</div>
-                            <div style={{ fontWeight: 'bold', color: processedData.openingBalance < 0 ? 'red' : 'green' }}>{formatRupiah(processedData.openingBalance)}</div>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: '12px', color: '#666' }}>Total Debit</div>
-                            <div style={{ fontWeight: 'bold', color: 'red' }}>{formatRupiah(processedData.totalDebitRange)}</div>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: '12px', color: '#666' }}>Total Kredit</div>
-                            <div style={{ fontWeight: 'bold', color: 'green' }}>{formatRupiah(processedData.totalCreditRange)}</div>
-                        </div>
-                        <div style={{ borderLeft: '1px solid #ccc', paddingLeft: '15px' }}>
-                            <div style={{ fontSize: '12px', color: '#666' }}>Saldo Akhir ({processedData.status})</div>
-                            <div style={{ fontWeight: 'bold', fontSize: '16px', color: processedData.statusColor }}>{formatRupiah(processedData.finalBalance)}</div>
-                        </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', border: '1px solid #000', padding: '10px' }}>
+                        <div><div style={{ fontSize: '12px' }}>Saldo Awal</div><div style={{ fontWeight: 'bold' }}>{formatRupiah(processedData.openingBalance)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Total Debit</div><div style={{ fontWeight: 'bold' }}>{formatRupiah(processedData.totalDebitRange)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Total Kredit</div><div style={{ fontWeight: 'bold' }}>{formatRupiah(processedData.totalCreditRange)}</div></div>
+                        <div style={{ borderLeft: '1px solid #000', paddingLeft: '15px' }}><div style={{ fontSize: '12px' }}>Saldo Akhir ({processedData.status})</div><div style={{ fontWeight: 'bold', fontSize: '16px' }}>{formatRupiah(processedData.finalBalance)}</div></div>
                     </div>
 
-                    {/* Tabel Gambar (Hanya 15 Data) */}
-                    <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '12px', color: '#666' }}>15 Transaksi Terakhir (Filtered):</div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                    <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '12px', color: '#000' }}>15 Transaksi Terakhir:</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', color: '#000' }}>
                         <thead>
-                            <tr style={{ background: '#eee' }}>
-                                <th style={{ border: '1px solid #999', padding: '6px' }}>Tanggal</th>
-                                <th style={{ border: '1px solid #999', padding: '6px' }}>Tipe</th>
-                                <th style={{ border: '1px solid #999', padding: '6px' }}>Keterangan</th>
-                                <th style={{ border: '1px solid #999', padding: '6px', textAlign: 'right' }}>Nominal</th>
-                                <th style={{ border: '1px solid #999', padding: '6px', textAlign: 'right' }}>Saldo</th>
+                            <tr style={{ background: '#f0f0f0' }}> 
+                                <th style={{ border: '1px solid #000', padding: '6px' }}>Tanggal</th>
+                                <th style={{ border: '1px solid #000', padding: '6px' }}>Tipe</th>
+                                <th style={{ border: '1px solid #000', padding: '6px' }}>Keterangan</th>
+                                <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Kredit (+)</th>
+                                <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Debit (-)</th>
+                                <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Saldo</th>
                             </tr>
                         </thead>
                         <tbody>
                             {captureDataList.length > 0 ? captureDataList.map((item, idx) => (
                                 <tr key={idx}>
-                                    <td style={{ border: '1px solid #ddd', padding: '6px' }}>{dayjs(item.date).format('DD MMM YY')}</td>
-                                    <td style={{ border: '1px solid #ddd', padding: '6px' }}>{item.type}</td>
-                                    <td style={{ border: '1px solid #ddd', padding: '6px' }}>{item.keterangan || '-'}</td>
-                                    <td style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'right', color: item.isDebit ? 'red' : 'green' }}>
-                                        {item.isDebit ? '-' : '+'} {formatRupiah(item.amount)}
-                                    </td>
-                                    <td style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>{formatRupiah(item.balance)}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px' }}>{dayjs(item.date).format('DD MMM YY')}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px' }}>{item.type}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px' }}>{item.keterangan || '-'}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>{!item.isDebit ? formatRupiah(item.amount) : '-'}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>{item.isDebit ? formatRupiah(item.amount) : '-'}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>{formatRupiah(item.balance)}</td>
                                 </tr>
                             )) : (
-                                <tr><td colSpan="5" style={{ textAlign: 'center', padding: '10px' }}>Tidak ada data</td></tr>
+                                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '10px', border: '1px solid #000' }}>Tidak ada data</td></tr>
                             )}
                         </tbody>
                     </table>
-                    <div style={{ marginTop: '10px', fontSize: '10px', color: '#999', textAlign: 'center' }}>*Screenshot otomatis oleh Sistem*</div>
                 </div>
             </div>
         </>
