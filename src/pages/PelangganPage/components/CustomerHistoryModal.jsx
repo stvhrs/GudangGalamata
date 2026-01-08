@@ -37,12 +37,13 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     // Ref untuk area yang akan dijadikan gambar
     const paperRef = useRef(null);
     
-    // Format mata uang biasa (untuk tampilan UI Web)
-    const formatRupiah = (num) => {
+    // --- FORMAT ANGKA (Tanpa Rp) ---
+    // Menggunakan style 'decimal' agar hanya muncul angka dengan pemisah ribuan (titik)
+    const formatNumber = (num) => {
         return new Intl.NumberFormat('id-ID', {
-            style: 'currency',
-            currency: 'IDR',
-            minimumFractionDigits: 0
+            style: 'decimal', 
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
         }).format(num || 0);
     };
 
@@ -214,25 +215,23 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         setPrintableData(extra.currentDataSource);
     };
 
-    // --- FUNGSI PRINT KHUSUS (Accounting Format) ---
+    // --- FUNGSI PRINT KHUSUS (Accounting Format - NO RP) ---
     const handlePrint = () => {
         const win = window.open('', '', 'height=700,width=1000');
         
-        // Helper HTML untuk format accounting (Rp kiri, Angka Kanan)
-        // Jika val null/undefined/0 (dan bukan saldo), tampilkan "-" di tengah
+        // Helper HTML untuk format accounting (Angka Saja)
         const formatCurrencyForPrint = (val, isCellEmpty = false) => {
             if (isCellEmpty) return '<div style="text-align: center">-</div>';
             
-            // Format angka saja (tanpa Rp) dengan pemisah ribuan
+            // Format angka saja tanpa mata uang
             const isNegative = val < 0;
             const absVal = Math.abs(val);
             const numberStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0 }).format(absVal);
             
-            // Susun HTML Flexbox
-            // Tanda minus (-) ditaruh di sebelah angka (kanan), bukan di Rp
+            // Susun HTML Flexbox (Tanpa "Rp" di span kiri)
             return `
                 <div style="display: flex; justify-content: space-between; width: 100%;">
-                    <span></span>
+                    <span></span> 
                     <span>${isNegative ? '-' : ''}${numberStr}</span>
                 </div>
             `;
@@ -351,7 +350,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 try {
                     const data = [new ClipboardItem({ [blob.type]: blob })];
                     await navigator.clipboard.write(data);
-                    message.success("Gambar tersalin! (Hitam Putih)");
+                    message.success("Gambar tersalin! (Tanpa Rp)");
                 } catch (err) {
                     console.error("Clipboard Error:", err);
                     message.error("Gagal menyalin. Browser mungkin memblokir akses clipboard.");
@@ -367,7 +366,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     };
 
-    // --- TABLE COLUMNS (UI Modal AntD - Tetap Berwarna untuk User Experience) ---
+    // --- TABLE COLUMNS (UI Modal AntD - Tanpa Rp) ---
     const columns = [
         {
             title: 'Tanggal',
@@ -411,14 +410,14 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             key: 'credit',
             align: 'right',
             width: 130,
-            render: (_, record) => !record.isDebit ? <span style={{ color: '#3f8600', fontWeight: 'bold' }}>+ {formatRupiah(record.amount)}</span> : '-'
+            render: (_, record) => !record.isDebit ? <span style={{ color: '#3f8600', fontWeight: 'bold' }}>+ {formatNumber(record.amount)}</span> : '-'
         },
         {
             title: 'Debit (-)',
             key: 'debit',
             align: 'right',
             width: 130,
-            render: (_, record) => record.isDebit ? <span style={{ color: '#cf1322', fontWeight: 'bold' }}>- {formatRupiah(record.amount)}</span> : '-'
+            render: (_, record) => record.isDebit ? <span style={{ color: '#cf1322', fontWeight: 'bold' }}>- {formatNumber(record.amount)}</span> : '-'
         },
         {
             title: 'Saldo',
@@ -426,7 +425,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             key: 'balance',
             align: 'right',
             width: 140,
-            render: (val) => <span style={{ fontWeight: 'bold', color: val < 0 ? '#cf1322' : '#3f8600' }}>{formatRupiah(val)}</span>
+            render: (val) => <span style={{ fontWeight: 'bold', color: val < 0 ? '#cf1322' : '#3f8600' }}>{formatNumber(val)}</span>
         }
     ];
 
@@ -463,22 +462,22 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 <Row gutter={16} style={{ marginBottom: 20 }}>
                     <Col span={6}>
                         <Card bodyStyle={{ padding: '12px' }} style={{ background: '#fafafa', borderRadius: 8 }} size="small" bordered={false}>
-                            <Statistic title="Saldo Awal" value={processedData.openingBalance} valueStyle={{ fontSize: '16px', fontWeight: 'bold', color: processedData.openingBalance < 0 ? '#cf1322' : '#3f8600' }} formatter={(val) => formatRupiah(val)} />
+                            <Statistic title="Saldo Awal" value={processedData.openingBalance} valueStyle={{ fontSize: '16px', fontWeight: 'bold', color: processedData.openingBalance < 0 ? '#cf1322' : '#3f8600' }} formatter={(val) => formatNumber(val)} />
                         </Card>
                     </Col>
                     <Col span={6}>
                         <Card bodyStyle={{ padding: '12px' }} style={{ background: '#fff1f0', borderRadius: 8 }} size="small" bordered={false}>
-                            <Statistic title="Total Tagihan (Debit)" value={processedData.totalDebitRange} valueStyle={{ color: '#cf1322', fontSize: '16px' }} prefix={<ArrowUpOutlined />} formatter={(val) => formatRupiah(val)} />
+                            <Statistic title="Total Tagihan (Debit)" value={processedData.totalDebitRange} valueStyle={{ color: '#cf1322', fontSize: '16px' }} prefix={<ArrowUpOutlined />} formatter={(val) => formatNumber(val)} />
                         </Card>
                     </Col>
                     <Col span={6}>
                         <Card bodyStyle={{ padding: '12px' }} style={{ background: '#f6ffed', borderRadius: 8 }} size="small" bordered={false}>
-                            <Statistic title="Total Bayar (Kredit)" value={processedData.totalCreditRange} valueStyle={{ color: '#3f8600', fontSize: '16px' }} prefix={<ArrowDownOutlined />} formatter={(val) => formatRupiah(val)} />
+                            <Statistic title="Total Bayar (Kredit)" value={processedData.totalCreditRange} valueStyle={{ color: '#3f8600', fontSize: '16px' }} prefix={<ArrowDownOutlined />} formatter={(val) => formatNumber(val)} />
                         </Card>
                     </Col>
                     <Col span={6}>
                         <Card bodyStyle={{ padding: '12px' }} style={{ background: '#e6f7ff', borderRadius: 8 }} size="small" bordered={false}>
-                            <Statistic title={<Space><span>Saldo Akhir</span><Tag color={processedData.status === 'HUTANG' ? 'red' : processedData.status === 'DEPOSIT' ? 'green' : 'blue'}>{processedData.status}</Tag></Space>} value={processedData.finalBalance} valueStyle={{ color: processedData.statusColor, fontSize: '18px', fontWeight: 'bold' }} formatter={(val) => formatRupiah(val)} />
+                            <Statistic title={<Space><span>Saldo Akhir</span><Tag color={processedData.status === 'HUTANG' ? 'red' : processedData.status === 'DEPOSIT' ? 'green' : 'blue'}>{processedData.status}</Tag></Space>} value={processedData.finalBalance} valueStyle={{ color: processedData.statusColor, fontSize: '18px', fontWeight: 'bold' }} formatter={(val) => formatNumber(val)} />
                         </Card>
                     </Col>
                 </Row>
@@ -509,9 +508,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             </Modal>
 
             {/* ================================================================================= */}
-            {/* AREA KHUSUS GENERATE GAMBAR (COPY IMAGE) */}
-            {/* Note: Saya samakan formatnya (Hitam Putih + Kolom Terpisah) tapi tanpa Flexbox complex */}
-            {/* karena html2canvas kadang bug dengan flexbox kompleks. Saya gunakan alignment text biasa. */}
+            {/* AREA KHUSUS GENERATE GAMBAR (COPY IMAGE) - Tanpa RP */}
             {/* ================================================================================= */}
             <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
                 <div 
@@ -532,10 +529,10 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', border: '1px solid #000', padding: '10px' }}>
-                        <div><div style={{ fontSize: '12px' }}>Saldo Awal</div><div style={{ fontWeight: 'bold' }}>{formatRupiah(processedData.openingBalance)}</div></div>
-                        <div><div style={{ fontSize: '12px' }}>Total Debit</div><div style={{ fontWeight: 'bold' }}>{formatRupiah(processedData.totalDebitRange)}</div></div>
-                        <div><div style={{ fontSize: '12px' }}>Total Kredit</div><div style={{ fontWeight: 'bold' }}>{formatRupiah(processedData.totalCreditRange)}</div></div>
-                        <div style={{ borderLeft: '1px solid #000', paddingLeft: '15px' }}><div style={{ fontSize: '12px' }}>Saldo Akhir ({processedData.status})</div><div style={{ fontWeight: 'bold', fontSize: '16px' }}>{formatRupiah(processedData.finalBalance)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Saldo Awal</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.openingBalance)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Total Debit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalDebitRange)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Total Kredit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalCreditRange)}</div></div>
+                        <div style={{ borderLeft: '1px solid #000', paddingLeft: '15px' }}><div style={{ fontSize: '12px' }}>Saldo Akhir ({processedData.status})</div><div style={{ fontWeight: 'bold', fontSize: '16px' }}>{formatNumber(processedData.finalBalance)}</div></div>
                     </div>
 
                     <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '12px', color: '#000' }}>15 Transaksi Terakhir:</div>
@@ -556,9 +553,9 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                                     <td style={{ border: '1px solid #000', padding: '6px' }}>{dayjs(item.date).format('DD MMM YY')}</td>
                                     <td style={{ border: '1px solid #000', padding: '6px' }}>{item.type}</td>
                                     <td style={{ border: '1px solid #000', padding: '6px' }}>{item.keterangan || '-'}</td>
-                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>{!item.isDebit ? formatRupiah(item.amount) : '-'}</td>
-                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>{item.isDebit ? formatRupiah(item.amount) : '-'}</td>
-                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>{formatRupiah(item.balance)}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>{!item.isDebit ? formatNumber(item.amount) : '-'}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>{item.isDebit ? formatNumber(item.amount) : '-'}</td>
+                                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>{formatNumber(item.balance)}</td>
                                 </tr>
                             )) : (
                                 <tr><td colSpan="6" style={{ textAlign: 'center', padding: '10px', border: '1px solid #000' }}>Tidak ada data</td></tr>
