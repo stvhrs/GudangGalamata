@@ -17,6 +17,9 @@ export const formatDate = (timestamp) => {
 // ==========================================
 // 1. GENERATE NOTA TRANSAKSI (INVOICE)
 // ==========================================
+// ==========================================
+// 1. GENERATE NOTA TRANSAKSI (INVOICE) - FIXED CONTINUOUS
+// ==========================================
 export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     const dataItems = items || [];
     const judul = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
@@ -31,34 +34,33 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
         <table style="width: 100%; margin-bottom: 10px;">
             <tr>
                 <td width="60%" style="vertical-align: top;">
-                    <div style="font-size:20px; font-weight:bold;">${companyInfo.nama}</div>
-                    <div>${companyInfo.hp}</div>
+                    <div style="font-size:24px; font-weight:bold;">${companyInfo.nama}</div>
+                    <div style="font-size:16px;">${companyInfo.hp}</div>
                 </td>
                 <td width="40%" style="text-align: right; vertical-align: top;">
-                    <div style="font-size:18px; font-weight:bold;">${judul}</div>
-                    <div>No: <b>${transaksi.id || '-'}</b></div>
-                    <div>Tgl: ${formatDate(transaksi.tanggal)}</div>
+                    <div style="font-size:20px; font-weight:bold;">${judul}</div>
+                    <div style="font-size:16px;">No: <b>${transaksi.id || '-'}</b></div>
+                    <div style="font-size:16px;">Tgl: ${formatDate(transaksi.tanggal)}</div>
                 </td>
             </tr>
         </table>
 
-        <div style="margin-bottom: 10px;">
+        <div style="margin-bottom: 10px; font-size: 16px;">
             Kepada Yth: <b>${namaPelanggan}</b>
         </div>
 
-        <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
-            <thead style="border-top: 2px solid black; border-bottom: 2px solid black;">
-                <tr>
-                    <th width="5%" style="text-align: center; padding: 8px 0;">No</th>
-                    <th width="45%" style="text-align: left; padding: 8px 0;">Nama Barang</th>
-                    <th width="10%" style="text-align: center; padding: 8px 0;">Qty</th>
-                    <th width="20%" style="text-align: right; padding: 8px 0;">Harga</th>
-                    <th width="20%" style="text-align: right; padding: 8px 0;">Subtotal</th>
-                </tr>
-            </thead>
+        <table style="width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 16px;">
             <tbody>
+                <tr style="border-top: 2px solid black; border-bottom: 2px solid black; font-weight: bold;">
+                    <td width="5%" style="text-align: center; padding: 8px 0;">No</td>
+                    <td width="50%" style="text-align: left; padding: 8px 0;">Nama Barang</td>
+                    <td width="10%" style="text-align: center; padding: 8px 0;">Qty</td>
+                    <td width="15%" style="text-align: right; padding: 8px 0;">Harga</td>
+                    <td width="20%" style="text-align: right; padding: 8px 0;">Subtotal</td>
+                </tr>
     `;
 
+    // 2. LOOPING ITEMS
     dataItems.forEach((item, index) => {
         const qty = Number(item.qty || item.jumlah || 0);
         const harga = Number(item.harga || item.hargaSatuan || 0);
@@ -75,21 +77,20 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
         `;
     });
 
+    // 3. MANUAL FOOTER (Sebagai Baris Biasa di Akhir)
     html += `
-            </tbody>
-            <tfoot style="border-top: 2px solid black;">
-                <tr>
+                <tr style="border-top: 2px solid black;">
                     <td colspan="2" style="text-align: right; font-weight:bold; padding-top: 8px; padding-right:10px;">Total Item:</td>
                     <td style="text-align: center; font-weight:bold; padding-top: 8px;">${formatNumber(totalQty)}</td>
                     <td colspan="2"></td>
                 </tr>
-            </tfoot>
+            </tbody>
         </table>
 
-        <table style="width: 100%; margin-top: 15px;">
+        <table style="width: 100%; margin-top: 15px; font-size: 16px;">
             <tr>
                 <td width="55%" style="vertical-align: top; padding-right: 20px;">
-                    <div style="font-size:12px; font-style: italic; margin-bottom: 20px; font-weight:bold;">
+                    <div style="font-size:14px; font-style: italic; margin-bottom: 20px; font-weight:bold;">
                         * Komplain maksimal 3 hari setelah barang diterima.
                     </div>
                     <table style="width: 100%;">
@@ -118,9 +119,9 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
                         </tr>
                         
                         <tr style="border-top: 1px solid black;">
-                            <td style="text-align: left; font-weight:bold; font-size:16px; padding-top: 8px;">GRAND TOTAL</td>
-                            <td style="text-align: center; font-weight:bold; font-size:16px; padding-top: 8px;">:</td>
-                            <td style="text-align: right; font-weight:bold; font-size:16px; padding-top: 8px;">${formatNumber(transaksi.totalNetto)}</td>
+                            <td style="text-align: left; font-weight:bold; font-size:18px; padding-top: 8px;">GRAND TOTAL</td>
+                            <td style="text-align: center; font-weight:bold; font-size:18px; padding-top: 8px;">:</td>
+                            <td style="text-align: right; font-weight:bold; font-size:18px; padding-top: 8px;">${formatNumber(transaksi.totalNetto)}</td>
                         </tr>
                         <tr>
                             <td style="text-align: left; font-weight:bold; padding: 4px 0; padding-bottom: 8px;">Bayar</td>
@@ -140,7 +141,6 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     `;
     return html;
 };
-
 // ==========================================
 // 2. GENERATE NOTA PEMBAYARAN (CICILAN)
 // ==========================================
