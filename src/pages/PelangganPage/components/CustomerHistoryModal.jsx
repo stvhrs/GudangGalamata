@@ -31,10 +31,11 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
     const [searchText, setSearchText] = useState('');
 
     // State Print, Copy & Pagination
+    // printableData akan menyimpan data yang SUDAH di-filter dan SUDAH di-sort oleh user
     const [printableData, setPrintableData] = useState([]); 
     const [copyLoading, setCopyLoading] = useState(false);
     
-    // Default Pagination State (Dimulai dari page 1, tapi akan di-override logic reverse paging)
+    // Default Pagination State
     const [pagination, setPagination] = useState({ current: 1, pageSize: 15 });
     
     // Ref untuk area yang akan dijadikan gambar
@@ -87,26 +88,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 setInitialMigration(0);
             }
 
-            // A. INVOICES
-            if (invSnap.exists()) {
-                const val = invSnap.val();
-                Object.keys(val).forEach(key => {
-                    const item = val[key];
-                    const bruto = parseFloat(item.totalBruto) || 0;
-                    const biayaLain = parseFloat(item.totalBiayaLain) || 0;
-                    const totalInvoice = bruto + biayaLain - parseFloat(item.totalDiskon || 0);
-
-                    mergedData.push({
-                        ...item,
-                        key: key,
-                        type: 'INVOICE',
-                        amount: totalInvoice,
-                        isDebit: true, 
-                        date: item.tanggal
-                    });
-                });
-            }
-
             // Helper Push Data
             const pushData = (snapshot, type, amountField, isDebitDefault, isIncomingCheck = false) => {
                 if (snapshot.exists()) {
@@ -116,11 +97,20 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                         let isDebit = isDebitDefault;
                         if (isIncomingCheck) { isDebit = item.arah !== 'IN'; } 
 
+                        let amount = parseFloat(item[amountField]) || 0;
+
+                        // Khusus Invoice hitung bersih
+                        if(type === 'INVOICE') {
+                             const bruto = parseFloat(item.totalBruto) || 0;
+                             const biayaLain = parseFloat(item.totalBiayaLain) || 0;
+                             amount = bruto + biayaLain - parseFloat(item.totalDiskon || 0);
+                        }
+
                         mergedData.push({
                             ...item,
                             key: key,
                             type: type,
-                            amount: parseFloat(item[amountField]) || 0,
+                            amount: amount,
                             isDebit: isDebit,
                             date: item.tanggal
                         });
@@ -128,6 +118,10 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 }
             };
 
+            // A. INVOICES (Manual Push karena logic khusus)
+            if (invSnap.exists()) {
+                pushData(invSnap, 'INVOICE', null, true); // Logic amount handled inside
+            }
             pushData(paySnap, 'PAYMENT', 'totalBayar', false);
             pushData(nfSnap, 'NON_FAKTUR', 'totalBayar', false, true);
             pushData(retSnap, 'RETURN', 'totalRetur', false);
@@ -141,9 +135,9 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         }
     };
 
-    // --- LOGIC CALCULATION ---
+    // --- LOGIC CALCULATION (Chronological) ---
     const processedData = useMemo(() => {
-        // Sort Ascending (Terlama ke Terbaru) agar flow saldo benar
+        // 1. Sort Wajib Ascending dulu untuk hitung Running Balance yang benar
         const allDataAsc = [...rawData].sort((a, b) => a.date - b.date);
 
         let startFilter = dateRange?.[0] ? dateRange[0].startOf('day').valueOf() : 0;
@@ -159,14 +153,14 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         allDataAsc.forEach(item => {
             const amount = item.amount;
             
-            // Hitung saldo berjalan sebelum filter (untuk dapat saldo awal yang tepat)
+            // Hitung saldo berjalan
             if (item.isDebit) {
                 runningBalance -= amount; 
             } else {
                 runningBalance += amount;
             }
 
-            // Logic Filter
+            // Logic Filter Date & Search
             if (item.date < startFilter) {
                 openingBalance = runningBalance;
             } else if (item.date <= endFilter) {
@@ -181,7 +175,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 if (matchSearch) {
                     displayList.push({
                         ...item,
-                        balance: runningBalance
+                        balance: runningBalance // Balance ditempel ke transaksi spesifik
                     });
 
                     if (item.isDebit) totalDebitRange += amount;
@@ -201,8 +195,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             statusColor = '#3f8600'; 
         }
 
-        // KITA RETURN LIST SECARA ASCENDING (JANGAN DI REVERSE)
-        // Agar data terbaru ada di index terakhir (bawah)
         return {
             list: displayList, 
             openingBalance,
@@ -215,127 +207,75 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
 
     }, [rawData, dateRange, searchText, initialMigration]); 
 
-    // --- EFFECT: UPDATE PRINTABLE & AUTO JUMP TO LAST PAGE ---
+    // --- UPDATE EFFECT: Reset Table & Printable Data ---
+    // Efek ini jalan kalau data baru di-fetch atau filter date/search berubah
     useEffect(() => {
         setPrintableData(processedData.list);
 
-        // Logic "Reverse Paging":
-        // Jika ada data, hitung total halaman dan set current page ke halaman terakhir
+        // Auto jump to last page (hanya jika user belum mengacak-acak sort)
+        // Kita default ke last page karena flow baca history biasanya chronological
         if (processedData.list.length > 0) {
-            const totalItems = processedData.list.length;
-            const lastPage = Math.ceil(totalItems / pagination.pageSize);
-            setPagination(prev => ({
-                ...prev,
-                current: lastPage
-            }));
+            const lastPage = Math.ceil(processedData.list.length / pagination.pageSize);
+            setPagination(prev => ({ ...prev, current: lastPage }));
         } else {
             setPagination(prev => ({ ...prev, current: 1 }));
         }
-    // Dependency hanya pada list, agar setiap kali filter berubah, dia loncat ke bawah lagi
     }, [processedData.list]); 
 
+    // --- HANDLE TABLE CHANGE (Sorting & Paging) ---
     const handleTableChange = (newPagination, filters, sorter, extra) => {
-        setPagination(newPagination); // Update state pagination saat user klik page
+        setPagination(newPagination);
+        
+        // KUNCI UTAMA: Ambil data yang sudah di-sort oleh Ant Design
+        // extra.currentDataSource berisi data setelah filter & sorting
         setPrintableData(extra.currentDataSource);
     };
 
-    // --- FUNGSI PRINT KHUSUS (Accounting Format - NO RP) ---
+    // --- PRINT ---
     const handlePrint = () => {
         const win = window.open('', '', 'height=700,width=1000');
         
         const formatCurrencyForPrint = (val, isCellEmpty = false) => {
             if (isCellEmpty) return '<div style="text-align: center">-</div>';
-            
             const isNegative = val < 0;
             const absVal = Math.abs(val);
             const numberStr = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 0 }).format(absVal);
-            
-            return `
-                <div style="display: flex; justify-content: space-between; width: 100%;">
-                    <span></span> 
-                    <span>${isNegative ? '-' : ''}${numberStr}</span>
-                </div>
-            `;
+            return `<div style="display: flex; justify-content: space-between; width: 100%;"><span></span><span>${isNegative ? '-' : ''}${numberStr}</span></div>`;
         };
 
+        // Gunakan printableData (yang sudah di-sort user)
         const tableRows = printableData.map(item => `
             <tr>
                 <td style="white-space: nowrap;">${dayjs(item.date).format('DD MMM YY')}</td>
                 <td style="white-space: nowrap;">${item.id}</td>
                 <td>${item.type}</td>
                 <td>${item.keterangan || ''}</td>
-                
                 <td>${!item.isDebit ? formatCurrencyForPrint(item.amount) : formatCurrencyForPrint(0, true)}</td>
-                
                 <td>${item.isDebit ? formatCurrencyForPrint(item.amount) : formatCurrencyForPrint(0, true)}</td>
-                
                 <td style="font-weight: bold;">${formatCurrencyForPrint(item.balance)}</td>
             </tr>
         `).join('');
 
-        win.document.write('<html><head><title>Cetak Riwayat Transaksi</title>');
+        win.document.write('<html><head><title>Cetak Transaksi</title>');
         win.document.write(`
             <style>
                 body { font-family: sans-serif; padding: 15px; color: #000; }
                 .header { text-align: center; margin-bottom: 10px; border-bottom: 2px solid #000; padding-bottom: 5px; }
-                .header h1 { font-size: 18px; margin: 0; color: #000; text-transform: uppercase; }
-                .header h2 { font-size: 14px; margin: 2px 0; font-weight: bold; color: #000; }
-                .print-date { font-size: 9px; margin-bottom: 5px; text-align: right; }
-
-                .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 10px; border: 1px solid #000; }
-                .summary-table td { padding: 4px 6px; border: 1px solid #000; vertical-align: middle; }
-                .summary-label { background-color: #f0f0f0; font-weight: bold; width: 15%; }
-                
-                .main-table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 9px; }
-                .main-table th, .main-table td { border: 1px solid #000; padding: 3px 5px; text-align: left; color: #000; vertical-align: middle; }
-                .main-table th { background-color: #f0f0f0; text-align: center; font-weight: bold; white-space: nowrap; }
-                
-                @media print {
-                    * { color: #000 !important; border-color: #000 !important; }
-                    .main-table th, .summary-label { background-color: #e6e6e6 !important; -webkit-print-color-adjust: exact; }
-                }
+                .header h1 { font-size: 18px; margin: 0; }
+                .summary-table, .main-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 10px; }
+                .summary-table td, .main-table th, .main-table td { border: 1px solid #000; padding: 4px; }
+                .main-table th { background-color: #f0f0f0; text-align: center; }
             </style>
         `);
         win.document.write('</head><body>');
         win.document.write(`
-            <div class="print-date">Dicetak: ${dayjs().format('DD/MM/YYYY HH:mm')}</div>
-            <div class="header">
-                <h1>Riwayat Transaksi</h1>
-                <h2>${customer?.nama || 'PELANGGAN'}</h2>
-            </div>
-            
+            <div class="header"><h1>Riwayat Transaksi: ${customer?.nama || 'PELANGGAN'}</h1></div>
             <table class="summary-table">
-                <tr>
-                    <td class="summary-label">Saldo Awal</td>
-                    <td width="35%">${formatCurrencyForPrint(processedData.openingBalance)}</td>
-                    <td class="summary-label">Total Kredit (+)</td>
-                    <td width="35%">${formatCurrencyForPrint(processedData.totalCreditRange)}</td>
-                </tr>
-                <tr>
-                    <td class="summary-label">Saldo Akhir</td>
-                    <td style="font-weight: bold;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span>${formatCurrencyForPrint(processedData.finalBalance)}</span>
-                            <span style="margin-left: 10px; font-size: 9px;">(${processedData.status})</span>
-                        </div>
-                    </td>
-                    <td class="summary-label">Total Debit (-)</td>
-                    <td>${formatCurrencyForPrint(processedData.totalDebitRange)}</td>
-                </tr>
+                <tr><td>Saldo Awal: ${formatCurrencyForPrint(processedData.openingBalance)}</td><td>Total Kredit: ${formatCurrencyForPrint(processedData.totalCreditRange)}</td></tr>
+                <tr><td>Saldo Akhir: <b>${formatCurrencyForPrint(processedData.finalBalance)}</b> (${processedData.status})</td><td>Total Debit: ${formatCurrencyForPrint(processedData.totalDebitRange)}</td></tr>
             </table>
-
             <table class="main-table">
-                <thead>
-                    <tr>
-                        <th width="8%">Tanggal</th>
-                        <th width="12%">ID</th>
-                        <th width="8%">Tipe</th>
-                        <th width="20%">Keterangan</th>
-                        <th width="17%">Kredit (+)</th>
-                        <th width="17%">Debit (-)</th>
-                        <th width="18%">Saldo</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>Tanggal</th><th>ID</th><th>Tipe</th><th>Ket</th><th>Kredit</th><th>Debit</th><th>Saldo</th></tr></thead>
                 <tbody>${tableRows}</tbody>
             </table>
         `);
@@ -345,58 +285,46 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
         setTimeout(() => { win.print(); win.close(); }, 500);
     };
 
-    // --- FUNGSI COPY IMAGE ---
+    // --- COPY IMAGE ---
     const handleCopyToClipboard = async () => {
         if (!paperRef.current) return;
-
         setCopyLoading(true);
         try {
             const canvas = await html2canvas(paperRef.current, {
-                scale: 2, 
-                backgroundColor: '#ffffff',
-                useCORS: true
+                scale: 2, backgroundColor: '#ffffff', useCORS: true
             });
-
             canvas.toBlob(async (blob) => {
-                if (!blob) {
-                    message.error("Gagal generate gambar.");
-                    setCopyLoading(false);
-                    return;
-                }
-                try {
-                    const data = [new ClipboardItem({ [blob.type]: blob })];
-                    await navigator.clipboard.write(data);
-                    message.success("Gambar tersalin! (Data Terakhir/Filter)");
-                } catch (err) {
-                    console.error("Clipboard Error:", err);
-                    message.error("Gagal menyalin. Browser mungkin memblokir akses clipboard.");
-                } finally {
-                    setCopyLoading(false);
-                }
+                if (!blob) throw new Error("Gagal blob");
+                await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+                message.success("Gambar tersalin (Sesuai Urutan Tabel)!");
             }, 'image/png');
-
-        } catch (error) {
-            console.error("Html2Canvas Error:", error);
-            message.error("Gagal memproses gambar.");
+        } catch (err) {
+            console.error(err);
+            message.error("Gagal menyalin gambar.");
+        } finally {
             setCopyLoading(false);
         }
     };
 
-    // --- TABLE COLUMNS ---
+    // --- COLUMNS WITH SORTER ---
     const columns = [
         {
             title: 'Tanggal',
             dataIndex: 'date',
             key: 'date',
             width: 140,
-            render: (val) => val ? dayjs(val).format('DD MMMM YYYY') : '-'
+            render: (val) => val ? dayjs(val).format('DD MMMM YYYY') : '-',
+            // Sorter Tanggal
+            sorter: (a, b) => a.date - b.date,
         },
         {
             title: 'ID Transaksi',
             dataIndex: 'id',
             key: 'id',
             width: 130,
-            render: (text) => <Text copyable={{ text: text }} style={{ fontSize: '12px' }}>{text}</Text>
+            render: (text) => <Text copyable={{ text: text }} style={{ fontSize: '12px' }}>{text}</Text>,
+            // Sorter String ID
+            sorter: (a, b) => a.id.localeCompare(b.id),
         },
         {
             title: 'Tipe',
@@ -424,14 +352,26 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             key: 'credit',
             align: 'right',
             width: 130,
-            render: (_, record) => !record.isDebit ? <span style={{ color: '#3f8600', fontWeight: 'bold' }}>+ {formatNumber(record.amount)}</span> : '-'
+            render: (_, record) => !record.isDebit ? <span style={{ color: '#3f8600', fontWeight: 'bold' }}>+ {formatNumber(record.amount)}</span> : '-',
+            // Sorter Value Kredit (Jika debit dianggap 0 saat compare)
+            sorter: (a, b) => {
+                const valA = !a.isDebit ? a.amount : 0;
+                const valB = !b.isDebit ? b.amount : 0;
+                return valA - valB;
+            }
         },
         {
             title: 'Debit (-)',
             key: 'debit',
             align: 'right',
             width: 130,
-            render: (_, record) => record.isDebit ? <span style={{ color: '#cf1322', fontWeight: 'bold' }}>- {formatNumber(record.amount)}</span> : '-'
+            render: (_, record) => record.isDebit ? <span style={{ color: '#cf1322', fontWeight: 'bold' }}>- {formatNumber(record.amount)}</span> : '-',
+             // Sorter Value Debit
+             sorter: (a, b) => {
+                const valA = a.isDebit ? a.amount : 0;
+                const valB = b.isDebit ? b.amount : 0;
+                return valA - valB;
+            }
         },
         {
             title: 'Saldo',
@@ -439,17 +379,18 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             key: 'balance',
             align: 'right',
             width: 140,
-            render: (val) => <span style={{ fontWeight: 'bold', color: val < 0 ? '#cf1322' : '#3f8600' }}>{formatNumber(val)}</span>
+            render: (val) => <span style={{ fontWeight: 'bold', color: val < 0 ? '#cf1322' : '#3f8600' }}>{formatNumber(val)}</span>,
+            // Sorter Saldo
+            sorter: (a, b) => a.balance - b.balance,
         }
     ];
 
     // --- DATA SLICE UNTUK IMAGE CAPTURE ---
-    // Karena urutan Ascending (Old -> New), dan kita mau "Data Terbaru" (yang ada di bawah)
-    // Maka kita ambil Slice Negative (-15)
-    // Jika data difilter, dia tetap akan ambil 15 data terbawah dari hasil filter tersebut.
-    const captureDataList = processedData.list.length > 15 
-        ? processedData.list.slice(-15) 
-        : processedData.list;
+    // Menggunakan printableData (Data yang tampil di tabel setelah sort/filter)
+    // Kita ambil 15 data TERAKHIR dari list yang sedang tampil
+    const captureDataList = printableData.length > 15 
+        ? printableData.slice(-15) 
+        : printableData;
 
     return (
         <>
@@ -460,7 +401,6 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                         <Space>
                             <Button 
                                 icon={<CopyOutlined />} 
-                                type="default"
                                 loading={copyLoading}
                                 onClick={handleCopyToClipboard}
                             >
@@ -477,7 +417,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 style={{ top: 20 }}
                 bodyStyle={{ padding: '16px 24px' }}
             >
-                {/* 1. REKAP ATAS (UI AntD) */}
+                {/* 1. REKAP ATAS */}
                 <Row gutter={16} style={{ marginBottom: 20 }}>
                     <Col span={6}>
                         <Card bodyStyle={{ padding: '12px' }} style={{ background: '#fafafa', borderRadius: 8 }} size="small" bordered={false}>
@@ -504,21 +444,20 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                 {/* 2. FILTER & SEARCH */}
                 <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
                     <Col flex="auto">
-                        <Input placeholder="Cari ID, Keterangan..." prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} value={searchText} onChange={(e) => setSearchText(e.target.value)} allowClear />
+                        <Input placeholder="Cari ID, Keterangan, Nominal..." prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} value={searchText} onChange={(e) => setSearchText(e.target.value)} allowClear />
                     </Col>
                     <Col>
                         <RangePicker value={dateRange} onChange={(dates) => setDateRange(dates || [null, null])} format="DD MMMM YYYY" />
                     </Col>
                 </Row>
 
-                {/* 3. TABEL DATA (UI) */}
+                {/* 3. TABEL DATA */}
                 {loading ? <div style={{ textAlign: 'center', padding: '40px' }}><Spin size="large" /></div> : 
                     <Table
                         columns={columns}
-                        dataSource={processedData.list}
-                        onChange={handleTableChange}
+                        dataSource={processedData.list} // Data source awal (sebelum di-sort tabel)
+                        onChange={handleTableChange} // Handle sorting & paging
                         rowKey="key"
-                        // Controlled Pagination untuk efek "Jump to Last Page"
                         pagination={{ 
                             current: pagination.current,
                             pageSize: pagination.pageSize,
@@ -535,19 +474,15 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
             </Modal>
 
             {/* ================================================================================= */}
-            {/* AREA KHUSUS GENERATE GAMBAR (COPY IMAGE) */}
-            {/* Mengikuti Filter & Menampilkan 15 Data Terbawah (Terbaru) */}
+            {/* AREA KHUSUS GENERATE GAMBAR (HIDDEN) */}
+            {/* Mengikuti hasil filter & sorting TABEL */}
             {/* ================================================================================= */}
             <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
                 <div 
                     ref={paperRef} 
                     style={{ 
-                        width: '800px', 
-                        padding: '20px', 
-                        background: '#ffffff', 
-                        color: '#000000', 
-                        fontFamily: 'Arial, sans-serif',
-                        border: '1px solid #000' 
+                        width: '800px', padding: '20px', background: '#ffffff', color: '#000000', 
+                        fontFamily: 'Arial, sans-serif', border: '1px solid #000' 
                     }}
                 >
                     <div style={{ borderBottom: '2px solid #000', paddingBottom: '10px', marginBottom: '15px' }}>
@@ -562,7 +497,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                     </div>
 
                     <div style={{ marginBottom: '10px', fontWeight: 'bold', fontSize: '12px', color: '#000' }}>
-                        Riwayat Transaksi (Terbaru/Filter):
+                        Daftar Transaksi (Tampilan Tabel):
                     </div>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', color: '#000' }}>
                         <thead>
@@ -572,7 +507,7 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                                 <th style={{ border: '1px solid #000', padding: '6px' }}>Keterangan</th>
                                 <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Kredit (+)</th>
                                 <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Debit (-)</th>
-                                <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Saldo</th>
+                                <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Saldo*</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -590,9 +525,13 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                             )}
                         </tbody>
                     </table>
+                    
+                    <div style={{ marginTop: '5px', fontSize: '10px', fontStyle: 'italic', color: '#555' }}>
+                        *Kolom Saldo dihitung berdasarkan urutan waktu (kronologis), bukan urutan tampilan sorting.
+                    </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '15px', border: '1px solid #000', padding: '10px' }}>
-                        <div><div style={{ fontSize: '12px' }}>Saldo Awal (Periode Ini)</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.openingBalance)}</div></div>
+                        <div><div style={{ fontSize: '12px' }}>Saldo Awal (Periode)</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.openingBalance)}</div></div>
                         <div><div style={{ fontSize: '12px' }}>Total Debit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalDebitRange)}</div></div>
                         <div><div style={{ fontSize: '12px' }}>Total Kredit</div><div style={{ fontWeight: 'bold' }}>{formatNumber(processedData.totalCreditRange)}</div></div>
                         <div style={{ borderLeft: '1px solid #000', paddingLeft: '15px' }}><div style={{ fontSize: '12px' }}>Saldo Akhir ({processedData.status})</div><div style={{ fontWeight: 'bold', fontSize: '16px' }}>{formatNumber(processedData.finalBalance)}</div></div>

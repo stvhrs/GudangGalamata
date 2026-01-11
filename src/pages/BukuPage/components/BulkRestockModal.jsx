@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Modal, Form, Input, InputNumber, Button, message, Spin, Typography, Select, Space, Card, Row, Col, Statistic, DatePicker
 } from 'antd';
@@ -42,8 +42,8 @@ const SubtotalDisplay = ({ index }) => (
 const BulkRestockModal = ({ open, onClose, bukuList }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [selectedBookIdsInForm, setSelectedBookIdsInForm] = useState(new Set());
 
+  // Reset form saat modal dibuka
   useEffect(() => {
     if (open) {
       form.resetFields();
@@ -51,15 +51,10 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
         tanggal: dayjs(),
         items: [{}] 
       });
-      setSelectedBookIdsInForm(new Set());
     }
   }, [open, form]);
 
-  const handleFormValuesChange = useCallback((_, allValues) => {
-    const currentIds = new Set(allValues.items?.map(item => item?.bookId).filter(Boolean) || []);
-    setSelectedBookIdsInForm(currentIds);
-  }, []);
-
+  // --- LOGIC OPSI BUKU (TANPA DISABLED) ---
   const bookOptions = useMemo(() => {
     return bukuList?.map(buku => {
       const judulBuku = buku.nama || buku.judul || 'Tanpa Judul';
@@ -70,10 +65,11 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
         label: `[${kodeBuku}] ${judulBuku} (Stok: ${buku.stok})`,
         value: buku.id,
         searchStr: `${kodeBuku} ${judulBuku} ${penerbit}`.toLowerCase(),
-        disabled: selectedBookIdsInForm.has(buku.id)
+        // Kita HAPUS properti disabled agar bisa dipilih berulang kali
+        disabled: false 
       };
     }) || [];
-  }, [bukuList, selectedBookIdsInForm]);
+  }, [bukuList]);
 
   const generateBulkRefId = () => {
     return `BLK-${dayjs().format('YYYYMMDD-HHmmss')}`;
@@ -107,14 +103,15 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
 
       const bulkRefId = generateBulkRefId();
 
+      // Kita map setiap item menjadi Promise transaksi
+      // Firebase akan menangani concurrency (antrian) jika ada ID buku yang sama
       const updatePromises = validItems.map(async (item) => {
         const bookId = item.bookId;
         const jumlahNum = Number(item.quantity);
         const specificRemark = item.specificRemark || '';
         const bukuRef = ref(db, `products/${bookId}`);
 
-        // --- LOGIC PERUBAHAN DI SINI ---
-        // 1. Gabungkan input user (Umum + Khusus)
+        // --- LOGIC PERUBAHAN ---
         let userRemark = '';
         if (specificRemark) {
             userRemark = overallRemark ? `${overallRemark} (${specificRemark})` : specificRemark;
@@ -122,21 +119,19 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
             userRemark = overallRemark;
         }
 
-        // 2. Tambahkan prefix "Restock"
         let keteranganFinal = '';
         if (userRemark) {
             keteranganFinal = `Restock ${userRemark}`;
         } else {
-            // Default jika user tidak isi keterangan apapun
             keteranganFinal = `Restock Ref: ${bulkRefId}`;
         }
-        // -------------------------------
 
         let historyDataForRoot = null;
 
         await runTransaction(bukuRef, currentData => {
           if (!currentData) return;
 
+          // Mengambil stok terbaru dari DB saat transaksi berjalan
           const stokAwal = Number(currentData.stok) || 0;
           const stokAkhir = stokAwal + jumlahNum;
 
@@ -153,7 +148,7 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
             stokAwal: stokAwal,   
             stokAkhir: stokAkhir,
             
-            keterangan: keteranganFinal, // <-- Hasil yang sudah ada "Restock"
+            keterangan: keteranganFinal,
             
             tanggal: tanggalTimestamp,
             createdAt: serverTimestamp(),
@@ -167,13 +162,16 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
           };
         });
 
+        // Simpan history jika transaksi stok berhasil
         if (historyDataForRoot) {
           const newHistoryRef = push(ref(db, 'stock_history'));
           await set(newHistoryRef, historyDataForRoot);
         }
       });
 
+      // Jalankan semua secara paralel
       await Promise.all(updatePromises);
+      
       message.success(`Restock berhasil! Ref ID: ${bulkRefId}`);
       onClose();
     } catch (error) {
@@ -186,7 +184,7 @@ const BulkRestockModal = ({ open, onClose, bukuList }) => {
 
   return (
     <Modal
-style={{ top: 20 }}
+      style={{ top: 20 }}
       title="Restock Buku Borongan"
       open={open}
       onCancel={onClose}
@@ -199,7 +197,7 @@ style={{ top: 20 }}
           form={form}
           layout="vertical"
           autoComplete="off"
-          onValuesChange={handleFormValuesChange}
+          // onValuesChange dihapus karena tidak perlu tracking duplicate lagi
         >
           {/* --- HEADER FORM --- */}
           <Card size="small" style={{ marginBottom: 16, background: '#fafafa' }}>
@@ -344,7 +342,7 @@ style={{ top: 20 }}
                   <Row justify="space-between" align="middle">
                     <Col>
                       <Text type="secondary">
-                         *Nama Admin: <b>ADMIN</b>
+                          *Nama Admin: <b>ADMIN</b>
                       </Text>
                     </Col>
                     <Col>

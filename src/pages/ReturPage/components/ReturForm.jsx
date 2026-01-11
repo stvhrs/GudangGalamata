@@ -43,10 +43,16 @@ const ReturnItemRow = React.memo(({ item, isSelected, returnQty, onToggle, onQty
                 <Row align="middle" gutter={8}>
                     <Col flex="auto">
                         <div style={{ fontWeight: 'bold', fontSize: 13 }}>{item.judul || item.productName || 'Produk'}</div>
-                        <div style={{ fontSize: 11, color: '#666' }}>
+                        <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
                             Beli: <b>{item.qty}</b> x {formatRupiah(harga)}
                             {diskonPersen > 0 && <Tag color="red" style={{marginLeft: 5, fontSize: 10}}>-{diskonPersen}%</Tag>}
                         </div>
+                        {/* Menampilkan Peruntukan */}
+                        {item.peruntukan && (
+                            <div style={{ marginTop: 2 }}>
+                                <Tag color="geekblue" style={{ fontSize: 10 }}>{item.peruntukan}</Tag>
+                            </div>
+                        )}
                     </Col>
                     <Col>
                         {readOnly ? (
@@ -203,6 +209,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                         items.push({
                             id: `LEGACY_${item.idBuku || Math.random()}`,
                             productId: item.idBuku,
+                            peruntukan: item.peruntukan || '-', // Support Legacy Peruntukan
                             judul: item.nama || item.judul,
                             qty: item.jumlah || item.qty,
                             harga: item.hargaSatuan || item.harga,
@@ -403,9 +410,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
             if (newSisaTagihan <= 0) {
                 newStatus = 'LUNAS';
             }
-            // Logic 'SEBAGIAN' dihapus, defaultnya tetap 'BELUM'
-            // --------------------------------------------------
-
+            
             const finalCustomerName = curInv.namaCustomer || selectedCustomerName || 'UNKNOWN';
             const newComposite = `${finalCustomerName.toUpperCase()}_${newStatus}`;
 
@@ -424,10 +429,17 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                 
                 const rItemId = `RITEM_${returId}_${Math.floor(Math.random() * 100000)}`;
                 updates[`return_items/${rItemId}`] = {
-                    id: rItemId, returnId: returId, productId: source.productId || '-',
-                    judul: source.judul || source.productName || '-', qty: qtyRetur,
-                    harga: harga, diskonPersen: source.diskonPersen || 0, subtotal: qtyRetur * harga,
-                    createdAt: timestampNow, updatedAt: timestampNow
+                    id: rItemId, 
+                    returnId: returId, 
+                    productId: source.productId || '-',
+                    peruntukan: source.peruntukan || '-', // SIMPAN PERUNTUKAN DI RETUR ITEM
+                    judul: source.judul || source.productName || '-', 
+                    qty: qtyRetur,
+                    harga: harga, 
+                    diskonPersen: source.diskonPersen || 0, 
+                    subtotal: qtyRetur * harga,
+                    createdAt: timestampNow, 
+                    updatedAt: timestampNow
                 };
 
                 if (source.productId) {
@@ -441,7 +453,7 @@ const ReturForm = ({ open, onCancel, initialValues }) => {
                         const histId = `HIST_${returId}_${source.productId}_${timestampNow}`;
                         updates[`stock_history/${histId}`] = {
                             id: histId, bukuId: source.productId, judul: source.judul || source.productName,
-                            nama: selectedCustomerName || "ADMIN", // 🔥 USE CUSTOMER NAME HERE
+                            nama: selectedCustomerName || "ADMIN", 
                             refId: returId, keterangan: `Retur Invoice: ${selectedInvoiceId}`,
                             perubahan: qtyRetur, stokAwal: stokAwal, stokAkhir: stokAkhir,
                             tanggal: timestampNow, createdAt: timestampNow, updatedAt: timestampNow

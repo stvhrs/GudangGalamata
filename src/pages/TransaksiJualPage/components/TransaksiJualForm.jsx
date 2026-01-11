@@ -29,7 +29,7 @@ const SimpleSubtotal = ({ index }) => (
             const i = getFieldValue(['items', index]) || {};
             const bruto = (i.hargaSatuan || 0) * (i.jumlah || 0);
             const net = bruto - Math.round(bruto * (i.diskonPersen || 0) / 100);
-            return <Input disabled value={rupiahFormatter(net)} style={{ textAlign: 'right', color: '#333', fontWeight: 'bold', backgroundColor: '#f5f5f5' }} />;
+            return <Input disabled value={rupiahFormatter(net)} style={{ textAlign: 'right', color: '#333', fontWeight: 'bold', backgroundColor: '#f5f5f5', fontSize: '11px' }} />;
         }}
     </Form.Item>
 );
@@ -44,7 +44,10 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
     const [isLoadingEditData, setIsLoadingEditData] = useState(false);
     const [selectedPelanggan, setSelectedPelanggan] = useState(null);
     const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(mode === 'create');
+    
+    // State untuk Logic Stok & Edit
     const [oldItemsForStock, setOldItemsForStock] = useState([]);
+    const [oldItemKeys, setOldItemKeys] = useState([]); 
 
     const bukuOptions = useMemo(() => {
         return [...bukuList]
@@ -57,15 +60,16 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                     label: (
                         <div style={{ padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                                <Text strong style={{ fontSize: 14, lineHeight: 1.2, flex: 1, whiteSpace: 'normal', marginRight: 8 }}>{b.nama}</Text>
+                                <Text strong style={{ fontSize: 13, lineHeight: 1.2, flex: 1, whiteSpace: 'normal', marginRight: 8 }}>{b.nama}</Text>
                                 <Text strong style={{ color: '#1677ff', whiteSpace: 'nowrap' }}>{rupiahFormatter(b.harga)}</Text>
                             </div>
                             <div style={{ marginBottom: 6 }}>
-                                <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>Kode Buku: <strong style={{ color: '#595959' }}>{b.id}</strong></Text>
+                                <Text type="secondary" style={{ fontSize: 10, fontFamily: 'monospace', background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>Kode: <strong style={{ color: '#595959' }}>{b.id}</strong></Text>
                             </div>
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}>{b.penerbit || 'Umum'}</Tag>
-                                <Tag color={stokAman ? 'success' : 'error'} style={{ margin: 0, fontSize: 10, lineHeight: '18px' }}>{stokAman ? `Stok: ${b.stok}` : 'Habis'}</Tag>
+                                <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>{b.penerbit || 'Umum'}</Tag>
+                                <Tag color="geekblue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>{b.peruntukan || 'Umum'}</Tag>
+                                <Tag color={stokAman ? 'success' : 'error'} style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>{stokAman ? `Stok: ${b.stok}` : 'Habis'}</Tag>
                             </div>
                         </div>
                     )
@@ -89,19 +93,38 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                             totalDiskon: initialTx.totalDiskon || 0,
                             biayaTentu: initialTx.totalBiayaLain || 0,
                         });
+
                         const itemsQuery = query(ref(db, 'invoice_items'), orderByChild('invoiceId'), equalTo(initialTx.id));
                         const snapshot = await get(itemsQuery);
+                        
                         let itemsToSet = [];
+                        let keysToDelete = [];
+
                         if (snapshot.exists()) {
                             const rawItems = snapshot.val();
-                            itemsToSet = Object.values(rawItems).map(item => ({
-                                idBuku: item.productId, jumlah: item.qty, hargaSatuan: item.harga, diskonPersen: item.diskonPersen || 0
-                            }));
+                            itemsToSet = Object.entries(rawItems).map(([key, item]) => {
+                                keysToDelete.push(key); 
+                                return {
+                                    idBuku: item.productId,
+                                    productId: item.productId, // Load Kode Buku
+                                    peruntukan: item.peruntukan || '', // Load Peruntukan
+                                    jumlah: item.qty, 
+                                    hargaSatuan: item.harga, 
+                                    diskonPersen: item.diskonPersen || 0
+                                };
+                            });
                         } else if (initialTx.items) {
                             itemsToSet = initialTx.items.map((it) => ({
-                                idBuku: it.idBuku || it.productId, jumlah: it.jumlah || it.qty, hargaSatuan: it.hargaSatuan || it.harga, diskonPersen: it.diskonPersen || 0
+                                idBuku: it.idBuku || it.productId, 
+                                productId: it.idBuku || it.productId,
+                                peruntukan: it.peruntukan || '',
+                                jumlah: it.jumlah || it.qty, 
+                                hargaSatuan: it.hargaSatuan || it.harga, 
+                                diskonPersen: it.diskonPersen || 0
                             }));
                         }
+                        
+                        setOldItemKeys(keysToDelete);
                         setOldItemsForStock(itemsToSet); 
                         form.setFieldsValue({ items: itemsToSet });
                     } catch (error) { console.error(error); message.error("Gagal memuat detail transaksi."); } 
@@ -113,6 +136,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 form.setFieldsValue({ tanggal: dayjs(), items: [{}], totalDiskon: 0, biayaTentu: 0 });
                 setSelectedPelanggan(null);
                 setOldItemsForStock([]);
+                setOldItemKeys([]);
                 setIsGeneratingInvoice(true);
             }
         }
@@ -156,7 +180,15 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
         const bukuData = selectedOption?._data;
         if (bukuData) {
             const items = form.getFieldValue('items') || [];
-            items[index] = { ...items[index], idBuku, hargaSatuan: Number(bukuData.harga || 0), diskonPersen: Number(bukuData.diskon || 0), jumlah: items[index]?.jumlah || 1 };
+            items[index] = { 
+                ...items[index], 
+                idBuku,
+                productId: bukuData.id, // Set Kode Buku otomatis
+                peruntukan: bukuData.peruntukan || '', // Set Peruntukan otomatis dari master
+                hargaSatuan: Number(bukuData.harga || 0), 
+                diskonPersen: Number(bukuData.diskon || 0), 
+                jumlah: items[index]?.jumlah || 1 
+            };
             form.setFieldsValue({ items: [...items] });
             calculateTotalDiskon(items);
         }
@@ -191,20 +223,29 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 const option = bukuOptions.find(b => b.value === item.idBuku);
                 if (!option) throw new Error(`Buku tidak ditemukan`);
                 const buku = option._data;
+                
                 const hargaSatuan = Number(item.hargaSatuan);
                 const diskonPersen = Number(item.diskonPersen || 0);
                 const jumlah = Number(item.jumlah);
+                const peruntukan = item.peruntukan || '-'; // Ambil peruntukan dari input (bisa diedit user)
+                
                 const brutoItem = hargaSatuan * jumlah;
                 const diskonItem = Math.round(brutoItem * (diskonPersen / 100));
                 const subtotal = brutoItem - diskonItem;
+                
                 totalBruto += brutoItem;
                 totalQty += jumlah;
-                return { idBuku: item.idBuku, judul: buku.nama, jumlah, hargaSatuan, diskonPersen, subtotal, _bukuData: buku };
+                return { 
+                    idBuku: item.idBuku, 
+                    judul: buku.nama, 
+                    peruntukan: peruntukan,
+                    jumlah, hargaSatuan, diskonPersen, subtotal, 
+                    _bukuData: buku 
+                };
             });
 
-            // Hitung Netto (Tagihan Bersih)
+            // Hitung Netto
             const totalNetto = (totalBruto - Number(totalDiskon || 0)) + Number(biayaTentu || 0);
-            
             const txKey = nomorInvoice;
             const updates = {};
             let statusPembayaran = 'BELUM';
@@ -218,13 +259,11 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
             } else {
                 existingBayar = Number(initialTx.totalBayar || 0);
                 existingRetur = Number(initialTx.totalRetur || 0);
-                
                 const sisa = totalNetto - existingRetur - existingBayar;
                 if (sisa <= 0) statusPembayaran = 'LUNAS';
                 else statusPembayaran = 'BELUM';
             }
 
-            // Hitung Sisa Tagihan untuk disimpan ke DB
             const sisaTagihan = totalNetto - existingRetur - existingBayar;
 
             const headerData = {
@@ -240,7 +279,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 totalQty,
                 totalBayar: existingBayar,
                 totalRetur: existingRetur,
-                sisaTagihan: sisaTagihan, // 🔥 SIMPAN PROPERTY BARU
+                sisaTagihan: sisaTagihan,
                 statusPembayaran: statusPembayaran,
                 compositeStatus: `${pelanggan.nama}_${statusPembayaran}`,
                 updatedAt: serverTimestamp()
@@ -252,7 +291,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 updates[`invoices/${txKey}`] = { ...initialTx, ...headerData };
             }
 
-            // 🔥 UPDATE SALDO CUSTOMER: Transaksi Jual = Mengurangi Saldo (-) aka Menambah Hutang
+            // UPDATE SALDO CUSTOMER
             if (customerId) {
                 const custRef = ref(db, `customers/${customerId}`);
                 const custSnap = await get(custRef);
@@ -260,45 +299,57 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 if (custSnap.exists()) currentSaldo = Number(custSnap.val().saldoAkhir) || 0;
 
                 if (mode === 'create') {
-                    // Invoice Baru: Saldo Berkurang (Hutang Bertambah)
                     updates[`customers/${customerId}/saldoAkhir`] = currentSaldo - totalNetto;
                 } else if (mode === 'edit') {
-                    // Edit Invoice: Revert yang lama (+), lalu kurangi yang baru (-)
                     const oldNetto = Number(initialTx.totalNetto) || 0;
                     updates[`customers/${customerId}/saldoAkhir`] = currentSaldo + oldNetto - totalNetto;
                 }
                 updates[`customers/${customerId}/updatedAt`] = serverTimestamp();
             }
 
-            // ... (Invoice Items & Stock Logic sama seperti sebelumnya) ...
+            // --- MANAJEMEN INVOICE ITEMS ---
+            
             if (mode === 'edit') {
-                const newIds = processedItems.map(i => i.idBuku);
-                oldItemsForStock.forEach(old => {
-                    if (!newIds.includes(old.idBuku)) updates[`invoice_items/ITEM_${txKey}_${old.idBuku}`] = null;
+                oldItemKeys.forEach(key => {
+                    updates[`invoice_items/${key}`] = null;
                 });
             }
-            processedItems.forEach(i => {
-                const itemId = `ITEM_${txKey}_${i.idBuku}`;
+
+            processedItems.forEach((i, index) => {
+                const itemId = `ITEM_${txKey}_${i.idBuku}_${index}`;
                 updates[`invoice_items/${itemId}`] = {
-                    id: itemId, invoiceId: txKey, productId: i.idBuku, judul: i.judul,
-                    qty: i.jumlah, harga: i.hargaSatuan, diskonPersen: i.diskonPersen, subtotal: i.subtotal,
-                    createdAt: mode === 'create' ? serverTimestamp() : null, updatedAt: serverTimestamp()
+                    id: itemId, 
+                    invoiceId: txKey, 
+                    productId: i.idBuku, 
+                    judul: i.judul,
+                    peruntukan: i.peruntukan, // SIMPAN PERUNTUKAN
+                    qty: i.jumlah, 
+                    harga: i.hargaSatuan, 
+                    diskonPersen: i.diskonPersen, 
+                    subtotal: i.subtotal,
+                    createdAt: mode === 'create' ? serverTimestamp() : null, 
+                    updatedAt: serverTimestamp()
                 };
             });
+
+            // --- MANAJEMEN STOK ---
             const stockDiff = new Map();
+            
             if (mode === 'edit') {
                 oldItemsForStock.forEach(i => {
                     const currentVal = stockDiff.get(i.idBuku) || 0;
                     stockDiff.set(i.idBuku, currentVal + Number(i.jumlah));
                 });
             }
+            
             processedItems.forEach(i => {
                 const currentVal = stockDiff.get(i.idBuku) || 0;
                 stockDiff.set(i.idBuku, currentVal - Number(i.jumlah));
             });
-            const timestampNow = Date.now();
             
+            const timestampNow = Date.now();
             let histCounter = 0;
+
             for (const [productId, change] of stockDiff.entries()) {
                 if (change === 0) continue;
                 const buku = bukuList.find(b => b.id === productId);
@@ -315,11 +366,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                         id: histId, 
                         bukuId: productId, 
                         judul: buku.nama, 
-                        
-                        // --- PERUBAHAN DI SINI ---
-                        nama: pelanggan.nama, // Menggunakan nama customer, bukan "ADMIN"
-                        // -------------------------
-
+                        nama: pelanggan.nama,
                         keterangan: mode === 'create' ? `Penjualan Ref: ${txKey}` : `Edit Ref: ${txKey}`,
                         perubahan: change, 
                         stokAwal: stokAwal, 
@@ -354,7 +401,6 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
             const updates = {};
             updates[`invoices/${txKey}`] = null;
             
-            // 🔥 UPDATE SALDO CUSTOMER: Hapus Invoice = Revert (Menambah kembali saldo / Mengurangi Hutang)
             if (customerId) {
                 const custRef = ref(db, `customers/${customerId}`);
                 const custSnap = await get(custRef);
@@ -365,29 +411,41 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 }
             }
 
-            // ... (Logic Revert Stok Sama) ...
+            oldItemKeys.forEach(key => {
+                updates[`invoice_items/${key}`] = null;
+            });
+
             const timestampNow = Date.now();
             let histCounter = 0;
-            for (const item of oldItemsForStock) {
-                const buku = bukuList.find(b => b.id === item.idBuku);
-                const itemId = `ITEM_${txKey}_${item.idBuku}`;
-                updates[`invoice_items/${itemId}`] = null;
+            
+            const revertMap = new Map();
+            oldItemsForStock.forEach(item => {
+                const cur = revertMap.get(item.idBuku) || 0;
+                revertMap.set(item.idBuku, cur + Number(item.jumlah));
+            });
+
+            for (const [idBuku, qty] of revertMap.entries()) {
+                const buku = bukuList.find(b => b.id === idBuku);
                 if (buku) {
-                    const perubahanStok = Number(item.jumlah);
+                    const perubahanStok = qty;
                     const stokAwal = Number(buku.stok || 0);
                     const stokAkhir = stokAwal + perubahanStok;
-                    updates[`products/${item.idBuku}/stok`] = stokAkhir;
-                    updates[`products/${item.idBuku}/updatedAt`] = serverTimestamp();
-                    const histId = `HIST_${txKey}_${item.idBuku}_${timestampNow + histCounter}`;
+                    
+                    updates[`products/${idBuku}/stok`] = stokAkhir;
+                    updates[`products/${idBuku}/updatedAt`] = serverTimestamp();
+                    
+                    const histId = `HIST_${txKey}_${idBuku}_${timestampNow + histCounter}`;
                     histCounter++;
+                    
                     updates[`stock_history/${histId}`] = {
-                        id: histId, bukuId: item.idBuku, judul: buku.nama, nama: "ADMIN",
+                        id: histId, bukuId: idBuku, judul: buku.nama, nama: "ADMIN",
                         keterangan: `Hapus Ref: ${txKey}`, perubahan: perubahanStok,
                         stokAwal: stokAwal, stokAkhir: stokAkhir, refId: txKey,
                         tanggal: timestampNow, createdAt: timestampNow, updatedAt: timestampNow
                     };
                 }
             }
+
             await update(ref(db), updates);
             message.success({ content: 'Dihapus!', key: 'del' });
             onSuccess?.();
@@ -400,7 +458,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
             style={{ top: 20 }}
             title={mode === 'create' ? 'Transaksi Baru' : 'Edit Transaksi'}
             open={open} onCancel={onCancel}
-            width={1000} confirmLoading={isSaving}
+            width={1100} confirmLoading={isSaving}
             destroyOnClose footer={null} maskClosable={false}
         >
              <Spin spinning={loadingDependencies || isLoadingEditData}>
@@ -428,26 +486,44 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                                     <>
                                         {fields.map(({ key, name, ...restField }, index) => (
                                             <Row key={key} gutter={8} align="middle" style={{ marginBottom: 8, paddingBottom: 8, borderBottom: '1px dashed #eee' }}>
-                                                <Col xs={24} md={10}>
+                                                {/* 1. Select Buku */}
+                                                <Col xs={24} md={7}>
                                                     <Form.Item {...restField} name={[name, 'idBuku']} style={{ marginBottom: 4 }} rules={[{ required: true, message: 'Pilih buku' }]}>
-                                                        <Select showSearch placeholder={`Cari Nama / Kode Buku...`} onChange={(val) => handleBukuChange(index, val)} style={{ width: '100%' }} options={bukuOptions.map(opt => ({ value: opt.value, label: opt.label, title: opt.title }))} optionLabelProp="title" filterOption={(input, option) => { const originalOption = bukuOptions.find(o => o.value === option.value); if (!originalOption) return false; return originalOption._search.includes(input.toLowerCase()); }} listHeight={300} virtual={true} />
+                                                        <Select showSearch placeholder={`Cari Buku...`} onChange={(val) => handleBukuChange(index, val)} style={{ width: '100%' }} options={bukuOptions.map(opt => ({ value: opt.value, label: opt.label, title: opt.title }))} optionLabelProp="title" filterOption={(input, option) => { const originalOption = bukuOptions.find(o => o.value === option.value); if (!originalOption) return false; return originalOption._search.includes(input.toLowerCase()); }} listHeight={300} virtual={true} />
                                                     </Form.Item>
                                                 </Col>
-                                                <Col xs={6} md={3}><Form.Item {...restField} name={[name, 'jumlah']} style={{ marginBottom: 4 }}><InputNumber min={1} placeholder="Qty" style={{ width: '100%' }} /></Form.Item></Col>
-                                                <Col xs={10} md={4}><Form.Item {...restField} name={[name, 'hargaSatuan']} style={{ marginBottom: 4 }}><InputNumber formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={(v) => v.replace(/\$\s?|(,*)/g, '')} style={{ width: '100%' }} placeholder="Harga" /></Form.Item></Col>
+                                                
+                                                {/* 2. Kode Buku (Read Only) */}
+                                                <Col xs={6} md={3}>
+                                                    <Form.Item {...restField} name={[name, 'productId']} style={{ marginBottom: 4 }}>
+                                                        <Input placeholder="Kode" disabled style={{ backgroundColor: '#f0f0f0', color: '#666', fontSize:'11px' }} />
+                                                    </Form.Item>
+                                                </Col>
+
+                                                {/* 3. Peruntukan (Editable) */}
+                                                <Col xs={6} md={3}>
+                                                    <Form.Item {...restField} name={[name, 'peruntukan']} style={{ marginBottom: 4 }}>
+                                                        <Input placeholder="Peruntukan" style={{fontSize: '12px'}} />
+                                                    </Form.Item>
+                                                </Col>
+
+                                                {/* 4. Qty */}
+                                                <Col xs={4} md={2}><Form.Item {...restField} name={[name, 'jumlah']} style={{ marginBottom: 4 }}><InputNumber min={1} placeholder="Qty" style={{ width: '100%' }} /></Form.Item></Col>
+                                                
+                                                {/* 5. Harga */}
+                                                <Col xs={8} md={3}><Form.Item {...restField} name={[name, 'hargaSatuan']} style={{ marginBottom: 4 }}><InputNumber formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={(v) => v.replace(/\$\s?|(,*)/g, '')} style={{ width: '100%', fontSize:'11px' }} placeholder="Harga" /></Form.Item></Col>
+                                                
+                                                {/* 6. Diskon */}
                                                 <Col xs={8} md={2}>
                                                     <Form.Item {...restField} name={[name, 'diskonPersen']} style={{ marginBottom: 4 }}>
-                                                        <InputNumber 
-                                                            min={0} 
-                                                            max={100}
-                                                            step={0.1} 
-                                                            formatter={v => `${v}%`} 
-                                                            parser={v => v.replace('%', '').replace(',', '.')} 
-                                                            style={{ width: '100%' }} 
-                                                        />
+                                                        <InputNumber min={0} max={100} step={0.1} formatter={v => `${v}%`} parser={v => v.replace('%', '').replace(',', '.')} style={{ width: '100%', fontSize:'11px' }} />
                                                     </Form.Item>
                                                 </Col>
-                                                <Col xs={12} md={4}><SimpleSubtotal index={index} /></Col>
+
+                                                {/* 7. Subtotal */}
+                                                <Col xs={12} md={3}><SimpleSubtotal index={index} /></Col>
+                                                
+                                                {/* 8. Delete */}
                                                 <Col xs={2} md={1} style={{ textAlign: 'center' }}><Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(name)} /></Col>
                                             </Row>
                                         ))}

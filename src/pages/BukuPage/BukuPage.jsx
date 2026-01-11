@@ -90,18 +90,24 @@ const BukuPage = () => {
     const isFiltering = debouncedSearchText !== deferredDebouncedSearchText;
 
     // A. Filter Pencarian Text
+   // A. Filter Pencarian Text
     const searchedBuku = useMemo(() => {
         let processedData = [...(bukuList || [])]; 
         
         if (!deferredDebouncedSearchText) return processedData;
 
         const lowerSearch = deferredDebouncedSearchText.toLowerCase();
-        return processedData.filter(buku =>
-            (buku.judul || '').toLowerCase().includes(lowerSearch) ||
-            (buku.id || '').toLowerCase().includes(lowerSearch) ||
-            (buku.penerbit || '').toLowerCase().includes(lowerSearch) ||
-            (buku.mapel || '').toLowerCase().includes(lowerSearch)
-        );
+        return processedData.filter(buku => {
+            // AMBIL DATA DARI DUA KEMUNGKINAN KEY
+            const judulReal = buku.nama || buku.judul || ''; 
+            
+            return (
+                judulReal.toLowerCase().includes(lowerSearch) || // Cek Judul/Nama
+                (buku.id || '').toLowerCase().includes(lowerSearch) ||
+                (buku.penerbit || '').toLowerCase().includes(lowerSearch) ||
+                (buku.mapel || '').toLowerCase().includes(lowerSearch)
+            );
+        });
     }, [bukuList, deferredDebouncedSearchText]);
 
     // B. Filter Kolom & Logic Sorting Terpusat (UTAMA)
