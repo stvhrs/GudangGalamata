@@ -476,7 +476,13 @@ const BukuPage = () => {
                 {(activeTab === '3' || hasTab3Loaded) && (<StokHistoryTabTransaksi />)}
             </div>
 
-            {isModalOpen && <BukuForm open={isModalOpen} onCancel={handleCloseModal} initialValues={editingBuku} />}
+            {isModalOpen && // Di dalam BukuPage.jsx
+<BukuForm 
+    open={isModalOpen} 
+    onCancel={handleCloseModal} 
+    initialValues={editingBuku} 
+    bukuList={bukuList} // <--- TAMBAHKAN INI
+/>}
             {isStokModalOpen && <StokFormModal open={isStokModalOpen} onCancel={handleCloseStokModal} buku={stokBuku} />}
             {isPreviewModalVisible && (<PdfPreviewModal visible={isPreviewModalVisible} onClose={handleClosePreviewModal} pdfBlobUrl={pdfPreviewUrl} fileName={pdfFileName} />)}
             {isBulkRestockModalOpen && (<BulkRestockModal open={isBulkRestockModalOpen} onClose={handleCloseBulkRestockModal} bukuList={bukuList} />)}
