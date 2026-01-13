@@ -316,7 +316,7 @@ const BukuPage = () => {
             key: 'diskon', 
             align: 'center', 
             width: 150, 
-            render: (v) => v ? `Rp ${numberFormatter(v)}` : '-', 
+            render: (v) => v ? `${numberFormatter(v)}%` : '-', 
             sorter: true,
             sortOrder: sortState.columnKey === 'harga' && sortState.order 
         },
