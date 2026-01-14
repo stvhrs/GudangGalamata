@@ -25,6 +25,95 @@ const MAIN_STYLE = "font-family: 'Verdana', 'Consolas', monospace; font-size: 12
 // ==========================================
 // 1. GENERATE NOTA TRANSAKSI (INVOICE)
 // ==========================================
+export const generateReturText = (returData, items) => {
+    const dataItems = items || [];
+    const namaPelanggan = (returData.namaCustomer || 'Umum').toUpperCase();
+
+    let totalQty = 0;
+    dataItems.forEach(i => totalQty += Number(i.qty || 0));
+
+    // LAYOUT BARU (Agar Qty muat ratusan ribu):
+    // No(5), Kode(10), Barang(30), Peruntukan(10), Qty(10), Harga(15), Subtotal(20) = 100%
+    let html = `
+    <div style="${MAIN_STYLE}">
+        <div style="text-align:center; font-size:16px;">${companyInfo.nama}</div>
+        <div style="text-align:center; font-weight:bold; font-size:14px; margin-bottom:8px;">NOTA RETUR PENJUALAN</div>
+        <div style="border-bottom: 1px solid black; margin-bottom: 8px;"></div>
+
+        <table style="width:100%; margin-bottom:15px;">
+            <tr>
+                <td width="60%">
+                    No. Retur: ${returData.id || '-'}<br>
+                    Ref. Inv : ${returData.invoiceId || '-'}
+                </td>
+                <td width="40%" style="text-align: right;">
+                    Tanggal: ${formatDate(returData.tanggal)}<br>
+                    Customer: <b>${namaPelanggan}</b>
+                </td>
+            </tr>
+        </table>
+
+        <table style="width:100%; border-collapse: collapse; table-layout: fixed;">
+            <thead style="border-top: 1px solid black; border-bottom: 1px solid black;">
+                <tr>
+                    <td width="5%" style="text-align: center; padding: 5px 0;">No</td>
+                    <td width="10%" style="text-align: left; padding: 5px 0;">Kode</td>
+                    <td width="30%" style="text-align: left; padding: 5px 0;">Barang</td>
+                    <td width="10%" style="text-align: left; padding: 5px 0;">-</td>
+                    
+                    <td width="10%" style="text-align: right; padding: 5px 0;">Qty</td>
+                    
+                    <td width="15%" style="text-align: right; padding: 5px 0;">Harga</td>
+                    <td width="20%" style="text-align: right; padding: 5px 0;">Subtotal</td>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    dataItems.forEach((item, i) => {
+        html += `
+            <tr>
+                <td style="text-align: center; vertical-align: top; padding-top: 3px;">${i + 1}</td>
+                <td style="text-align: left; vertical-align: top; padding-top: 3px; word-wrap: break-word;">${item.productId || '-'}</td>
+                <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px; word-wrap: break-word;">${item.judul || item.productName || 'Retur Manual'}</td>
+                <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px;">${item.peruntukan || '-'}</td>
+                
+                <td style="text-align: right; vertical-align: top; padding-top: 3px;">${item.qty || 0}</td>
+                
+                <td style="text-align: right; vertical-align: top; padding-top: 3px;">${formatNumber(item.harga)}</td>
+                <td style="text-align: right; vertical-align: top; padding-top: 3px;">${formatNumber(item.subtotal)}</td>
+            </tr>
+        `;
+    });
+
+    html += `
+            </tbody>
+            <tfoot style="border-top: 1px solid black;">
+                <tr>
+                    <td colspan="4" style="text-align: right; padding-top: 5px; padding-right:10px;">Total Item:</td>
+                    
+                    <td style="text-align: right; font-weight:bold; padding-top: 5px;">${totalQty}</td>
+                    
+                    <td colspan="2"></td>
+                </tr>
+                <tr>
+                    <td colspan="6" style="text-align: right; font-weight:bold; padding-top: 5px;">TOTAL UANG KEMBALI :</td>
+                    <td style="text-align: right; font-weight:bold; font-size:14px; padding-top: 5px;">${formatNumber(returData.totalRetur)}</td>
+                </tr>
+            </tfoot>
+        </table>
+        
+        <table style="width:100%; margin-top: 25px;">
+            <tr>
+                <td width="50%" style="text-align: left;">Hormat Kami,<br><br><br><br>( Admin )</td>
+                <td width="50%" style="text-align: left;">Customer,<br><br><br><br>( ${namaPelanggan.substring(0,15)} )</td>
+            </tr>
+        </table>
+    </div>
+    `;
+    return html;
+};
+
 export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     const dataItems = items || [];
     const judul = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
@@ -34,8 +123,8 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     let totalQty = 0;
     dataItems.forEach(i => totalQty += Number(i.qty || i.jumlah || 0));
 
-    // Base Font diturunkan ke 12px
-    // Penyesuaian layout kolom: No(5), Kode(10), Barang(35), Peruntukan(10), Qty(5), Harga(15), Subtotal(20)
+    // LAYOUT BARU:
+    // No(5), Kode(10), Barang(30), Peruntukan(10), Qty(10), Harga(15), Subtotal(20)
     let html = `
     <div style="${MAIN_STYLE}">
         <table style="width: 100%; margin-bottom: 8px;">
@@ -60,10 +149,12 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
             <tbody>
                 <tr style="border-top: 1px solid black; border-bottom: 1px solid black;">
                     <td width="5%" style="text-align: center; padding: 4px 0;">No</td>
-                    <td width="5%" style="text-align: left; padding: 4px 0;">Kode</td>
-                    <td width="40%" style="text-align: left; padding: 4px 0;">Nama Barang</td>
+                    <td width="10%" style="text-align: left; padding: 4px 0;">Kode</td>
+                    <td width="30%" style="text-align: left; padding: 4px 0;">Nama Barang</td>
                     <td width="10%" style="text-align: left; padding: 4px 0;">-</td>
-                    <td width="5%" style="text-align: center; padding: 4px 0;">Qty</td>
+                    
+                    <td width="10%" style="text-align: right; padding: 4px 0;">Qty</td>
+                    
                     <td width="15%" style="text-align: right; padding: 4px 0;">Harga</td>
                     <td width="20%" style="text-align: right; padding: 4px 0;">Subtotal</td>
                 </tr>
@@ -81,7 +172,9 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
                 <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${item.productId || '-'}</td>
                 <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${item.judul || item.productName || '-'}</td>
                 <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${item.peruntukan || '-'}</td>
-                <td style="text-align: center; padding: 2px 0; vertical-align: top;">${qty}</td>
+                
+                <td style="text-align: right; padding: 2px 0; vertical-align: top;">${qty}</td>
+                
                 <td style="text-align: right; padding: 2px 0; vertical-align: top;">${formatNumber(harga)}</td>
                 <td style="text-align: right; padding: 2px 0; vertical-align: top;">${formatNumber(subtotal)}</td>
             </tr>
@@ -89,11 +182,12 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     });
 
     // 3. FOOTER TABLE ITEM
-    // Colspan disesuaikan menjadi 4 (No + Kode + Barang + Peruntukan)
     html += `
                 <tr style="border-top: 1px solid black;">
                     <td colspan="4" style="text-align: right; padding-top: 4px; padding-right:10px;">Total Item:</td>
-                    <td style="text-align: center; font-weight:bold; padding-top: 4px;">${formatNumber(totalQty)}</td>
+                    
+                    <td style="text-align: right; font-weight:bold; padding-top: 4px;">${totalQty}</td>
+                    
                     <td colspan="2"></td>
                 </tr>
             </tbody>
@@ -144,13 +238,13 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
                         <tr>
                             <td style="text-align: left; padding: 2px 0; padding-bottom: 4px;">Bayar</td>
                             <td style="text-align: center; padding: 2px 0; padding-bottom: 4px;">:</td>
-                            <td style="text-align: right; font-weight:bold; padding: 2px 0; padding-bottom: 4px;">${formatNumber(transaksi.totalBayar)}</td>
+                            <td style="text-align: right; padding: 2px 0; padding-bottom: 4px;">${formatNumber(transaksi.totalBayar)}</td>
                         </tr>
                         
                         <tr style="border-top: 1px solid black;">
                             <td style="text-align: left; padding-top: 4px;">Sisa</td>
                             <td style="text-align: center; padding-top: 4px;">:</td>
-                            <td style="text-align: right; font-weight:bold; padding-top: 4px;">${formatNumber(sisaTagihan)}</td>
+                            <td style="text-align: right; padding-top: 4px;">${formatNumber(sisaTagihan)}</td>
                         </tr>
                     </table>
                 </td>
@@ -229,89 +323,7 @@ export const generateNotaPembayaranText = (payment, allocations) => {
 // ==========================================
 // 3. GENERATE NOTA RETUR
 // ==========================================
-export const generateReturText = (returData, items) => {
-    const dataItems = items || [];
-    const namaPelanggan = (returData.namaCustomer || 'Umum').toUpperCase();
 
-    let totalQty = 0;
-    dataItems.forEach(i => totalQty += Number(i.qty || 0));
-
-    // Penyesuaian lebar kolom agar muat untuk Kode dan Peruntukan
-    // Layout baru: No(5), Kode(10), Barang(30), Peruntukan(15), Qty(5), Harga(15), Subtotal(20)
-    let html = `
-    <div style="${MAIN_STYLE}">
-        <div style="text-align:center; font-size:16px;">${companyInfo.nama}</div>
-        <div style="text-align:center; font-weight:bold; font-size:14px; margin-bottom:8px;">NOTA RETUR PENJUALAN</div>
-        <div style="border-bottom: 1px solid black; margin-bottom: 8px;"></div>
-
-        <table style="width:100%; margin-bottom:15px;">
-            <tr>
-                <td width="60%">
-                    No. Retur: ${returData.id || '-'}<br>
-                    Ref. Inv : ${returData.invoiceId || '-'}
-                </td>
-                <td width="40%" style="text-align: right;">
-                    Tanggal: ${formatDate(returData.tanggal)}<br>
-                    Customer: <b>${namaPelanggan}</b>
-                </td>
-            </tr>
-        </table>
-
-        <table style="width:100%; border-collapse: collapse; table-layout: fixed;">
-            <thead style="border-top: 1px solid black; border-bottom: 1px solid black;">
-                <tr>
-                    <td width="5%" style="text-align: center; padding: 5px 0;">No</td>
-                    <td width="5%" style="text-align: left; padding: 5px 0;">Kode</td>
-                    <td width="35%" style="text-align: left; padding: 5px 0;">Barang</td>
-                    <td width="15%" style="text-align: left; padding: 5px 0;">-</td>
-                    <td width="5%" style="text-align: center; padding: 5px 0;">Qty</td>
-                    <td width="15%" style="text-align: right; padding: 5px 0;">Harga</td>
-                    <td width="20%" style="text-align: right; padding: 5px 0;">Subtotal</td>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-
-    dataItems.forEach((item, i) => {
-        html += `
-            <tr>
-                <td style="text-align: center; vertical-align: top; padding-top: 3px;">${i + 1}</td>
-                <td style="text-align: left; vertical-align: top; padding-top: 3px; word-wrap: break-word;">${item.productId || '-'}</td>
-                <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px; word-wrap: break-word;">${item.judul || item.productName || 'Retur Manual'}</td>
-                <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px;">${item.peruntukan || '-'}</td>
-                <td style="text-align: center; vertical-align: top; padding-top: 3px;">${item.qty || 0}</td>
-                <td style="text-align: right; vertical-align: top; padding-top: 3px;">${formatNumber(item.harga)}</td>
-                <td style="text-align: right; vertical-align: top; padding-top: 3px;">${formatNumber(item.subtotal)}</td>
-            </tr>
-        `;
-    });
-
-    // Colspan disesuaikan menjadi 4 (No + Kode + Barang + Peruntukan) agar lurus dengan Qty
-    html += `
-            </tbody>
-            <tfoot style="border-top: 1px solid black;">
-                <tr>
-                    <td colspan="4" style="text-align: right; padding-top: 5px; padding-right:10px;">Total Item:</td>
-                    <td style="text-align: center; font-weight:bold; padding-top: 5px;">${formatNumber(totalQty)}</td>
-                    <td colspan="2"></td>
-                </tr>
-                <tr>
-                    <td colspan="6" style="text-align: right; font-weight:bold; padding-top: 5px;">TOTAL UANG KEMBALI :</td>
-                    <td style="text-align: right; font-weight:bold; font-size:14px; padding-top: 5px;">${formatNumber(returData.totalRetur)}</td>
-                </tr>
-            </tfoot>
-        </table>
-        
-        <table style="width:100%; margin-top: 25px;">
-            <tr>
-                <td width="50%" style="text-align: left;">Hormat Kami,<br><br><br><br>( Admin )</td>
-                <td width="50%" style="text-align: left;">Customer,<br><br><br><br>( ${namaPelanggan.substring(0,15)} )</td>
-            </tr>
-        </table>
-    </div>
-    `;
-    return html;
-};
 // ==========================================
 // 4. GENERATE NOTA NON-FAKTUR
 // ==========================================
