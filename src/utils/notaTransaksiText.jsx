@@ -218,7 +218,7 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
                             <td width="5%"  style="text-align: center; padding: 1px 0;">:</td>
                             <td width="55%" style="text-align: right; padding: 1px 0;">${formatNumber(transaksi.totalBruto)}</td>
                         </tr>
-                        <tr>
+                        <tr>    
                             <td style="text-align: left; padding: 1px 0;">Diskon</td>
                             <td style="text-align: center; padding: 1px 0;">:</td>
                             <td style="text-align: right; padding: 1px 0;">${formatNumber(transaksi.totalDiskon)}</td>

@@ -503,6 +503,8 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                         <thead>
                             <tr style={{ background: '#f0f0f0' }}> 
                                 <th style={{ border: '1px solid #000', padding: '6px' }}>Tanggal</th>
+                                {/* --- PERUBAHAN DI SINI: MENAMBAHKAN HEADER NO. --- */}
+                                <th style={{ border: '1px solid #000', padding: '6px' }}>No.</th>
                                 <th style={{ border: '1px solid #000', padding: '6px' }}>Tipe</th>
                                 <th style={{ border: '1px solid #000', padding: '6px' }}>Keterangan</th>
                                 <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>Kredit (+)</th>
@@ -514,6 +516,8 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                             {captureDataList.length > 0 ? captureDataList.map((item, idx) => (
                                 <tr key={idx}>
                                     <td style={{ border: '1px solid #000', padding: '6px' }}>{dayjs(item.date).format('DD MMM YY')}</td>
+                                    {/* --- PERUBAHAN DI SINI: MENAMBAHKAN DATA ID --- */}
+                                    <td style={{ border: '1px solid #000', padding: '6px' }}>{item.id}</td>
                                     <td style={{ border: '1px solid #000', padding: '6px' }}>{item.type}</td>
                                     <td style={{ border: '1px solid #000', padding: '6px' }}>{item.keterangan || '-'}</td>
                                     <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right' }}>{!item.isDebit ? formatNumber(item.amount) : '-'}</td>
@@ -521,7 +525,8 @@ export default function CustomerHistoryModal({ open, onCancel, customer }) {
                                     <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>{formatNumber(item.balance)}</td>
                                 </tr>
                             )) : (
-                                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '10px', border: '1px solid #000' }}>Tidak ada data</td></tr>
+                                // Ubah colSpan jadi 7 karena ada tambahan kolom
+                                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '10px', border: '1px solid #000' }}>Tidak ada data</td></tr>
                             )}
                         </tbody>
                     </table>
