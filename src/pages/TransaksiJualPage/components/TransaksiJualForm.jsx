@@ -208,7 +208,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
         if (changedValues.items) calculateTotalDiskon(allValues.items);
     };
 
-    const handleFinish = async (values) => {
+   const handleFinish = async (values) => {
         setIsSaving(true);
         message.loading({ content: 'Menyimpan...', key: 'tx', duration: 0 });
         try {
@@ -219,6 +219,8 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
 
             let totalBruto = 0;
             let totalQty = 0;
+
+            // === 1. PROSES DATA ITEM & KONVERSI KELAS ===
             const processedItems = items.map((item) => {
                 const option = bukuOptions.find(b => b.value === item.idBuku);
                 if (!option) throw new Error(`Buku tidak ditemukan`);
@@ -227,7 +229,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 const hargaSatuan = Number(item.hargaSatuan);
                 const diskonPersen = Number(item.diskonPersen || 0);
                 const jumlah = Number(item.jumlah);
-                const peruntukan = item.peruntukan || '-'; // Ambil peruntukan dari input (bisa diedit user)
+                const peruntukan = item.peruntukan || '-';
                 
                 const brutoItem = hargaSatuan * jumlah;
                 const diskonItem = Math.round(brutoItem * (diskonPersen / 100));
@@ -235,9 +237,17 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 
                 totalBruto += brutoItem;
                 totalQty += jumlah;
+
+                // --- LOGIC BARU: AMBIL KELAS & CONVERT KE STRING ---
+                let kelasFixed = '';
+                if (buku.kelas !== undefined && buku.kelas !== null) {
+                    kelasFixed = String(buku.kelas); // Paksa convert ke String
+                }
+
                 return { 
                     idBuku: item.idBuku, 
                     judul: buku.nama, 
+                    kelas: kelasFixed, // Masukkan ke object sementara
                     peruntukan: peruntukan,
                     jumlah, hargaSatuan, diskonPersen, subtotal, 
                     _bukuData: buku 
@@ -248,6 +258,8 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
             const totalNetto = (totalBruto - Number(totalDiskon || 0)) + Number(biayaTentu || 0);
             const txKey = nomorInvoice;
             const updates = {};
+            
+            // ... (Logic status pembayaran tidak berubah) ...
             let statusPembayaran = 'BELUM';
             let existingBayar = 0;
             let existingRetur = 0;
@@ -322,7 +334,8 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                     invoiceId: txKey, 
                     productId: i.idBuku, 
                     judul: i.judul,
-                    peruntukan: i.peruntukan, // SIMPAN PERUNTUKAN
+                    kelas: i.kelas, // <--- PROPERTY KELAS DISIMPAN KE FIREBASE
+                    peruntukan: i.peruntukan,
                     qty: i.jumlah, 
                     harga: i.hargaSatuan, 
                     diskonPersen: i.diskonPersen, 
@@ -332,7 +345,7 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                 };
             });
 
-            // --- MANAJEMEN STOK ---
+            // --- MANAJEMEN STOK (Tidak berubah) ---
             const stockDiff = new Map();
             
             if (mode === 'edit') {

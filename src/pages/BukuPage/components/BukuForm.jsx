@@ -386,8 +386,21 @@ const BukuForm = ({ open, onCancel, initialValues, bukuList = [] }) => {
                             </Col>
 
                             <Col sm={8} xs={12}>
-                                <Form.Item name="kelas" label="Kelas">
-                                    <InputNumber style={{ width: '100%' }} />
+                                <Form.Item 
+                                    name="kelas" 
+                                    label="Kelas"
+                                    rules={[{ required: true, message: 'Kelas wajib diisi' }]}
+                                >
+                                    <Input 
+                                        placeholder="Contoh: KELAS VII" 
+                                        style={{ textTransform: 'uppercase' }}
+                                        onChange={(e) => {
+                                            // Opsional: Paksa input jadi Uppercase saat diketik
+                                            form.setFieldsValue({ 
+                                                kelas: e.target.value.toUpperCase() 
+                                            });
+                                        }}
+                                    />
                                 </Form.Item>
                             </Col>
 

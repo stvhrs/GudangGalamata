@@ -25,15 +25,67 @@ const MAIN_STYLE = "font-family: 'Verdana', 'Consolas', monospace; font-size: 12
 // ==========================================
 // 1. GENERATE NOTA TRANSAKSI (INVOICE)
 // ==========================================
+// --- HELPER SORTING & EKSTRAKSI ---
+
+const romanMap = {
+    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+    'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10,
+    'XI': 11, 'XII': 12
+};
+
+// Fungsi UTAMA: Mendapatkan angka/romawi kelas bersih (misal: "XII" atau "10")
+// Prioritas: 1. item.kelas, 2. Regex dari Judul
+const getCleanClassStr = (item) => {
+    let raw = item.kelas; // Cek property kelas dulu
+
+    // Jika property kelas kosong, cari di judul/nama produk
+    if (!raw) {
+        const text = item.judul || item.productName || '';
+        const match = text.match(/KELAS\s+([IVX0-9]+)/i);
+        if (match) raw = match[1]; // Ambil capture group angkanya saja
+    }
+
+    if (!raw) return null;
+
+    // Bersihkan string (jaga-jaga jika isi property item.kelas adalah "KELAS V", kita ambil "V"-nya saja)
+    const cleanMatch = raw.toString().match(/([IVX0-9]+)/i);
+    return cleanMatch ? cleanMatch[0].toUpperCase() : null;
+};
+
+// Fungsi hitung bobot untuk sorting
+const getKelasWeight = (item) => {
+    const val = getCleanClassStr(item);
+    
+    if (!val) return 0; // Tidak ada kelas (UMUM) = Paling Atas (0)
+    
+    // Cek map Romawi atau parse angka biasa. Default 99 jika format aneh.
+    return romanMap[val] || parseInt(val) || 99; 
+};
+
+// Fungsi untuk tampilan di Tabel (Return string "KELAS XII" atau "-")
+const getDisplayKelas = (item) => {
+    const val = getCleanClassStr(item);
+    return val ? `KELAS ${val}` : '-';
+};
+
+
+// ==========================================
+// 1. GENERATE RETUR TEXT
+// ==========================================
 export const generateReturText = (returData, items) => {
-    const dataItems = items || [];
+    // CLONE & SORT ITEMS
+    const dataItems = items ? [...items] : [];
+
+    // Sorting: UMUM (0) -> KELAS I (1) -> ... -> KELAS XII (12)
+    dataItems.sort((a, b) => {
+        return getKelasWeight(a) - getKelasWeight(b);
+    });
+
     const namaPelanggan = (returData.namaCustomer || 'Umum').toUpperCase();
 
     let totalQty = 0;
     dataItems.forEach(i => totalQty += Number(i.qty || 0));
 
-    // LAYOUT BARU (Agar Qty muat ratusan ribu):
-    // No(5), Kode(10), Barang(30), Peruntukan(10), Qty(10), Harga(15), Subtotal(20) = 100%
     let html = `
     <div style="${MAIN_STYLE}">
         <div style="text-align:center; font-size:16px;">${companyInfo.nama}</div>
@@ -58,8 +110,9 @@ export const generateReturText = (returData, items) => {
                 <tr>
                     <td width="5%" style="text-align: center; padding: 5px 0;">No</td>
                     <td width="10%" style="text-align: left; padding: 5px 0;">Kode</td>
-                    <td width="30%" style="text-align: left; padding: 5px 0;">Barang</td>
-                    <td width="10%" style="text-align: left; padding: 5px 0;">-</td>
+                    <td width="22%" style="text-align: left; padding: 5px 0;">Barang</td>
+                    <td width="10%" style="text-align: left; padding: 5px 0;">Kelas</td>
+                    <td width="8%" style="text-align: left; padding: 5px 0;">-</td>
                     
                     <td width="10%" style="text-align: right; padding: 5px 0;">Qty</td>
                     
@@ -71,11 +124,16 @@ export const generateReturText = (returData, items) => {
     `;
 
     dataItems.forEach((item, i) => {
+        const namaBarang = item.judul || item.productName || 'Retur Manual';
+        // Gunakan helper baru untuk display
+        const kelasInfo = getDisplayKelas(item);
+
         html += `
             <tr>
                 <td style="text-align: center; vertical-align: top; padding-top: 3px;">${i + 1}</td>
                 <td style="text-align: left; vertical-align: top; padding-top: 3px; word-wrap: break-word;">${item.productId || '-'}</td>
-                <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px; word-wrap: break-word;">${item.judul || item.productName || 'Retur Manual'}</td>
+                <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px; word-wrap: break-word;">${namaBarang}</td>
+                <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px;">${kelasInfo}</td>
                 <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px;">${item.peruntukan || '-'}</td>
                 
                 <td style="text-align: right; vertical-align: top; padding-top: 3px;">${item.qty || 0}</td>
@@ -90,14 +148,14 @@ export const generateReturText = (returData, items) => {
             </tbody>
             <tfoot style="border-top: 1px solid black;">
                 <tr>
-                    <td colspan="4" style="text-align: right; padding-top: 5px; padding-right:10px;">Total Item:</td>
+                    <td colspan="5" style="text-align: right; padding-top: 5px; padding-right:10px;">Total Item:</td>
                     
                     <td style="text-align: right; font-weight:bold; padding-top: 5px;">${totalQty}</td>
                     
                     <td colspan="2"></td>
                 </tr>
                 <tr>
-                    <td colspan="6" style="text-align: right; font-weight:bold; padding-top: 5px;">TOTAL UANG KEMBALI :</td>
+                    <td colspan="7" style="text-align: right; font-weight:bold; padding-top: 5px;">TOTAL UANG KEMBALI :</td>
                     <td style="text-align: right; font-weight:bold; font-size:14px; padding-top: 5px;">${formatNumber(returData.totalRetur)}</td>
                 </tr>
             </tfoot>
@@ -114,8 +172,19 @@ export const generateReturText = (returData, items) => {
     return html;
 };
 
+
+// ==========================================
+// 2. GENERATE TRANSAKSI TEXT
+// ==========================================
 export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
-    const dataItems = items || [];
+    // CLONE & SORT ITEMS
+    const dataItems = items ? [...items] : [];
+    
+    // Sorting: UMUM (0) -> KELAS I (1) -> ... -> KELAS XII (12)
+    dataItems.sort((a, b) => {
+        return getKelasWeight(a) - getKelasWeight(b);
+    });
+
     const judul = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
     const sisaTagihan = Number(transaksi.sisaTagihan || 0);
     const namaPelanggan = (transaksi.namaCustomer || 'Umum').toUpperCase();
@@ -124,7 +193,6 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     dataItems.forEach(i => totalQty += Number(i.qty || i.jumlah || 0));
 
     // LAYOUT BARU:
-    // No(5), Kode(10), Barang(30), Peruntukan(10), Qty(10), Harga(15), Subtotal(20)
     let html = `
     <div style="${MAIN_STYLE}">
         <table style="width: 100%; margin-bottom: 8px;">
@@ -149,28 +217,33 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
             <tbody>
                 <tr style="border-top: 1px solid black; border-bottom: 1px solid black;">
                     <td width="5%" style="text-align: center; padding: 4px 0;">No</td>
-                    <td width="10%" style="text-align: left; padding: 4px 0;">Kode</td>
-                    <td width="30%" style="text-align: left; padding: 4px 0;">Nama Barang</td>
+                    <td width="8%" style="text-align: left; padding: 4px 0;">Kode</td>
+                    <td width="45%" style="text-align: left; padding: 4px 0;">Nama Barang</td>
+                    <td width="15%" style="text-align: left; padding: 4px 0;">Kelas</td>
                     <td width="10%" style="text-align: left; padding: 4px 0;">-</td>
                     
                     <td width="10%" style="text-align: right; padding: 4px 0;">Qty</td>
                     
                     <td width="15%" style="text-align: right; padding: 4px 0;">Harga</td>
-                    <td width="20%" style="text-align: right; padding: 4px 0;">Subtotal</td>
+                    <td width="15%" style="text-align: right; padding: 4px 0;">Subtotal</td>
                 </tr>
     `;
 
-    // 2. LOOPING ITEMS
     dataItems.forEach((item, index) => {
         const qty = Number(item.qty || item.jumlah || 0);
         const harga = Number(item.harga || item.hargaSatuan || 0);
         const subtotal = Number(item.subtotal || 0);
+        
+        const namaBarang = item.judul || item.productName || '-';
+        // Gunakan helper baru untuk display
+        const kelasInfo = getDisplayKelas(item);
 
         html += `
             <tr>
                 <td style="text-align: center; padding: 2px 0; vertical-align: top;">${index + 1}</td>
                 <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${item.productId || '-'}</td>
-                <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${item.judul || item.productName || '-'}</td>
+                <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${namaBarang}</td>
+                <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${kelasInfo}</td>
                 <td style="text-align: left; padding: 2px 5px 2px 0; vertical-align: top; word-wrap: break-word;">${item.peruntukan || '-'}</td>
                 
                 <td style="text-align: right; padding: 2px 0; vertical-align: top;">${qty}</td>
@@ -181,10 +254,9 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
         `;
     });
 
-    // 3. FOOTER TABLE ITEM
     html += `
                 <tr style="border-top: 1px solid black;">
-                    <td colspan="4" style="text-align: right; padding-top: 4px; padding-right:10px;">Total Item:</td>
+                    <td colspan="5" style="text-align: right; padding-top: 4px; padding-right:10px;">Total Item:</td>
                     
                     <td style="text-align: right; font-weight:bold; padding-top: 4px;">${totalQty}</td>
                     
@@ -377,3 +449,4 @@ export const generateNotaNonFakturText = (data) => {
     `;
     return html;
 };
+
