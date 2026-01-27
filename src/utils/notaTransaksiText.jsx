@@ -27,46 +27,79 @@ const MAIN_STYLE = "font-family: 'Verdana', 'Consolas', monospace; font-size: 12
 // ==========================================
 // --- HELPER SORTING & EKSTRAKSI ---
 
-const romanMap = {
-    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
-    'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10,
-    'XI': 11, 'XII': 12
+// ==========================================
+// HELPER & LOGIC SORTING
+// ==========================================
+
+
+// ==========================================
+// 1. HELPER FUNCTIONS
+// ==========================================
+// ==========================================
+// 1. HELPER FUNCTIONS (FULL)
+// ==========================================
+
+const romanMap = { 
+    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 
+    'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12 
 };
 
-// Fungsi UTAMA: Mendapatkan angka/romawi kelas bersih (misal: "XII" atau "10")
-// Prioritas: 1. item.kelas, 2. Regex dari Judul
+// --- Function 1: Bersihkan String ---
 const getCleanClassStr = (item) => {
-    let raw = item.kelas; // Cek property kelas dulu
-
-    // Jika property kelas kosong, cari di judul/nama produk
+    let raw = item.kelas; 
+    
+    // Backup: Cari di judul jika property kelas kosong
     if (!raw) {
         const text = item.judul || item.productName || '';
-        const match = text.match(/KELAS\s+([IVX0-9]+)/i);
-        if (match) raw = match[1]; // Ambil capture group angkanya saja
+        const match = text.match(/KELAS\s+([a-z0-9\s]+)/i);
+        if (match) raw = match[1]; 
     }
 
-    if (!raw) return null;
-
-    // Bersihkan string (jaga-jaga jika isi property item.kelas adalah "KELAS V", kita ambil "V"-nya saja)
-    const cleanMatch = raw.toString().match(/([IVX0-9]+)/i);
-    return cleanMatch ? cleanMatch[0].toUpperCase() : null;
+    if (!raw) return ''; 
+    return raw.toString().trim().toUpperCase();
 };
 
-// Fungsi hitung bobot untuk sorting
-const getKelasWeight = (item) => {
-    const val = getCleanClassStr(item);
-    
-    if (!val) return 0; // Tidak ada kelas (UMUM) = Paling Atas (0)
-    
-    // Cek map Romawi atau parse angka biasa. Default 99 jika format aneh.
-    return romanMap[val] || parseInt(val) || 99; 
+// --- Function 2: Tentukan Bobot (Grup Atas vs Bawah) ---
+const getKelasWeight = (str) => {
+    if (!str) return 0; // Paling atas (Umum)
+
+    // Cek apakah formatnya Angka Standar (1-12) atau Romawi (I-XII)
+    const isRoman = romanMap[str] !== undefined;
+    const isNumber = !isNaN(parseInt(str)) && String(parseInt(str)) === str;
+
+    // Jika Angka/Romawi Standar -> Bobot 100 (Di Bawah)
+    if (isRoman) return 100 + romanMap[str]; // 101, 102, dst
+    if (isNumber) return 100 + parseInt(str); // 101, 102, dst
+
+    // Jika Huruf/Alphanumeric (A, B1, C, TK, FASE) -> Bobot 0 (Di Atas)
+    return 0;
 };
 
-// Fungsi untuk tampilan di Tabel (Return string "KELAS XII" atau "-")
+// --- Function 3: Tampilan di Tabel (YANG HILANG TADI) ---
 const getDisplayKelas = (item) => {
     const val = getCleanClassStr(item);
-    return val ? `KELAS ${val}` : '-';
+    
+    if (!val) return '-';
+
+    // Cek format standard
+    const isRoman = romanMap[val] !== undefined;
+    const isNumber = !isNaN(parseInt(val)) && String(parseInt(val)) === val;
+
+    // Jika Angka/Romawi (1, 5, X) -> Tambah kata "KELAS"
+    if (isRoman || isNumber) {
+        return `KELAS ${val}`;
+    }
+
+    // Jika Random (A, B3, C, TK) -> Tampilkan Saja
+    return val;
 };
+
+
+// ==========================================
+// 2. LOGIC SORTING (Taruh di dalam function generate)
+// ==========================================
+
+// ... di dalam function generateReturText / generateTransaksiText ...
 
 
 // ==========================================
@@ -74,13 +107,34 @@ const getDisplayKelas = (item) => {
 // ==========================================
 export const generateReturText = (returData, items) => {
     // CLONE & SORT ITEMS
-    const dataItems = items ? [...items] : [];
+   const dataItems = items ? [...items] : [];
 
-    // Sorting: UMUM (0) -> KELAS I (1) -> ... -> KELAS XII (12)
-    dataItems.sort((a, b) => {
-        return getKelasWeight(a) - getKelasWeight(b);
-    });
+dataItems.sort((a, b) => {
+    const strA = getCleanClassStr(a);
+    const strB = getCleanClassStr(b);
+    
+    const weightA = getKelasWeight(strA);
+    const weightB = getKelasWeight(strB);
 
+    // 1. Cek Bedanya Grup (Huruf vs Angka Standard)
+    // Grup Huruf (0) akan naik, Grup Angka (100+) akan turun
+    if (Math.floor(weightA / 100) !== Math.floor(weightB / 100)) {
+        return weightA - weightB;
+    }
+
+    // 2. Sorting di dalam Grup
+    if (weightA >= 100) {
+        // Jika sesama Angka Standard (Kelas 1 vs Kelas 10), pakai bobot angka
+        return weightA - weightB;
+    } else {
+        // Jika sesama Huruf Random (A, A2, B1, C)
+        // Gunakan 'numeric: true' agar B2 dianggap lebih kecil dari B10
+        return strA.localeCompare(strB, undefined, { 
+            numeric: true, 
+            sensitivity: 'base' 
+        });
+    }
+});
     const namaPelanggan = (returData.namaCustomer || 'Umum').toUpperCase();
 
     let totalQty = 0;
@@ -125,7 +179,6 @@ export const generateReturText = (returData, items) => {
 
     dataItems.forEach((item, i) => {
         const namaBarang = item.judul || item.productName || 'Retur Manual';
-        // Gunakan helper baru untuk display
         const kelasInfo = getDisplayKelas(item);
 
         html += `
@@ -178,12 +231,34 @@ export const generateReturText = (returData, items) => {
 // ==========================================
 export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     // CLONE & SORT ITEMS
-    const dataItems = items ? [...items] : [];
+   const dataItems = items ? [...items] : [];
+
+dataItems.sort((a, b) => {
+    const strA = getCleanClassStr(a);
+    const strB = getCleanClassStr(b);
     
-    // Sorting: UMUM (0) -> KELAS I (1) -> ... -> KELAS XII (12)
-    dataItems.sort((a, b) => {
-        return getKelasWeight(a) - getKelasWeight(b);
-    });
+    const weightA = getKelasWeight(strA);
+    const weightB = getKelasWeight(strB);
+
+    // 1. Cek Bedanya Grup (Huruf vs Angka Standard)
+    // Grup Huruf (0) akan naik, Grup Angka (100+) akan turun
+    if (Math.floor(weightA / 100) !== Math.floor(weightB / 100)) {
+        return weightA - weightB;
+    }
+
+    // 2. Sorting di dalam Grup
+    if (weightA >= 100) {
+        // Jika sesama Angka Standard (Kelas 1 vs Kelas 10), pakai bobot angka
+        return weightA - weightB;
+    } else {
+        // Jika sesama Huruf Random (A, A2, B1, C)
+        // Gunakan 'numeric: true' agar B2 dianggap lebih kecil dari B10
+        return strA.localeCompare(strB, undefined, { 
+            numeric: true, 
+            sensitivity: 'base' 
+        });
+    }
+});
 
     const judul = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
     const sisaTagihan = Number(transaksi.sisaTagihan || 0);
@@ -192,7 +267,6 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     let totalQty = 0;
     dataItems.forEach(i => totalQty += Number(i.qty || i.jumlah || 0));
 
-    // LAYOUT BARU:
     let html = `
     <div style="${MAIN_STYLE}">
         <table style="width: 100%; margin-bottom: 8px;">
@@ -235,7 +309,6 @@ export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
         const subtotal = Number(item.subtotal || 0);
         
         const namaBarang = item.judul || item.productName || '-';
-        // Gunakan helper baru untuk display
         const kelasInfo = getDisplayKelas(item);
 
         html += `
