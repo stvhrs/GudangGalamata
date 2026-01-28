@@ -9,7 +9,8 @@ import {
     PlusOutlined, PrinterOutlined, ReadOutlined,
     SearchOutlined, CloseCircleOutlined, EyeOutlined, EyeInvisibleOutlined, 
     EditOutlined, LoadingOutlined,
-    MenuFoldOutlined, MenuUnfoldOutlined // <-- ICON BARU
+    MenuFoldOutlined, MenuUnfoldOutlined,
+    CarOutlined // <-- ICON BARU UNTUK SURAT JALAN
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/id';
@@ -24,8 +25,8 @@ import TransaksiJualForm from './components/TransaksiJualForm';
 import TransaksiJualDetailModal from './components/TransaksiJualDetailModal';
 import TransaksiJualTableComponent from './components/TransaksiJualTableComponent';
 
-// IMPORT HELPER RAW TEXT BARU
-import { generateTransaksiText } from '../../utils/notaTransaksiText';
+// IMPORT HELPER RAW TEXT & SURAT JALAN
+import { generateTransaksiText, generateSuratJalan } from '../../utils/notaTransaksiText';
 
 // IMPORT HOOK
 import { useTransaksiJualStream } from '../../hooks/useFirebaseData';
@@ -62,7 +63,7 @@ export default function TransaksiJualPage() {
     const [isAllTime, setIsAllTime] = useState(false);
     const [showTotals, setShowTotals] = useState(false);
     
-    // --- [BARU] State untuk Toggle Kolom Diskon & Retur ---
+    // --- State untuk Toggle Kolom Diskon & Retur ---
     const [showExtraCols, setShowExtraCols] = useState(false);
 
     // Filter Params
@@ -103,6 +104,7 @@ export default function TransaksiJualPage() {
     
     // --- STATE LOADING BUTTON ROW ---
     const [printingId, setPrintingId] = useState(null);
+    const [printingType, setPrintingType] = useState(null); // 'NOTA' or 'SURAT_JALAN'
 
     // --- CONCURRENT UI ---
     const deferredAllTransaksi = useDeferredValue(allTransaksi);
@@ -219,14 +221,26 @@ export default function TransaksiJualPage() {
         }
     };
 
-    // --- RAW TEXT GENERATION & PRINT ---
+    // --- RAW TEXT GENERATION & PRINT (MODIFIED) ---
     const handleShowPreview = async (tx, type) => {
-        setPrintingId(tx.id); 
+        setPrintingId(tx.id);
+        setPrintingType(type); // 'NOTA' atau 'SURAT_JALAN'
         setLoadingPreview(true);
-        setPreviewTitle(type === 'INVOICE' ? 'Preview Invoice' : 'Preview Nota');
+        
         try {
             const items = await fetchInvoiceItems(tx.id);
-            const rawText = generateTransaksiText(tx, items, type || 'NOTA');
+            let rawText = '';
+
+            // LOGIKA PEMILIHAN TIPE CETAK
+            if (type === 'SURAT_JALAN') {
+                rawText = generateSuratJalan(tx, items);
+                setPreviewTitle('Preview Surat Jalan');
+            } else {
+                // Default ke Nota/Invoice
+                rawText = generateTransaksiText(tx, items, type || 'NOTA');
+                setPreviewTitle(type === 'INVOICE' ? 'Preview Invoice' : 'Preview Nota');
+            }
+
             setPreviewContent(rawText);
             setIsPreviewOpen(true);
         } catch (e) {
@@ -235,19 +249,24 @@ export default function TransaksiJualPage() {
         } finally {
             setLoadingPreview(false);
             setPrintingId(null); 
+            setPrintingType(null);
         }
     };
-// --- HANDLE REAL PRINT (Browser Print) ---
- const handlePrintFromPreview = () => {
-        // Panggil fungsi global
-        printRawHtml(previewContent, 'Cetak Nota Transaksi');
+
+    // --- HANDLE REAL PRINT (Browser Print) ---
+    const handlePrintFromPreview = () => {
+        printRawHtml(previewContent, previewTitle);
     };
-    // --- KOLOM AKSI ---
+
+    // --- KOLOM AKSI (UPDATED) ---
     const renderAksi = useCallback((_, record) => {
-        const isPrinting = printingId === record.id;
+        // Cek loading per tombol
+        const isPrintingNota = printingId === record.id && printingType === 'NOTA';
+        const isPrintingSJ = printingId === record.id && printingType === 'SURAT_JALAN';
         
         return (
             <Space size="small">
+                {/* 1. LIHAT DETAIL */}
                 <Tooltip title="Lihat Detail">
                     <Button 
                         size="small" 
@@ -258,6 +277,7 @@ export default function TransaksiJualPage() {
                     />
                 </Tooltip>
                 
+                {/* 2. EDIT */}
                 <Tooltip title="Edit Transaksi">
                     <Button 
                         size="small" 
@@ -268,19 +288,32 @@ export default function TransaksiJualPage() {
                     />
                 </Tooltip>
                 
-                <Tooltip title="Cetak Nota (Dot Matrix)">
+                {/* 3. CETAK NOTA */}
+                <Tooltip title="Cetak Nota">
                     <Button 
                         size="small" 
                         type="text" 
-                        icon={isPrinting ? <LoadingOutlined /> : <PrinterOutlined />} 
-                        loading={isPrinting}
+                        icon={isPrintingNota ? <LoadingOutlined /> : <PrinterOutlined />} 
+                        loading={isPrintingNota}
                         style={{ color: '#52c41a' }} 
                         onClick={() => handleShowPreview(record, 'NOTA')} 
                     />
                 </Tooltip>
+
+                {/* 4. CETAK SURAT JALAN (BARU) */}
+                <Tooltip title="Cetak Surat Jalan">
+                    <Button 
+                        size="small" 
+                        type="text" 
+                        icon={isPrintingSJ ? <LoadingOutlined /> : <CarOutlined />} 
+                        loading={isPrintingSJ}
+                        style={{ color: '#722ed1' }} // Warna Ungu biar beda
+                        onClick={() => handleShowPreview(record, 'SURAT_JALAN')} 
+                    />
+                </Tooltip>
             </Space>
         );
-    }, [handleOpenDetailModal, handleOpenEdit, printingId]);
+    }, [handleOpenDetailModal, handleOpenEdit, printingId, printingType]);
 
     // --- CONFIG COLUMNS DENGAN TOGGLE ---
     const columns = useMemo(() => [
@@ -310,7 +343,7 @@ export default function TransaksiJualPage() {
             ), 
             dataIndex: 'totalBruto', 
             align: 'right', 
-            width: 100, // Lebarkan dikit biar tombol muat
+            width: 100, 
             render: formatCurrency, 
             sorter: (a, b) => (a.totalBruto || 0) - (b.totalBruto || 0) 
         },
@@ -340,11 +373,11 @@ export default function TransaksiJualPage() {
         { 
             title: 'Aksi', 
             align: 'center', 
-            width: 100, 
+            width: 140, // Lebarkan sedikit agar muat 4 tombol
             fixed: 'right', 
             render: renderAksi 
         },
-    ], [pagination, renderAksi, selectedStatus, showExtraCols]); // dependency: showExtraCols
+    ], [pagination, renderAksi, selectedStatus, showExtraCols]);
 
     const tableScrollX = 1600; 
     const isLoading = loadingTransaksi || isPending || isProcessing;

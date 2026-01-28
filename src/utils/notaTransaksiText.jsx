@@ -399,6 +399,129 @@ dataItems.sort((a, b) => {
     `;
     return html;
 };
+export const generateSuratJalan = (transaksi, items) => {
+    // 1. CLONE & SORT ITEMS
+    const dataItems = items ? [...items] : [];
+
+    dataItems.sort((a, b) => {
+        const strA = getCleanClassStr(a);
+        const strB = getCleanClassStr(b);
+        
+        const weightA = getKelasWeight(strA);
+        const weightB = getKelasWeight(strB);
+
+        if (Math.floor(weightA / 100) !== Math.floor(weightB / 100)) {
+            return weightA - weightB;
+        }
+
+        if (weightA >= 100) {
+            return weightA - weightB;
+        } else {
+            return strA.localeCompare(strB, undefined, { 
+                numeric: true, 
+                sensitivity: 'base' 
+            });
+        }
+    });
+
+    // 2. SETUP DATA UMUM
+    const namaPelanggan = (transaksi.namaCustomer || 'Umum').toUpperCase();
+    let totalQty = 0;
+    dataItems.forEach(i => totalQty += Number(i.qty || i.jumlah || 0));
+
+    // 3. GENERATE HTML
+    let html = `
+    <div style="${MAIN_STYLE}">
+        <table style="width: 100%; margin-bottom: 15px;">
+            <tr>
+                <td width="60%" style="vertical-align: top;">
+                    <div style="font-size:20px;">${companyInfo.nama}</div>
+                    <div style="font-size:12px;">${companyInfo.hp}</div>
+                </td>
+                <td width="40%" style="text-align: right; vertical-align: top;">
+                    <div style="font-size:16px; font-weight:bold; border-bottom: 1px solid black; display:inline-block; padding-bottom:2px; margin-bottom:5px;">SURAT JALAN</div>
+                    <div style="font-size:12px;">No: ${transaksi.id || '-'}</div>
+                    <div style="font-size:12px;">Tgl: ${formatDate(transaksi.tanggal)}</div>
+                </td>
+            </tr>
+        </table>
+
+        <div style="margin-bottom: 10px; font-size: 12px;">
+            Kepada Yth: <b>${namaPelanggan}</b>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px;">
+            <thead>
+                <tr style="border-top: 1px solid black; border-bottom: 1px solid black;">
+                    <td width="5%" style="text-align: center; padding: 4px 0;">No</td>
+                    <td width="15%" style="text-align: left; padding: 4px 0;">Kode</td>
+                    <td width="45%" style="text-align: left; padding: 4px 0;">Nama Barang</td>
+                    <td width="15%" style="text-align: left; padding: 4px 0;">Kelas</td>
+                    <td width="10%" style="text-align: left; padding: 4px 0;">Ket</td>
+                    <td width="10%" style="text-align: center; padding: 4px 0;">Qty</td>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    dataItems.forEach((item, index) => {
+        const qty = Number(item.qty || item.jumlah || 0);
+        const namaBarang = item.judul || item.productName || '-';
+        const kelasInfo = getDisplayKelas(item);
+
+        html += `
+            <tr>
+                <td style="text-align: center; padding: 4px 0; vertical-align: top;">${index + 1}</td>
+                <td style="text-align: left; padding: 4px 5px 4px 0; vertical-align: top; word-wrap: break-word;">${item.productId || '-'}</td>
+                <td style="text-align: left; padding: 4px 5px 4px 0; vertical-align: top; word-wrap: break-word;">${namaBarang}</td>
+                <td style="text-align: left; padding: 4px 5px 4px 0; vertical-align: top; word-wrap: break-word;">${kelasInfo}</td>
+                <td style="text-align: left; padding: 4px 5px 4px 0; vertical-align: top; word-wrap: break-word;">${item.peruntukan || '-'}</td>
+                <td style="text-align: center; padding: 4px 0; vertical-align: top;">${qty}</td>
+            </tr>
+        `;
+    });
+
+    // --- BAGIAN INI DIMODIFIKASI AGAR SEJAJAR ---
+    html += `
+            <tr style="border-top: 1px solid black;">
+                <td colspan="3" style="text-align: left; padding-top: 6px; font-style: italic; font-size: 10px; vertical-align: top;">
+                    * Harap barang dicek kembali. Barang yang sudah diterima tidak dapat dikembalikan.
+                </td>
+
+                <td colspan="2" style="text-align: right; padding-top: 6px; padding-right:10px; font-weight:bold; vertical-align: top;">
+                    Total Item:
+                </td>
+
+                <td style="text-align: center; font-weight:bold; padding-top: 6px; vertical-align: top;">
+                    ${totalQty}
+                </td>
+            </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top: 25px; font-size: 12px;">
+            <table style="width: 100%; text-align: center;">
+                <tr>
+                    <td width="33%" style="vertical-align: top;">
+                        Hormat Kami,<br><br><br><br><br>
+                        ( Admin )
+                    </td>
+                    <td width="33%" style="vertical-align: top;">
+                        Supir,<br><br><br><br><br>
+                        ( .......................... )
+                    </td>
+                    <td width="33%" style="vertical-align: top;">
+                        Penerima,<br><br><br><br><br>
+                        ( ${namaPelanggan.substring(0, 20)} )
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    `;
+
+    return html;
+};
 // ==========================================
 // 2. GENERATE NOTA PEMBAYARAN (CICILAN)
 // ==========================================
