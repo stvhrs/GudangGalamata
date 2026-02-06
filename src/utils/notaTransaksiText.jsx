@@ -107,39 +107,41 @@ const getDisplayKelas = (item) => {
 // ==========================================
 export const generateReturText = (returData, items) => {
     // CLONE & SORT ITEMS
-   const dataItems = items ? [...items] : [];
+    const dataItems = items ? [...items] : [];
 
-dataItems.sort((a, b) => {
-    const strA = getCleanClassStr(a);
-    const strB = getCleanClassStr(b);
-    
-    const weightA = getKelasWeight(strA);
-    const weightB = getKelasWeight(strB);
+    dataItems.sort((a, b) => {
+        const strA = getCleanClassStr(a);
+        const strB = getCleanClassStr(b);
+        
+        const weightA = getKelasWeight(strA);
+        const weightB = getKelasWeight(strB);
 
-    // 1. Cek Bedanya Grup (Huruf vs Angka Standard)
-    // Grup Huruf (0) akan naik, Grup Angka (100+) akan turun
-    if (Math.floor(weightA / 100) !== Math.floor(weightB / 100)) {
-        return weightA - weightB;
-    }
+        if (Math.floor(weightA / 100) !== Math.floor(weightB / 100)) {
+            return weightA - weightB;
+        }
 
-    // 2. Sorting di dalam Grup
-    if (weightA >= 100) {
-        // Jika sesama Angka Standard (Kelas 1 vs Kelas 10), pakai bobot angka
-        return weightA - weightB;
-    } else {
-        // Jika sesama Huruf Random (A, A2, B1, C)
-        // Gunakan 'numeric: true' agar B2 dianggap lebih kecil dari B10
-        return strA.localeCompare(strB, undefined, { 
-            numeric: true, 
-            sensitivity: 'base' 
-        });
-    }
-});
+        if (weightA >= 100) {
+            return weightA - weightB;
+        } else {
+            return strA.localeCompare(strB, undefined, { 
+                numeric: true, 
+                sensitivity: 'base' 
+            });
+        }
+    });
+
     const namaPelanggan = (returData.namaCustomer || 'Umum').toUpperCase();
 
+    // Hitung Total
     let totalQty = 0;
-    dataItems.forEach(i => totalQty += Number(i.qty || 0));
+    let totalHargaItems = 0;
 
+    dataItems.forEach(i => {
+        totalQty += Number(i.qty || 0);
+        totalHargaItems += Number(i.subtotal || 0);
+    });
+
+    // --- BAGIAN HEADER & TABEL ITEM ---
     let html = `
     <div style="${MAIN_STYLE}">
         <div style="text-align:center; font-size:16px;">${companyInfo.nama}</div>
@@ -159,17 +161,15 @@ dataItems.sort((a, b) => {
             </tr>
         </table>
 
-        <table style="width:100%; border-collapse: collapse; table-layout: fixed;">
+        <table style="width:100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 5px;">
             <thead style="border-top: 1px solid black; border-bottom: 1px solid black;">
                 <tr>
                     <td width="5%" style="text-align: center; padding: 5px 0;">No</td>
                     <td width="10%" style="text-align: left; padding: 5px 0;">Kode</td>
-                    <td width="22%" style="text-align: left; padding: 5px 0;">Barang</td>
+                    <td width="40%" style="text-align: left; padding: 5px 0;">Barang</td>
                     <td width="10%" style="text-align: left; padding: 5px 0;">Kelas</td>
                     <td width="8%" style="text-align: left; padding: 5px 0;">-</td>
-                    
                     <td width="10%" style="text-align: right; padding: 5px 0;">Qty</td>
-                    
                     <td width="15%" style="text-align: right; padding: 5px 0;">Harga</td>
                     <td width="20%" style="text-align: right; padding: 5px 0;">Subtotal</td>
                 </tr>
@@ -188,36 +188,64 @@ dataItems.sort((a, b) => {
                 <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px; word-wrap: break-word;">${namaBarang}</td>
                 <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px;">${kelasInfo}</td>
                 <td style="text-align: left; vertical-align: top; padding-right:5px; padding-top: 3px;">${item.peruntukan || '-'}</td>
-                
                 <td style="text-align: right; vertical-align: top; padding-top: 3px;">${item.qty || 0}</td>
-                
                 <td style="text-align: right; vertical-align: top; padding-top: 3px;">${formatNumber(item.harga)}</td>
                 <td style="text-align: right; vertical-align: top; padding-top: 3px;">${formatNumber(item.subtotal)}</td>
             </tr>
         `;
     });
 
+    // MENAMBAHKAN TFOOT UNTUK TOTAL QTY DI BAWAH KOLOMNYA LANGSUNG
     html += `
             </tbody>
             <tfoot style="border-top: 1px solid black;">
                 <tr>
-                    <td colspan="5" style="text-align: right; padding-top: 5px; padding-right:10px;">Total Item:</td>
+                    <td colspan="5" style="text-align: right; padding-top: 5px; font-weight:bold;">Total Qty :</td>
                     
-                    <td style="text-align: right; font-weight:bold; padding-top: 5px;">${totalQty}</td>
+                    <td style="text-align: right; padding-top: 5px; font-weight:bold;">${totalQty}</td>
                     
                     <td colspan="2"></td>
-                </tr>
-                <tr>
-                    <td colspan="7" style="text-align: right; font-weight:bold; padding-top: 5px;">TOTAL UANG KEMBALI :</td>
-                    <td style="text-align: right; font-weight:bold; font-size:14px; padding-top: 5px;">${formatNumber(returData.totalRetur)}</td>
                 </tr>
             </tfoot>
         </table>
         
-        <table style="width:100%; margin-top: 25px;">
-            <tr>
-                <td width="50%" style="text-align: left;">Hormat Kami,<br><br><br><br>( Admin )</td>
-                <td width="50%" style="text-align: left;">Customer,<br><br><br><br>( ${namaPelanggan.substring(0,15)} )</td>
+        <div style="border-top: 1px solid black; margin-bottom: 10px;"></div>
+
+        <table style="width:100%; border-collapse: collapse;">
+            <tr style="vertical-align: top;">
+                
+                <td style="width: 60%; padding-top: 10px;">
+                    <table style="width: 100%;">
+                        <tr>
+                            <td style="text-align: center; width: 50%;">
+                                Hormat Kami,<br><br><br><br>( Admin )
+                            </td>
+                            <td style="text-align: center; width: 50%;">
+                                Customer,<br><br><br><br>( ${namaPelanggan.substring(0,15)} )
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+
+                <td style="width: 40%;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr>
+                            <td style="text-align: left; padding: 2px;">Total :</td>
+                            <td style="text-align: right; padding: 2px;">${formatNumber(totalHargaItems)}</td>
+                        </tr>
+
+                        <tr>
+                            <td style="text-align: left; padding: 2px;">Total Diskon :</td>
+                            <td style="text-align: right; padding: 2px;">${formatNumber(returData.totalDiskon || 0)}</td>
+                        </tr>
+
+                        <tr>
+                            <td style="text-align: left; padding: 5px; font-weight: bold;">TOTAL Retur :</td>
+                            <td style="text-align: right; padding: 5px; font-weight: bold; font-size: 14px;">${formatNumber(returData.totalRetur)}</td>
+                        </tr>
+                    </table>
+                </td>
+
             </tr>
         </table>
     </div>

@@ -149,7 +149,7 @@ const MainLayout = () => {
                       {/* <Route path="/mutasi3" element={<DataGeneratorTransaksiJual />} /> */}
 
                       {/* Rute Default Internal */}
-                      <Route path="/" element={<Navigate to="/pelanggan" replace />} />
+                      <Route path="/" element={<Navigate to="/transaksi-jual" replace />} />
                      
                  </Routes>
 
