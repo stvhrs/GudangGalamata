@@ -125,7 +125,7 @@ const TransaksiJualDetailModal = ({ open, onCancel, transaksi }) => {
     
     if (!transaksi) return null;
 
-    // --- Ambil Data Langsung dari Object Transaksi (Database) ---
+    // --- DATA MURNI DARI PROPERTI DATABASE ---
     const {
         id: nomorInvoice,
         tanggal,
@@ -133,11 +133,8 @@ const TransaksiJualDetailModal = ({ open, onCancel, transaksi }) => {
         statusPembayaran,
         totalNetto = 0, 
         totalBayar = 0,
-        sisaTagihan: sisaDariDB = 0 // Ambil langsung field sisaTagihan dari DB
+        sisaTagihan = 0 // Langsung dari DB
     } = transaksi;
-
-    // Logika Sisa: Murni Netto - Bayar (Retur sudah inklusif di Netto dari DB)
-    const sisaTagihanFinal = totalNetto - totalBayar;
 
     const getStatusInfo = (status) => {
         if (status === 'LUNAS') return { color: 'green', icon: <CheckCircleOutlined /> };
@@ -168,23 +165,22 @@ const TransaksiJualDetailModal = ({ open, onCancel, transaksi }) => {
                 <Descriptions.Item label="Keterangan" span={2}>{transaksi.keterangan || '-'}</Descriptions.Item>
             </Descriptions>
 
-            {/* --- RINGKASAN KEUANGAN (Hanya Netto, Sudah Bayar, Sisa) --- */}
-            <div style={{ background: '#f5f7fa', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid #d9d9d9' }}>
-                <Row gutter={[16, 16]} justify="space-between">
+            {/* --- RINGKASAN KEUANGAN (DATA PROPERTI DB) --- */}
+            <div style={{ background: '#f5f7fa', padding: 20, borderRadius: 8, marginBottom: 24, border: '1px solid #d9d9d9' }}>
+                <Row gutter={[16, 16]} justify="space-between" align="middle">
                     <Col xs={24} md={7}>
-                        <Statistic title="Total Netto (Final)" value={totalNetto} formatter={formatCurrency} valueStyle={{ fontSize: 18, fontWeight: 'bold', color: '#1890ff' }} />
-                        <Text type="secondary" style={{ fontSize: 11 }}>*Sudah termasuk potongan retur</Text>
+                        <Statistic title="Netto" value={totalNetto} formatter={formatCurrency} valueStyle={{ fontSize: 18, fontWeight: 'bold', color: '#1890ff' }} />
                     </Col>
                     <Col xs={24} md={7}>
-                        <Statistic title="Sudah Dibayar" value={totalBayar} formatter={formatCurrency} valueStyle={{ fontSize: 18, color: '#3f8600' }} />
+                        <Statistic title="Sudah Bayar" value={totalBayar} formatter={formatCurrency} valueStyle={{ fontSize: 18, color: '#3f8600' }} />
                     </Col>
-                    <Col xs={24} md={7}>
-                        <div style={{ background: '#fff', padding: '8px 12px', borderRadius: 6, border: '1px solid #ffccc7' }}>
+                    <Col xs={24} md={8}>
+                        <div style={{ background: '#fff', padding: '12px', borderRadius: 8, border: '1px solid #d9d9d9', textAlign: 'center' }}>
                             <Statistic 
                                 title="Sisa Tagihan" 
-                                value={sisaTagihanFinal} 
+                                value={sisaTagihan} 
                                 formatter={formatCurrency} 
-                                valueStyle={{ fontSize: 20, fontWeight: 'bold', color: sisaTagihanFinal > 1 ? '#cf1322' : '#3f8600' }} 
+                                valueStyle={{ fontSize: 22, fontWeight: 'bold', color: sisaTagihan > 1 ? '#cf1322' : '#3f8600' }} 
                             />
                         </div>
                     </Col>
@@ -214,8 +210,9 @@ const TransaksiJualDetailModal = ({ open, onCancel, transaksi }) => {
                                     <Timeline.Item key={item.id} color={isRetur ? 'red' : 'green'} dot={isRetur ? <ArrowLeftOutlined /> : <ArrowRightOutlined />}>
                                         <Row justify="space-between" align="middle">
                                             <Col>
+                                                {/* RETUR SEKARANG TANDA PLUS (+) */}
                                                 <Text strong style={{ color: isRetur ? '#cf1322' : '#3f8600', fontSize: 15 }}>
-                                                    {isRetur ? '-' : '+'} {formatCurrency(item.nominal)}
+                                                    + {formatCurrency(item.nominal)}
                                                 </Text>
                                                 <div style={{ fontSize: 12, color: '#666' }}>{isRetur ? 'RETUR BARANG' : 'ALOKASI PEMBAYARAN'}</div>
                                                 <div style={{ fontSize: 11, color: '#999' }}>Ref: {isRetur ? item.id : item.refId}</div>

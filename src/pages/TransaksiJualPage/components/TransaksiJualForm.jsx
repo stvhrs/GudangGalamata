@@ -482,7 +482,16 @@ export default function TransaksiJualForm({ open, onCancel, mode = 'create', ini
                             <Col xs={12} sm={8}><Form.Item name="tanggal" label="Tanggal" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} format="DD MMM YYYY" /></Form.Item></Col>
                             <Col xs={24} sm={8}>
                                 <Form.Item name="customerId" label="Customer" rules={[{ required: true }]}>
-                                    <Select showSearch placeholder="Pilih Customer" optionFilterProp="children" filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())} disabled={isGeneratingInvoice && mode === 'create'} options={pelangganList.map(p => ({ label: p.nama, value: p.id }))} onChange={handlePelangganChange} />
+                                   <Select 
+            showSearch 
+            placeholder="Pilih Customer" 
+            optionFilterProp="children" 
+            filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())} 
+            // Tambahkan kondisi mode === 'edit' di sini 👇
+            disabled={mode === 'edit' || (isGeneratingInvoice && mode === 'create')} 
+            options={pelangganList.map(p => ({ label: p.nama, value: p.id }))} 
+            onChange={handlePelangganChange} 
+        />
                                 </Form.Item>
                             </Col>
                             <Col xs={24}><Form.Item name="keterangan" label="Catatan" style={{ marginBottom: 0 }}><Input placeholder="Keterangan tambahan..." /></Form.Item></Col>
