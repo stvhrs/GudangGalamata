@@ -257,36 +257,36 @@ export const generateReturText = (returData, items) => {
 // ==========================================
 // 2. GENERATE TRANSAKSI TEXT
 // ==========================================
-export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
+    export const generateTransaksiText = (transaksi, items, type = 'INVOICE') => {
     // CLONE & SORT ITEMS
-   const dataItems = items ? [...items] : [];
+    const dataItems = items ? [...items] : [];
 
-dataItems.sort((a, b) => {
-    const strA = getCleanClassStr(a);
-    const strB = getCleanClassStr(b);
-    
-    const weightA = getKelasWeight(strA);
-    const weightB = getKelasWeight(strB);
+    dataItems.sort((a, b) => {
+        const strA = getCleanClassStr(a);
+        const strB = getCleanClassStr(b);
+        
+        const weightA = getKelasWeight(strA);
+        const weightB = getKelasWeight(strB);
 
-    // 1. Cek Bedanya Grup (Huruf vs Angka Standard)
-    // Grup Huruf (0) akan naik, Grup Angka (100+) akan turun
-    if (Math.floor(weightA / 100) !== Math.floor(weightB / 100)) {
-        return weightA - weightB;
-    }
+        // 1. Cek Bedanya Grup (Huruf vs Angka Standard)
+        // Grup Huruf (0) akan naik, Grup Angka (100+) akan turun
+        if (Math.floor(weightA / 100) !== Math.floor(weightB / 100)) {
+            return weightA - weightB;
+        }
 
-    // 2. Sorting di dalam Grup
-    if (weightA >= 100) {
-        // Jika sesama Angka Standard (Kelas 1 vs Kelas 10), pakai bobot angka
-        return weightA - weightB;
-    } else {
-        // Jika sesama Huruf Random (A, A2, B1, C)
-        // Gunakan 'numeric: true' agar B2 dianggap lebih kecil dari B10
-        return strA.localeCompare(strB, undefined, { 
-            numeric: true, 
-            sensitivity: 'base' 
-        });
-    }
-});
+        // 2. Sorting di dalam Grup
+        if (weightA >= 100) {
+            // Jika sesama Angka Standard (Kelas 1 vs Kelas 10), pakai bobot angka
+            return weightA - weightB;
+        } else {
+            // Jika sesama Huruf Random (A, A2, B1, C)
+            // Gunakan 'numeric: true' agar B2 dianggap lebih kecil dari B10
+            return strA.localeCompare(strB, undefined, { 
+                numeric: true, 
+                sensitivity: 'base' 
+            });
+        }
+    });
 
     const judul = type === 'INVOICE' ? 'INVOICE PENJUALAN' : 'NOTA PENJUALAN';
     const sisaTagihan = Number(transaksi.sisaTagihan || 0);
@@ -334,7 +334,9 @@ dataItems.sort((a, b) => {
     dataItems.forEach((item, index) => {
         const qty = Number(item.qty || item.jumlah || 0);
         const harga = Number(item.harga || item.hargaSatuan || 0);
-        const subtotal = Number(item.subtotal || 0);
+        
+        // PERBAIKAN: Subtotal dihitung manual (Qty x Harga) agar tampil murni sebelum diskon per item
+        const subtotal = qty * harga; 
         
         const namaBarang = item.judul || item.productName || '-';
         const kelasInfo = getDisplayKelas(item);
